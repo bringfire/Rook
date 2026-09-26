@@ -624,6 +624,7 @@ function Sync-ReleasePythonPayload {
 
     $controlFiles = @(
         'requirements-bootstrap-lock.txt',
+        'requirements-installer-tools-lock.txt',
         'requirements-rook-lock.txt',
         'requirements-chirp-lock.txt',
         'python-runtime-manifest.json'
@@ -695,8 +696,9 @@ record = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding='utf-8'))
 assert pathlib.Path(record["audit_site_packages"]).resolve() == site
 manifest = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding='utf-8'))
 assert {key: value for key, value in record.items() if key != "audit_site_packages"} == manifest["verification"]["rook"], 'selected verification record differs from wheel manifest'
-assert record["pip_install_no_index"] is True and record["pip_install_looked_in_links"] is True
-assert record["pip_install_looked_in_indexes"] is False
+assert record["installer_tool"]["name"] == "uv" and record["uv_install_offline_contract"] is True
+assert record["uv_cache_removed_before_checks"] is True and record["freeze_matches_locks"] is True
+assert record["bytecode_compiled"] is True
 assert record["pip_check"] == "No broken requirements found."
 assert record["import_record"]["module"] == "rook" and record["import_record"]["origin"] == "site-packages"
 spec = importlib.util.find_spec('rook.agent.chat.prime_runtime_artifact')

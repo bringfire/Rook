@@ -53,11 +53,11 @@ function Invoke-CheckedProcess {
         'audit pip version check' { }
         'rook-mcp wheel build' { [IO.File]::WriteAllText((Join-Path $rookWheelDir 'rook_mcp-1.5.18-py3-none-any.whl'),'rook') }
         'chirp wheel build' { [IO.File]::WriteAllText((Join-Path $chirpWheelDir 'chirp-0.1.0-py3-none-any.whl'),'chirp') }
-        'bootstrap tool wheel download' {
+        'hash-locked dependency wheel acquisition' {
             [IO.File]::WriteAllText((Join-Path $wheelhouse 'pip-26.2.1-py3-none-any.whl'),'fixture pip')
             [IO.File]::WriteAllText((Join-Path $wheelhouse 'setuptools-83.0.0-py3-none-any.whl'),'setuptools')
+            [IO.File]::WriteAllText((Join-Path $wheelhouse 'uv-0.12.5-py3-none-win_amd64.whl'),'fixture uv')
         }
-        'dependency wheel download' { }
         'pip-audit venv creation' { }
         'pip-audit install' { }
         'pip-audit Rook temp venv' { }
@@ -92,6 +92,10 @@ def run_fixture(tmp_path, case):
     config = tmp_path / "installer/python-runtime/python-runtime.json"
     config.parent.mkdir(parents=True)
     config.write_text("{}")
+    # Admitted third-party inputs: only the row format is checked before the fake acquisition.
+    (tmp_path / "installer/python-runtime/requirements-third-party-lock.txt").write_text(
+        f"certifi==2026.7.22 --hash=sha256:{'0' * 64}\n"
+    )
     chirp = tmp_path / "chirp/pyproject.toml"
     chirp.parent.mkdir()
     chirp.write_text("# fixture")
@@ -149,10 +153,10 @@ def test_all_online_operations_use_offline_bootstrapped_build_pip(tmp_path, monk
                 with pytest.raises(AssertionError, match="Build pip version differs"):
                     exec(compile(version_code, "build-pip-version-check", "exec"), {})
     online = [call for call in calls if call["label"] in {
-        "rook-mcp wheel build", "chirp wheel build", "bootstrap tool wheel download",
-        "dependency wheel download", "pip-audit install",
+        "rook-mcp wheel build", "chirp wheel build", "hash-locked dependency wheel acquisition",
+        "pip-audit install",
     }]
-    assert len(online) == 5
+    assert len(online) == 4
     for call in online:
         assert call["file"] == build_python
         assert call["argv"][:4] == ["-I", "-m", "pip", "--isolated"]
@@ -166,6 +170,9 @@ def test_all_online_operations_use_offline_bootstrapped_build_pip(tmp_path, monk
         assert call["argv"][-2:] == ["--ignore-vuln", "CVE-2025-69872"]
     lock = (tmp_path / "installer/runtime/requirements-bootstrap-lock.txt").read_text(encoding="utf-8-sig")
     assert f"pip==26.2.1 --hash=sha256:{hashlib.sha256(b'fixture pip').hexdigest()}" in lock
+    assert "uv==" not in lock, "uv must never enter a lock that is installed into a venv"
+    tools_lock = (tmp_path / "installer/runtime/requirements-installer-tools-lock.txt").read_text(encoding="utf-8-sig")
+    assert f"uv==0.12.5 --hash=sha256:{hashlib.sha256(b'fixture uv').hexdigest()}" in tools_lock
 
 
 @pytest.mark.parametrize("case", ["bootstrap-fails", "wrong-version"])

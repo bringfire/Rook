@@ -38,6 +38,7 @@ function Get-TestInstallerContent {
 Source: "{#PythonWheelhouseDir}\*"; DestDir: "{app}\python-wheelhouse"; Components: mcp chirp; Flags: ignoreversion
 Source: "{#PythonRuntimeManifest}"; DestDir: "{app}"; Components: mcp; Flags: ignoreversion
 Source: "{#BootstrapLockfile}"; DestDir: "{app}"; Components: mcp chirp; Flags: ignoreversion
+Source: "{#InstallerToolsLockfile}"; DestDir: "{app}"; Components: mcp chirp; Flags: ignoreversion
 Source: "{#RookLockfile}"; DestDir: "{app}"; Components: mcp; Flags: ignoreversion
 Source: "{#ChirpLockfile}"; DestDir: "{app}"; Components: chirp; Flags: ignoreversion
 '@
@@ -76,6 +77,7 @@ function Build-TestManifest {
         }
         lockfiles = [ordered]@{
             bootstrap = [ordered]@{ path = 'installer/runtime/requirements-bootstrap-lock.txt'; sha256 = (Get-Sha256 -Path $Payload.BootstrapLock) }
+            installer_tools = [ordered]@{ path = 'installer/runtime/requirements-installer-tools-lock.txt'; sha256 = (Get-Sha256 -Path $Payload.InstallerToolsLock) }
             rook = [ordered]@{ path = 'installer/runtime/requirements-rook-lock.txt'; sha256 = (Get-Sha256 -Path $Payload.RookLock) }
             chirp = [ordered]@{ path = 'installer/runtime/requirements-chirp-lock.txt'; sha256 = (Get-Sha256 -Path $Payload.ChirpLock) }
         }
@@ -99,10 +101,12 @@ function New-TestPayload {
     Set-Content -Path (Join-Path $wheelhouse 'certifi-2024.1.1-py3-none-any.whl') -Value 'fake certifi wheel' -Encoding ASCII
 
     $bootstrapLock = Join-Path $runtime 'requirements-bootstrap-lock.txt'
+    $installerToolsLock = Join-Path $runtime 'requirements-installer-tools-lock.txt'
     $rookLock = Join-Path $runtime 'requirements-rook-lock.txt'
     $chirpLock = Join-Path $runtime 'requirements-chirp-lock.txt'
 
     Set-Content -Path $bootstrapLock -Value "pip==26.2.1 --hash=sha256:$('0'*64)`nsetuptools==82.0.1 --hash=sha256:$('0'*64)" -Encoding UTF8
+    Set-Content -Path $installerToolsLock -Value "uv==0.12.5 --hash=sha256:$('0'*64)" -Encoding UTF8
     Set-Content -Path $rookLock -Value "rook-mcp==$TestVersion --hash=sha256:$('0'*64)`ncertifi==2024.1.1 --hash=sha256:$('0'*64)" -Encoding UTF8
     Set-Content -Path $chirpLock -Value "chirp==0.1.0 --hash=sha256:$('0'*64)" -Encoding UTF8
 
@@ -116,6 +120,7 @@ function New-TestPayload {
         Manifest = $manifest
         Installer = $installer
         BootstrapLock = $bootstrapLock
+        InstallerToolsLock = $installerToolsLock
         RookLock = $rookLock
         ChirpLock = $chirpLock
     }

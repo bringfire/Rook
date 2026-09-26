@@ -8,12 +8,19 @@ from __future__ import annotations
 import json
 import os
 import hashlib
+import io
+import re
+import shutil
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
 
 SCHEMA_VERSION = 1
 BOOTSTRAP_TOOL_REQUIREMENTS = ("pip==26.2.1", "setuptools==83.0.0")
+# The installer's own tools: extracted from their hash-locked wheels at install
+# time and never installed into either venv (#595).
+INSTALLER_TOOL_REQUIREMENTS = ("uv==0.12.5",)
 
 
 @dataclass(frozen=True)
@@ -26,6 +33,7 @@ class RuntimeLayout:
     chirp_venv: Path
     wheelhouse: Path
     bootstrap_lock: Path
+    installer_tools_lock: Path
     rook_lock: Path
     chirp_lock: Path
     runtime_manifest: Path
@@ -47,11 +55,26 @@ class RuntimeLayout:
             chirp_venv=app_dir / "chirp" / ".venv",
             wheelhouse=app_dir / "python-wheelhouse",
             bootstrap_lock=app_dir / "requirements-bootstrap-lock.txt",
+            installer_tools_lock=app_dir / "requirements-installer-tools-lock.txt",
             rook_lock=app_dir / "requirements-rook-lock.txt",
             chirp_lock=app_dir / "requirements-chirp-lock.txt",
             runtime_manifest=app_dir / "python-runtime-manifest.json",
             install_state=data_dir / "install-state.json",
         )
+
+    def uv_cache_dir(self, runtime_name: str) -> Path:
+        """Per-venv uv cache under the runtime root.
+
+        Same volume as the venvs, so ``--link-mode hardlink`` never falls back to
+        copying; one cache per venv, so the Rook and Chirp venvs share no files.
+        The installer deletes it once that venv is installed.
+        """
+        return self.installer_cache / f"uv-{runtime_name}"
+
+    @property
+    def installer_cache(self) -> Path:
+        """Scratch root for the finalizer (uv caches, extracted tools); removed after."""
+        return self.rook_root / "installer-cache"
 
 
 def _is_under_user_profile(entry: str) -> bool:
@@ -100,58 +123,217 @@ def build_sanitized_python_env(require_virtualenv: bool) -> dict[str, str]:
     return env
 
 
-def build_offline_pip_install_command(
+# uv install contract (#595). Hardlinking from the per-venv cache writes each file
+# once instead of twice; on Windows each new file costs a Defender scan, which is
+# what made the pip install slow. Bytecode is compiled at install because the MCP
+# server runs with sys.dont_write_bytecode (#579).
+UV_LINK_MODE = "hardlink"
+# Plain output: FORCE_COLOR / CLICOLOR_FORCE would otherwise wrap uv's summary in
+# ANSI escapes and fail assert_uv_install_output on a successful install.
+UV_COLOR = "never"
+UV_INSTALL_SWITCHES = (
+    "--offline",
+    "--no-index",
+    "--no-build",
+    "--require-hashes",
+    "--no-config",
+    "--compile-bytecode",
+    "--no-progress",
+)
+# Options that take a value; every path-valued one must be absolute.
+UV_INSTALL_PATH_OPTIONS = ("--python", "--find-links", "--cache-dir", "-r")
+UV_INSTALL_FIXED_OPTIONS = {"--link-mode": UV_LINK_MODE, "--color": UV_COLOR}
+UV_INSTALL_OPTIONS = UV_INSTALL_PATH_OPTIONS + tuple(UV_INSTALL_FIXED_OPTIONS)
+_UV_OUTPUT_SUMMARY = re.compile(r"^(Resolved|Checked|Audited) \d+ packages?\b", re.MULTILINE)
+
+
+def build_offline_uv_install_command(
+    uv_exe: Path,
     venv_python: Path,
     wheelhouse_dir: Path,
     requirements_lock: Path,
+    cache_dir: Path,
 ) -> list[str]:
     return [
-        str(venv_python),
-        "-m",
+        str(uv_exe),
         "pip",
-        "--isolated",
         "install",
+        "--python",
+        str(venv_python),
+        "--offline",
         "--no-index",
         "--find-links",
         str(wheelhouse_dir),
+        "--no-build",
         "--require-hashes",
-        # Skip pip's "scripts not on PATH" scan: it resolves every PATH entry and
-        # fails on user-profile junctions (WinError 448); see sanitized_path_entries.
-        "--no-warn-script-location",
+        "--no-config",
+        "--compile-bytecode",
+        "--cache-dir",
+        str(cache_dir),
+        "--link-mode",
+        UV_LINK_MODE,
+        "--no-progress",
+        "--color",
+        UV_COLOR,
         "-r",
         str(requirements_lock),
     ]
 
 
-def build_offline_pip_bootstrap_command(
-    venv_python: Path,
-    wheelhouse_dir: Path,
-    requirements_bootstrap_lock: Path,
-) -> list[str]:
-    return build_offline_pip_install_command(
-        venv_python,
-        wheelhouse_dir,
-        requirements_bootstrap_lock,
-    )
+def assert_offline_uv_command(command: list[str]) -> None:
+    """Reject any uv command that is not exactly the sealed-wheelhouse contract.
 
+    An allowlist, not a denylist: every token must be a known switch or a known
+    option with its value, each exactly once, so an index URL, a relative path or
+    a stray flag cannot slip in through any spelling.
+    """
+    if len(command) < 3 or command[1:3] != ["pip", "install"]:
+        raise ValueError("uv command must be '<uv.exe> pip install ...'")
+    uv_exe = Path(command[0])
+    if not uv_exe.is_absolute() or uv_exe.name.lower() != "uv.exe":
+        raise ValueError(f"uv command must start with an absolute uv.exe path: {command[0]}")
 
-def assert_offline_pip_command(command: list[str]) -> None:
-    forbidden = {"--index-url", "--extra-index-url", "-i"}
-    missing = {"--no-index", "--find-links", "--require-hashes"} - set(command)
+    switches: list[str] = []
+    options: dict[str, str] = {}
+    tokens = iter(command[3:])
+    for token in tokens:
+        if token in UV_INSTALL_SWITCHES:
+            if token in switches:
+                raise ValueError(f"uv command repeats {token}")
+            switches.append(token)
+        elif token in UV_INSTALL_OPTIONS:
+            if token in options:
+                raise ValueError(f"uv command repeats {token}")
+            value = next(tokens, None)
+            if value is None or value.startswith("-"):
+                raise ValueError(f"uv command option {token} has no value")
+            options[token] = value
+        else:
+            raise ValueError(f"uv command contains a token outside the offline contract: {token}")
+
+    missing = [s for s in UV_INSTALL_SWITCHES if s not in switches]
+    missing += [o for o in UV_INSTALL_OPTIONS if o not in options]
     if missing:
-        raise ValueError(f"offline pip command missing required flags: {sorted(missing)}")
-    present_forbidden = forbidden.intersection(command)
-    if present_forbidden:
-        raise ValueError(
-            f"offline pip command contains network index flags: {sorted(present_forbidden)}"
-        )
+        raise ValueError(f"offline uv command missing required flags: {missing}")
+    for option in UV_INSTALL_PATH_OPTIONS:
+        if not Path(options[option]).is_absolute():
+            raise ValueError(f"uv command {option} must be an absolute path: {options[option]}")
+    for option, required in UV_INSTALL_FIXED_OPTIONS.items():
+        if options[option] != required:
+            raise ValueError(f"uv command {option} must be {required}")
 
 
-def assert_local_wheelhouse_output(output: str) -> None:
-    if "Looking in indexes:" in output:
-        raise ValueError("pip output shows network index lookup")
-    if "Looking in links:" not in output and "Processing " not in output:
-        raise ValueError("pip output does not prove local wheelhouse use")
+def build_sanitized_uv_env() -> dict[str, str]:
+    """Environment for uv: the pip sanitisation plus no UV_*, colour or active-venv state.
+
+    ``--no-config`` already ignores uv.toml files; dropping every ``UV_*`` variable
+    covers the environment half (UV_INDEX_URL, UV_CACHE_DIR, UV_LINK_MODE, ...).
+    ``--color never`` wins over the colour variables; dropping them is belt and braces.
+    """
+    env = build_sanitized_python_env(require_virtualenv=True)
+    dropped = {"VIRTUAL_ENV", "CONDA_PREFIX", "FORCE_COLOR", "CLICOLOR_FORCE"}
+    for key in list(env):
+        if key.upper().startswith("UV_") or key.upper() in dropped:
+            del env[key]
+    return env
+
+
+_LOCK_ROW = re.compile(
+    r"^([A-Za-z0-9][A-Za-z0-9._-]*)==([A-Za-z0-9.!+_-]+) --hash=sha256:([0-9a-fA-F]{64})$"
+)
+
+
+def canonical_name(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def read_hash_lock(lock: Path) -> list[tuple[str, str, str]]:
+    """``(name, version, sha256)`` rows; any row that is not hash-pinned is an error."""
+    rows: list[tuple[str, str, str]] = []
+    for line in lock.read_text(encoding="utf-8-sig").splitlines():
+        row = line.strip()
+        if not row or row.startswith("#"):
+            continue
+        match = _LOCK_ROW.match(row)
+        if not match:
+            raise ValueError(f"{lock.name}: not a hash-pinned requirement: {row}")
+        rows.append((match[1], match[2], match[3].lower()))
+    return rows
+
+
+@dataclass(frozen=True)
+class BundledTool:
+    name: str
+    version: str
+    wheel: str
+    wheel_sha256: str
+    executable: Path
+
+    def evidence(self) -> dict[str, str]:
+        return {
+            "name": self.name,
+            "version": self.version,
+            "wheel": self.wheel,
+            "wheel_sha256": self.wheel_sha256,
+        }
+
+
+def extract_bundled_uv(wheelhouse: Path, tools_lock: Path, dest_dir: Path) -> BundledTool:
+    """Extract uv.exe from the one wheelhouse wheel whose bytes match the tools lock.
+
+    The wheel is read once into memory, hashed, and unzipped from those same
+    bytes, so the executable is exactly what the lock pins.
+    """
+    rows = read_hash_lock(tools_lock)
+    if len(rows) != 1 or canonical_name(rows[0][0]) != "uv":
+        raise ValueError(f"{tools_lock.name} must pin exactly one uv wheel")
+    _name, version, digest = rows[0]
+    for wheel in sorted(wheelhouse.glob(f"uv-{version}-*.whl")):
+        payload = wheel.read_bytes()
+        if hashlib.sha256(payload).hexdigest() == digest:
+            break
+    else:
+        raise ValueError(f"no wheelhouse wheel matches the locked uv=={version} hash")
+
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    target = dest_dir / "uv.exe"
+    partial = dest_dir / "uv.exe.partial"
+    with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+        with archive.open(f"uv-{version}.data/scripts/uv.exe") as source, partial.open("wb") as sink:
+            shutil.copyfileobj(source, sink, 1024 * 1024)
+    os.replace(partial, target)
+    return BundledTool("uv", version, wheel.name, digest, target)
+
+
+def freeze_mismatches(freeze_output: str, locks: list[Path]) -> list[str]:
+    """Differences between ``pip freeze --all`` and the union of the given locks."""
+    expected = {canonical_name(name): version for lock in locks for name, version, _ in read_hash_lock(lock)}
+    installed: dict[str, str] = {}
+    for line in freeze_output.splitlines():
+        row = line.strip()
+        if not row:
+            continue
+        if "==" in row:
+            name, version = row.split("==", 1)
+            installed[canonical_name(name)] = version
+        else:
+            installed[row] = "<not a pinned release>"
+    problems = [f"missing {name}=={version}" for name, version in expected.items() if name not in installed]
+    problems += [f"unexpected {name}=={version}" for name, version in installed.items() if name not in expected]
+    problems += [
+        f"{name}: installed {installed[name]}, locked {version}"
+        for name, version in expected.items()
+        if name in installed and installed[name] != version
+    ]
+    return sorted(problems)
+
+
+def assert_uv_install_output(output: str) -> None:
+    """uv prints no index lines offline; require its summary and no URL at all."""
+    if "http://" in output or "https://" in output:
+        raise ValueError("uv output mentions a URL during an offline install")
+    if not _UV_OUTPUT_SUMMARY.search(output):
+        raise ValueError("uv output does not show a resolved or checked lock")
 
 
 def needs_venv_recreate(

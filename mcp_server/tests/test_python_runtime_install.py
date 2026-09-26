@@ -4,9 +4,11 @@ import hashlib
 import importlib.util
 import json
 import os
+import py_compile
 import re
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -41,43 +43,57 @@ def load_post_install():
         sys.path.remove(str(installer_dir))
 
 
-def test_pip_command_is_offline_and_hash_locked(tmp_path: Path) -> None:
-    runtime = load_runtime_install()
-    command = runtime.build_offline_pip_install_command(
-        tmp_path / "venv" / "Scripts" / "python.exe",
-        tmp_path / "wheelhouse",
-        tmp_path / "requirements-rook-lock.txt",
+def load_verification_script() -> dict:
+    """Namespace of the build's embedded verify_temp_runtime_install.py (not run as __main__)."""
+    builder = Path(__file__).resolve().parents[2] / "scripts/python-runtime/build-rook-python-wheelhouse.ps1"
+    source = builder.read_text(encoding="utf-8-sig")
+    scripts = [body for body, name in re.findall(
+        r"(?ms)^@'\r?\n(.*?)\r?\n'@ \| Set-Content -LiteralPath \$(\w+)", source,
+    ) if name == "verificationScript"]
+    assert len(scripts) == 1
+    ns = {"__name__": "bootstrap_verification_fixture"}
+    exec(compile(scripts[0], str(builder) + ":verificationScript", "exec"), ns)
+    return ns
+
+
+def seed_runtime_inputs(layout) -> None:
+    """Private Python, well-formed locks, the manifest, and a hash-locked fake uv wheel."""
+    layout.private_python.parent.mkdir(parents=True, exist_ok=True)
+    layout.private_python.write_text("private python", encoding="utf-8")
+    layout.wheelhouse.mkdir(parents=True, exist_ok=True)
+    layout.bootstrap_lock.write_text("pip==26.2.1 --hash=sha256:" + "a" * 64 + "\n", encoding="utf-8")
+    layout.rook_lock.write_text("rook-mcp==1.5.10 --hash=sha256:" + "d" * 64 + "\n", encoding="utf-8")
+    layout.runtime_manifest.write_text('{"schema_version":1}', encoding="utf-8")
+    wheel = layout.wheelhouse / "uv-0.12.5-py3-none-win_amd64.whl"
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr("uv-0.12.5.data/scripts/uv.exe", b"fixture uv")
+    layout.installer_tools_lock.write_text(
+        f"uv==0.12.5 --hash=sha256:{hashlib.sha256(wheel.read_bytes()).hexdigest()}\n", encoding="utf-8"
     )
 
-    assert command[:4] == [
-        str(tmp_path / "venv" / "Scripts" / "python.exe"),
-        "-m",
-        "pip",
-        "--isolated",
-    ]
-    assert "install" in command
-    assert "--no-index" in command
-    assert "--find-links" in command
-    assert "--require-hashes" in command
-    assert "--no-warn-script-location" in command
-    assert "--index-url" not in command
-    assert "--extra-index-url" not in command
+
+def is_uv_install(command: list[str], lock: Path) -> bool:
+    return command[1:3] == ["pip", "install"] and command[-1] == str(lock)
 
 
-def test_bootstrap_pip_command_is_offline_and_hash_locked(tmp_path: Path) -> None:
-    runtime = load_runtime_install()
-    command = runtime.build_offline_pip_bootstrap_command(
-        tmp_path / "venv" / "Scripts" / "python.exe",
-        tmp_path / "wheelhouse",
-        tmp_path / "requirements-bootstrap-lock.txt",
-    )
-
-    runtime.assert_offline_pip_command(command)
-    assert "requirements-bootstrap-lock.txt" in command[-1]
-    assert "--no-index" in command
-    assert "--find-links" in command
-    assert "--require-hashes" in command
-    assert "--no-warn-script-location" in command
+def fake_install_result(runtime, layout, command: list[str], lock: Path) -> subprocess.CompletedProcess[str]:
+    """A successful finalizer subprocess: venv creation makes the interpreter, uv
+    prints its summary, pip check passes, and pip freeze matches the locks."""
+    if command[1:3] == ["-m", "venv"]:
+        created = Path(command[-1]) / "Scripts" / "python.exe"
+        created.parent.mkdir(parents=True, exist_ok=True)
+        created.write_text("fresh", encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0, "", "")
+    if command[-2:] == ["freeze", "--all"]:
+        rows = [
+            f"{name}=={version}"
+            for locked in (layout.bootstrap_lock, lock)
+            for name, version, _ in runtime.read_hash_lock(locked)
+        ]
+        return subprocess.CompletedProcess(command, 0, "\n".join(rows) + "\n", "")
+    if command[-2:] == ["pip", "check"]:
+        return subprocess.CompletedProcess(command, 0, "No broken requirements found.\n", "")
+    return subprocess.CompletedProcess(command, 0, "Resolved 1 package in 1ms\nInstalled 1 package in 1ms\n", "")
 
 
 def test_sanitized_env_drops_user_profile_path_entries(monkeypatch) -> None:
@@ -120,9 +136,11 @@ def test_bootstrap_tool_requirements_pin_patched_pip_and_setuptools() -> None:
 
 
 @pytest.mark.parametrize("module", ["rook", "chirp"])
-def test_bootstrap_wheel_lock_reaches_temp_and_customer_installs(
+def test_bootstrap_and_tool_locks_reach_temp_and_customer_installs(
     tmp_path: Path, monkeypatch, module: str,
 ) -> None:
+    """The builder's real lock statements, its real verification script and the real
+    finalizer all install from the same bootstrap lock with the same bundled uv."""
     runtime = load_runtime_install()
     post_install = load_post_install()
     repo = Path(__file__).resolve().parents[2]
@@ -133,9 +151,12 @@ def test_bootstrap_wheel_lock_reaches_temp_and_customer_installs(
     (layout.wheelhouse / "pip-26.2.1-py3-none-any.whl").write_bytes(pip_bytes)
     (layout.wheelhouse / "pip-26.1.2-py3-none-any.whl").write_bytes(b"obsolete wheel")
     (layout.wheelhouse / "setuptools-83.0.0-py3-none-any.whl").write_bytes(b"setuptools")
+    uv_wheel = layout.wheelhouse / "uv-0.12.5-py3-none-win_amd64.whl"
+    with zipfile.ZipFile(uv_wheel, "w") as archive:
+        archive.writestr("uv-0.12.5.data/scripts/uv.exe", b"fixture uv")
 
-    # Run the real selection/lock statements, replacing only the two download calls.
-    # No wheel, venv, network, audit or product process is executed by this fixture.
+    # Run the real statements between the tool pins and the lock-generation script.
+    # Wheels are already staged there, so any process launch in that range is a bug.
     ps = r"""
 $ErrorActionPreference = 'Stop'
 $tokens=$null; $errors=$null
@@ -144,65 +165,62 @@ if ($errors.Count) { throw 'Builder syntax failure' }
 $statements=@($ast.EndBlock.Statements)
 $start=@($statements | Where-Object { $_ -is [System.Management.Automation.Language.AssignmentStatementAst] -and $_.Left.Extent.Text -ceq '$bootstrapToolPackages' })
 $end=@($statements | Where-Object { $_ -is [System.Management.Automation.Language.AssignmentStatementAst] -and $_.Left.Extent.Text -ceq '$lockScript' })
-if ($start.Count -ne 1 -or $end.Count -ne 1) { throw 'Bootstrap boundary differs' }
+if ($start.Count -ne 1 -or $end.Count -ne 1) { throw 'Tool lock boundary differs' }
 $hashFn=@($ast.FindAll({param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Get-Sha256'},$true))
 if ($hashFn.Count -ne 1) { throw 'Hash function differs' }
 . ([scriptblock]::Create($hashFn[0].Extent.Text))
 function Fail { param($Message) throw $Message }
-$calls=[System.Collections.Generic.List[object]]::new()
-function Invoke-CheckedProcess {
-    param($FilePath, $Arguments, $Label)
-    if ($Label -notin @('bootstrap tool wheel download','dependency wheel download')) { throw 'Unexpected process' }
-    $calls.Add(@{file=$FilePath; argv=@($Arguments); label=$Label})
-}
+function Invoke-CheckedProcess { throw 'Unexpected process in the tool lock range' }
 $OutputRoot=$env:TEST_OUTPUT
 $wheelhouse=Join-Path $OutputRoot 'python-wheelhouse'
-$pythonExe=Join-Path $OutputRoot 'private-python.exe'
-$buildPythonExe=Join-Path $OutputRoot 'build-python.exe'
-$rookWheel=@{FullName='fixture-rook.whl'}; $chirpWheel=@{FullName='fixture-chirp.whl'}
 $text=$ast.Extent.Text.Substring($start[0].Extent.StartOffset,$end[0].Extent.StartOffset-$start[0].Extent.StartOffset)
 . ([scriptblock]::Create($text))
-$calls | ConvertTo-Json -Depth 4 -Compress
+'ok'
 """
     env = os.environ | {"TEST_BUILDER": str(builder), "TEST_OUTPUT": str(layout.app_dir)}
     observed = subprocess.run(
         ["C:/Program Files/PowerShell/7/pwsh.exe", "-NoProfile", "-Command", ps],
-        env=env, text=True, capture_output=True, timeout=30, check=True,
+        env=env, text=True, capture_output=True, timeout=30,
     )
-    calls = json.loads(observed.stdout)
-    assert len(calls) == 2
-    assert calls[0]["argv"][-2:] == ["pip==26.2.1", "setuptools==83.0.0"]
-    assert all(call["file"] == str(layout.app_dir / "build-python.exe") for call in calls)
-    lock_text = layout.bootstrap_lock.read_text(encoding="utf-8-sig")
-    assert f"pip==26.2.1 --hash=sha256:{hashlib.sha256(pip_bytes).hexdigest()}" in lock_text
-    assert "26.1.2" not in lock_text
+    assert observed.returncode == 0 and observed.stdout.strip() == "ok", observed.stderr
+    bootstrap_rows = runtime.read_hash_lock(layout.bootstrap_lock)
+    assert ("pip", "26.2.1", hashlib.sha256(pip_bytes).hexdigest()) in bootstrap_rows
+    assert [row[:2] for row in bootstrap_rows] == [("pip", "26.2.1"), ("setuptools", "83.0.0")]
+    assert runtime.read_hash_lock(layout.installer_tools_lock) == [
+        ("uv", "0.12.5", hashlib.sha256(uv_wheel.read_bytes()).hexdigest())
+    ]
+    assert f"uv=={runtime.INSTALLER_TOOL_REQUIREMENTS[0].split('==')[1]}" == "uv==0.12.5"
 
     # Execute the actual generated verification entrypoint with subprocess.run faked.
-    source = builder.read_text(encoding="utf-8-sig")
-    scripts = [body for body, name in re.findall(
-        r"(?ms)^@'\n(.*?)\n'@ \| Set-Content -LiteralPath \$(\w+)", source,
-    ) if name == "verificationScript"]
-    assert len(scripts) == 1
-    ns = {"__name__": "bootstrap_verification_fixture"}
-    exec(compile(scripts[0], str(builder) + ":verificationScript", "exec"), ns)
+    ns = load_verification_script()
     venv = tmp_path / "verification"
     site = venv / "Lib/site-packages"
     package_lock = layout.rook_lock if module == "rook" else layout.chirp_lock
-    package_lock.write_text(f"{module}==0.0.0 --hash=sha256:fixture\n", encoding="utf-8")
+    package_lock.write_text(f"{module}==0.0.0 --hash=sha256:{'f' * 64}\n", encoding="utf-8")
     selected = []
 
     def fake_run(command, **kwargs):
         if command[1:3] == ["-m", "venv"]:
-            Path(command[3]).mkdir()
-            output = ""
-        elif "-r" in command:
-            assert {"--isolated", "--no-index", "--require-hashes"} <= set(command)
-            path = Path(command[command.index("-r") + 1])
+            assert "--without-pip" in command
+            Path(command[-1]).mkdir()
+            return subprocess.CompletedProcess(command, 0, "", "")
+        if command[1:3] == ["pip", "install"]:
+            runtime.assert_offline_uv_command(command)
+            assert Path(command[0]).read_bytes() == b"fixture uv"
+            path = Path(command[-1])
             selected.append((path, path.read_bytes()))
-            output = "Looking in links: fixture-wheelhouse"
-        elif command[1:4] == ["-m", "pip", "check"]:
-            output = "No broken requirements found."
-        elif command[1] == "-c":
+            return subprocess.CompletedProcess(command, 0, "", "Resolved 1 package in 1ms\n")
+        if command[-2:] == ["pip", "check"]:
+            return subprocess.CompletedProcess(command, 0, "No broken requirements found.", "")
+        if command[-2:] == ["freeze", "--all"]:
+            rows = [f"{n}=={v}" for lock in (layout.bootstrap_lock, package_lock) for n, v, _ in runtime.read_hash_lock(lock)]
+            return subprocess.CompletedProcess(command, 0, "\n".join(rows), "")
+        if command[1:3] == ["-B", "-c"]:
+            # The bytecode probe; its real behaviour is pinned by
+            # test_build_bytecode_probe_cannot_create_its_own_evidence.
+            assert "find_spec" in command[3] and "cache_from_source" in command[3]
+            return subprocess.CompletedProcess(command, 0, "true", "")
+        if command[1] == "-c":
             code = command[2]
             if "sysconfig" in code:
                 output = str(site)
@@ -214,26 +232,55 @@ $calls | ConvertTo-Json -Depth 4 -Compress
                 output = ""
             else:
                 pytest.fail(f"Unexpected Python command: {command}")
-        else:
-            pytest.fail(f"Unexpected subprocess: {command}")
-        return subprocess.CompletedProcess(command, 0, output, "")
+            return subprocess.CompletedProcess(command, 0, output, "")
+        pytest.fail(f"Unexpected subprocess: {command}")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
     monkeypatch.setattr(sys, "argv", ["verify", "--base-python", "fixture-python", "--wheelhouse", str(layout.wheelhouse),
-        "--bootstrap-lock", str(layout.bootstrap_lock), "--lockfile", str(package_lock),
-        "--venv-dir", str(venv), "--module", module, "--output", str(tmp_path / "verification.json")])
+        "--bootstrap-lock", str(layout.bootstrap_lock), "--installer-tools-lock", str(layout.installer_tools_lock),
+        "--runtime-install-module", str(repo / "installer" / "python_runtime_install.py"),
+        "--lockfile", str(package_lock), "--venv-dir", str(venv), "--module", module,
+        "--output", str(tmp_path / "verification.json")])
     assert ns["main"]() == 0
     assert selected == [(layout.bootstrap_lock, layout.bootstrap_lock.read_bytes()), (package_lock, package_lock.read_bytes())]
+    record = json.loads((tmp_path / "verification.json").read_text(encoding="utf-8"))
+    assert record["installer_tool"]["wheel_sha256"] == hashlib.sha256(uv_wheel.read_bytes()).hexdigest()
+    assert record["uv_install_offline_contract"] is record["freeze_matches_locks"] is record["bytecode_compiled"] is True
+    assert not (tmp_path / "verification-uv-cache").exists() and not (tmp_path / "verification-tools").exists()
 
     selected.clear()
     installed_venv = layout.rook_venv if module == "rook" else layout.chirp_venv
     installed_python = installed_venv / "Scripts/python.exe"
     monkeypatch.setattr(post_install, "_create_venv", lambda *_: installed_python)
-    monkeypatch.setattr(post_install, "_run_install_command", fake_run)
+    monkeypatch.setattr(post_install, "_run_install_command", lambda command, **_: fake_run(command))
     assert post_install._install_from_wheelhouse_once(
         module, layout, installed_venv, package_lock, module, "fixture-python", "fixture-lock",
     ) == (installed_python, None)
     assert selected == [(layout.bootstrap_lock, layout.bootstrap_lock.read_bytes()), (package_lock, package_lock.read_bytes())]
+
+
+def test_build_bytecode_probe_cannot_create_its_own_evidence(tmp_path: Path) -> None:
+    """The verification's bytecode probe, run for real: a package without install-time
+    .pyc must fail, the probe must write none itself, and compiled bytecode must pass."""
+    probe_args = load_verification_script()["bytecode_probe"]("probepkg")
+    package = tmp_path / "probepkg"
+    package.mkdir()
+    source = package / "__init__.py"
+    source.write_text("VALUE = 1\n", encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if k not in {"PYTHONDONTWRITEBYTECODE", "PYTHONPYCACHEPREFIX"}}
+    env["PYTHONPATH"] = str(tmp_path)
+
+    def probe() -> bool:
+        result = subprocess.run(
+            [sys.executable, *probe_args], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60
+        )
+        assert result.returncode == 0, result.stderr
+        return json.loads(result.stdout)
+
+    assert probe() is False
+    assert not (package / "__pycache__").exists(), "the probe wrote the bytecode it was checking for"
+    py_compile.compile(str(source), cfile=importlib.util.cache_from_source(str(source)), doraise=True)
+    assert probe() is True
 
 
 def test_sanitized_install_env_removes_python_and_pip_index_state(monkeypatch) -> None:
@@ -299,6 +346,7 @@ def test_venv_invalidates_per_runtime_when_rook_installs_before_chirp(tmp_path: 
         python_identity_hash=new_runtime_hash,
         lockfile_sha256=old_lock_hash,
         pip_check_output="No broken requirements found.",
+        installer_tool={"name": "uv", "version": "0.12.5", "wheel": "uv.whl", "wheel_sha256": "e" * 64},
     )
 
     updated_state = runtime.read_install_state(layout.install_state)
@@ -554,14 +602,7 @@ def test_post_install_recreates_stale_venv_and_writes_install_state(
     runtime = load_runtime_install()
     post_install = load_post_install()
     layout = runtime.RuntimeLayout.from_rook_root(tmp_path / "Rook", "3.11.9")
-
-    layout.private_python.parent.mkdir(parents=True)
-    layout.private_python.write_text("private python", encoding="utf-8")
-    layout.wheelhouse.mkdir(parents=True)
-    layout.bootstrap_lock.parent.mkdir(parents=True, exist_ok=True)
-    layout.bootstrap_lock.write_text("pip==26.2.1 --hash=sha256:abc\n", encoding="utf-8")
-    layout.rook_lock.write_text("rook-mcp==1.5.10 --hash=sha256:def\n", encoding="utf-8")
-    layout.runtime_manifest.write_text('{"schema_version":1}', encoding="utf-8")
+    seed_runtime_inputs(layout)
 
     stale_python = post_install.get_venv_python(layout.rook_venv)
     stale_python.parent.mkdir(parents=True)
@@ -575,18 +616,14 @@ def test_post_install_recreates_stale_venv_and_writes_install_state(
             "rook": {"lockfile_sha256": "old-lock"},
         },
     )
+    calls: list[tuple[list[str], dict[str, str], bool]] = []
+    cache_dir = layout.uv_cache_dir("rook")
 
     def fake_run(command, *, env, timeout=post_install.INSTALL_COMMAND_TIMEOUT_SECONDS):
-        if command[:3] == [str(layout.private_python), "-m", "venv"]:
-            created_python = post_install.get_venv_python(Path(command[3]))
-            created_python.parent.mkdir(parents=True, exist_ok=True)
-            created_python.write_text("fresh", encoding="utf-8")
-        return subprocess.CompletedProcess(
-            args=command,
-            returncode=0,
-            stdout="Looking in links: C:/Rook/app/python-wheelhouse\nNo broken requirements found.",
-            stderr="",
-        )
+        calls.append((command, env, cache_dir.exists()))
+        if command[1:3] == ["pip", "install"]:
+            cache_dir.mkdir(parents=True, exist_ok=True)  # uv populates its cache
+        return fake_install_result(runtime, layout, command, layout.rook_lock)
 
     monkeypatch.setattr(post_install, "_run_install_command", fake_run)
 
@@ -600,6 +637,20 @@ def test_post_install_recreates_stale_venv_and_writes_install_state(
 
     assert venv_python == stale_python
     assert not stale_marker.exists()
+    commands = [command for command, _, _ in calls]
+    uv_exe = str(layout.installer_cache / "tools" / "uv.exe")
+    assert commands[0] == [str(layout.private_python), "-m", "venv", "--without-pip", str(layout.rook_venv)]
+    assert commands[1][0] == uv_exe and commands[1][-1] == str(layout.bootstrap_lock)
+    assert commands[2][0] == uv_exe and commands[2][-1] == str(layout.rook_lock)
+    for command, env, _ in calls[1:3]:
+        runtime.assert_offline_uv_command(command)
+        assert command[command.index("--python") + 1] == str(stale_python)
+        assert command[command.index("--cache-dir") + 1] == str(cache_dir)
+        assert not [key for key in env if key.upper().startswith("UV_")]
+    # The cache is gone before pip check / freeze run, so they prove the venv stands alone.
+    assert commands[3][-2:] == ["pip", "check"] and calls[3][2] is False
+    assert commands[4][-2:] == ["freeze", "--all"] and calls[4][2] is False
+    assert (layout.installer_cache / "tools" / "uv.exe").read_bytes() == b"fixture uv"
     install_state = json.loads(layout.install_state.read_text(encoding="utf-8"))
     assert install_state["schema_version"] == 1
     assert install_state["python"]["path"] == str(layout.private_python)
@@ -607,6 +658,61 @@ def test_post_install_recreates_stale_venv_and_writes_install_state(
     assert install_state["rook"]["venv_path"] == str(layout.rook_venv)
     assert install_state["rook"]["python_identity_hash"] == install_state["python"]["identity_hash"]
     assert install_state["rook"]["lockfile_sha256"]
+    assert install_state["rook"]["installer_tool"]["name"] == "uv"
+    assert install_state["rook"]["installer_tool"]["version"] == "0.12.5"
+    assert install_state["rook"]["freeze_matches_locks"] is True
+
+    post_install._remove_installer_cache(layout.rook_root)
+    assert not layout.installer_cache.exists()
+
+
+def test_post_install_fails_on_freeze_drift_without_retry(tmp_path: Path, monkeypatch) -> None:
+    runtime = load_runtime_install()
+    post_install = load_post_install()
+    layout = runtime.RuntimeLayout.from_rook_root(tmp_path / "Rook", "3.11.9")
+    seed_runtime_inputs(layout)
+    attempts = {"install": 0}
+
+    def fake_run(command, *, env, timeout=post_install.INSTALL_COMMAND_TIMEOUT_SECONDS):
+        if is_uv_install(command, layout.rook_lock):
+            attempts["install"] += 1
+        result = fake_install_result(runtime, layout, command, layout.rook_lock)
+        if command[-2:] == ["freeze", "--all"]:
+            result.stdout += "surprise==1.0\n"
+        return result
+
+    monkeypatch.setattr(post_install, "_run_install_command", fake_run)
+
+    assert post_install._install_from_wheelhouse("rook-mcp", layout, layout.rook_venv, layout.rook_lock, "rook") is None
+    assert attempts["install"] == 1
+    payload = json.loads((layout.rook_root / "logs" / "post_install_summary.json").read_text(encoding="utf-8"))
+    assert payload["venv_rebuilds"]["rook"]["failure_stage"] == "freeze"
+
+
+def test_post_install_refuses_a_uv_wheel_that_does_not_match_the_tools_lock(
+    tmp_path: Path, monkeypatch
+) -> None:
+    runtime = load_runtime_install()
+    post_install = load_post_install()
+    layout = runtime.RuntimeLayout.from_rook_root(tmp_path / "Rook", "3.11.9")
+    seed_runtime_inputs(layout)
+    with zipfile.ZipFile(layout.wheelhouse / "uv-0.12.5-py3-none-win_amd64.whl", "a") as archive:
+        archive.writestr("tampered.txt", b"x")
+    uv_commands: list[list[str]] = []
+
+    def fake_run(command, *, env, timeout=post_install.INSTALL_COMMAND_TIMEOUT_SECONDS):
+        if command[1:3] == ["pip", "install"]:
+            uv_commands.append(command)
+        return fake_install_result(runtime, layout, command, layout.rook_lock)
+
+    monkeypatch.setattr(post_install, "_run_install_command", fake_run)
+
+    assert post_install._install_from_wheelhouse("rook-mcp", layout, layout.rook_venv, layout.rook_lock, "rook") is None
+    assert uv_commands == []
+    assert not (layout.installer_cache / "tools" / "uv.exe").exists()
+    payload = json.loads((layout.rook_root / "logs" / "post_install_summary.json").read_text(encoding="utf-8"))
+    assert payload["venv_rebuilds"]["rook"]["failure_stage"] == "tools"
+    assert payload["venv_rebuilds"]["rook"]["retry_count"] == 0
 
 
 def test_install_mcp_server_seeds_discovery_directory(tmp_path: Path, monkeypatch) -> None:
@@ -633,14 +739,7 @@ def test_post_install_fails_closed_when_stale_venv_cannot_be_deleted(
     runtime = load_runtime_install()
     post_install = load_post_install()
     layout = runtime.RuntimeLayout.from_rook_root(tmp_path / "Rook", "3.11.9")
-
-    layout.private_python.parent.mkdir(parents=True)
-    layout.private_python.write_text("private python", encoding="utf-8")
-    layout.wheelhouse.mkdir(parents=True)
-    layout.bootstrap_lock.parent.mkdir(parents=True, exist_ok=True)
-    layout.bootstrap_lock.write_text("pip==26.2.1 --hash=sha256:abc\n", encoding="utf-8")
-    layout.rook_lock.write_text("rook-mcp==1.5.10 --hash=sha256:def\n", encoding="utf-8")
-    layout.runtime_manifest.write_text('{"schema_version":1}', encoding="utf-8")
+    seed_runtime_inputs(layout)
 
     stale_python = post_install.get_venv_python(layout.rook_venv)
     stale_python.parent.mkdir(parents=True)
@@ -1017,58 +1116,41 @@ def test_runtime_layout_uses_private_python_and_two_venvs(tmp_path: Path) -> Non
     )
 
 
-def test_pip_output_evidence_rejects_index_lookup() -> None:
-    runtime = load_runtime_install()
-    runtime.assert_local_wheelhouse_output(
-        "Looking in links: C:/Rook/app/python-wheelhouse\nProcessing rook_mcp.whl"
-    )
-
-    try:
-        runtime.assert_local_wheelhouse_output("Looking in indexes: https://pypi.org/simple")
-    except ValueError as exc:
-        assert "network index" in str(exc)
-    else:
-        raise AssertionError("expected network index output to be rejected")
-
-
-def test_public_install_ignores_user_python_and_pip_contamination(
+def test_public_install_ignores_user_python_uv_and_pip_contamination(
     tmp_path: Path, monkeypatch
 ) -> None:
     runtime = load_runtime_install()
     fake_user_python = tmp_path / "UserPython" / "python.exe"
     fake_user_python.parent.mkdir()
     fake_user_python.write_text("not real", encoding="utf-8")
+    (fake_user_python.parent / "uv.exe").write_text("not the bundled uv", encoding="utf-8")
 
     monkeypatch.setenv("PATH", str(fake_user_python.parent))
     monkeypatch.setenv("PYTHONPATH", str(tmp_path / "source-shadow"))
     monkeypatch.setenv("PYTHONHOME", str(tmp_path / "bad-pythonhome"))
     monkeypatch.setenv("PIP_INDEX_URL", "https://bad.example/simple")
     monkeypatch.setenv("PIP_EXTRA_INDEX_URL", "https://bad.example/extra")
+    monkeypatch.setenv("UV_INDEX_URL", "https://bad.example/simple")
+    monkeypatch.setenv("UV_PYTHON", str(fake_user_python))
 
     layout = runtime.RuntimeLayout.from_rook_root(tmp_path / "Rook", "3.11.9")
-    env = runtime.build_sanitized_python_env(require_virtualenv=True)
-    command = runtime.build_offline_pip_install_command(
-        layout.rook_venv / "Scripts" / "python.exe",
-        layout.wheelhouse,
-        layout.rook_lock,
-    )
-    bootstrap_command = runtime.build_offline_pip_bootstrap_command(
-        layout.rook_venv / "Scripts" / "python.exe",
-        layout.wheelhouse,
-        layout.bootstrap_lock,
-    )
+    env = runtime.build_sanitized_uv_env()
+    bundled_uv = layout.installer_cache / "tools" / "uv.exe"
+    commands = [
+        runtime.build_offline_uv_install_command(
+            bundled_uv, layout.rook_venv / "Scripts" / "python.exe", layout.wheelhouse, lock, layout.uv_cache_dir("rook")
+        )
+        for lock in (layout.bootstrap_lock, layout.rook_lock)
+    ]
 
-    runtime.assert_offline_pip_command(command)
-    runtime.assert_offline_pip_command(bootstrap_command)
-    assert str(fake_user_python) not in " ".join(command)
-    assert str(fake_user_python) not in " ".join(bootstrap_command)
-    assert command[0] == str(layout.rook_venv / "Scripts" / "python.exe")
-    assert bootstrap_command[0] == str(layout.rook_venv / "Scripts" / "python.exe")
+    for command in commands:
+        runtime.assert_offline_uv_command(command)
+        assert str(fake_user_python.parent) not in " ".join(command)
+        assert command[0] == str(bundled_uv)
+        assert command[command.index("--python") + 1] == str(layout.rook_venv / "Scripts" / "python.exe")
     assert env["PIP_NO_INDEX"] == "1"
-    assert "PIP_INDEX_URL" not in env
-    assert "PIP_EXTRA_INDEX_URL" not in env
-    assert "PYTHONPATH" not in env
-    assert "PYTHONHOME" not in env
+    for key in ("PIP_INDEX_URL", "PIP_EXTRA_INDEX_URL", "PYTHONPATH", "PYTHONHOME", "UV_INDEX_URL", "UV_PYTHON"):
+        assert key not in env
 
 
 def test_install_from_wheelhouse_uses_guard_and_retries_full_rebuild(
@@ -1077,14 +1159,7 @@ def test_install_from_wheelhouse_uses_guard_and_retries_full_rebuild(
     runtime = load_runtime_install()
     post_install = load_post_install()
     layout = runtime.RuntimeLayout.from_rook_root(tmp_path / "Rook", "3.11.9")
-
-    layout.private_python.parent.mkdir(parents=True)
-    layout.private_python.write_text("private python", encoding="utf-8")
-    layout.wheelhouse.mkdir(parents=True)
-    layout.bootstrap_lock.parent.mkdir(parents=True, exist_ok=True)
-    layout.bootstrap_lock.write_text("pip==26.2.1 --hash=sha256:abc\n", encoding="utf-8")
-    layout.rook_lock.write_text("rook-mcp==1.5.10 --hash=sha256:def\n", encoding="utf-8")
-    layout.runtime_manifest.write_text('{"schema_version":1}', encoding="utf-8")
+    seed_runtime_inputs(layout)
     summary = layout.rook_root / "logs" / "post_install_summary.json"
     summary.parent.mkdir(parents=True)
     summary.write_text(
@@ -1122,27 +1197,13 @@ def test_install_from_wheelhouse_uses_guard_and_retries_full_rebuild(
     attempts = {"install": 0}
 
     def fake_run(command, *, env, timeout=post_install.INSTALL_COMMAND_TIMEOUT_SECONDS):
-        if command[:3] == [str(layout.private_python), "-m", "venv"]:
-            created_python = post_install.get_venv_python(Path(command[3]))
-            created_python.parent.mkdir(parents=True, exist_ok=True)
-            created_python.write_text("fresh", encoding="utf-8")
-        if (
-            "-m" in command
-            and "pip" in command
-            and "install" in command
-            and str(layout.rook_lock) in command
-        ):
+        if is_uv_install(command, layout.rook_lock):
             attempts["install"] += 1
             if attempts["install"] == 1:
                 return subprocess.CompletedProcess(
                     command, 1, stdout="", stderr="access denied"
                 )
-        return subprocess.CompletedProcess(
-            command,
-            0,
-            stdout="Looking in links: C:/Rook/app/python-wheelhouse\nNo broken requirements found.",
-            stderr="",
-        )
+        return fake_install_result(runtime, layout, command, layout.rook_lock)
 
     monkeypatch.setattr(post_install, "_run_install_command", fake_run)
 
@@ -1175,14 +1236,7 @@ def test_install_from_wheelhouse_records_guard_health_signals(
     runtime = load_runtime_install()
     post_install = load_post_install()
     layout = runtime.RuntimeLayout.from_rook_root(tmp_path / "Rook", "3.11.9")
-
-    layout.private_python.parent.mkdir(parents=True)
-    layout.private_python.write_text("private python", encoding="utf-8")
-    layout.wheelhouse.mkdir(parents=True)
-    layout.bootstrap_lock.parent.mkdir(parents=True, exist_ok=True)
-    layout.bootstrap_lock.write_text("pip==26.2.1 --hash=sha256:abc\n", encoding="utf-8")
-    layout.rook_lock.write_text("rook-mcp==1.5.10 --hash=sha256:def\n", encoding="utf-8")
-    layout.runtime_manifest.write_text('{"schema_version":1}', encoding="utf-8")
+    seed_runtime_inputs(layout)
     summary = layout.rook_root / "logs" / "post_install_summary.json"
     summary.parent.mkdir(parents=True)
     summary.write_text(
@@ -1207,16 +1261,7 @@ def test_install_from_wheelhouse_records_guard_health_signals(
             return False
 
     def fake_run(command, *, env, timeout=post_install.INSTALL_COMMAND_TIMEOUT_SECONDS):
-        if command[:3] == [str(layout.private_python), "-m", "venv"]:
-            created_python = post_install.get_venv_python(Path(command[3]))
-            created_python.parent.mkdir(parents=True, exist_ok=True)
-            created_python.write_text("fresh", encoding="utf-8")
-        return subprocess.CompletedProcess(
-            command,
-            0,
-            stdout="Looking in links: C:/Rook/app/python-wheelhouse\nNo broken requirements found.",
-            stderr="",
-        )
+        return fake_install_result(runtime, layout, command, layout.rook_lock)
 
     logged_errors: list[tuple[str, tuple[object, ...]]] = []
 
@@ -1265,14 +1310,7 @@ def test_install_from_wheelhouse_logs_pip_check_failure_without_retry(
     runtime = load_runtime_install()
     post_install = load_post_install()
     layout = runtime.RuntimeLayout.from_rook_root(tmp_path / "Rook", "3.11.9")
-
-    layout.private_python.parent.mkdir(parents=True)
-    layout.private_python.write_text("private python", encoding="utf-8")
-    layout.wheelhouse.mkdir(parents=True)
-    layout.bootstrap_lock.parent.mkdir(parents=True, exist_ok=True)
-    layout.bootstrap_lock.write_text("pip==26.2.1 --hash=sha256:abc\n", encoding="utf-8")
-    layout.rook_lock.write_text("rook-mcp==1.5.10 --hash=sha256:def\n", encoding="utf-8")
-    layout.runtime_manifest.write_text('{"schema_version":1}', encoding="utf-8")
+    seed_runtime_inputs(layout)
 
     guard_events: list[str] = []
 
@@ -1300,10 +1338,6 @@ def test_install_from_wheelhouse_logs_pip_check_failure_without_retry(
         logged_errors.append((message, args))
 
     def fake_run(command, *, env, timeout=post_install.INSTALL_COMMAND_TIMEOUT_SECONDS):
-        if command[:3] == [str(layout.private_python), "-m", "venv"]:
-            created_python = post_install.get_venv_python(Path(command[3]))
-            created_python.parent.mkdir(parents=True, exist_ok=True)
-            created_python.write_text("fresh", encoding="utf-8")
         if command[-2:] == ["pip", "check"]:
             attempts["pip_check"] += 1
             return subprocess.CompletedProcess(
@@ -1312,19 +1346,9 @@ def test_install_from_wheelhouse_logs_pip_check_failure_without_retry(
                 stdout="",
                 stderr="rook-mcp 1.5.10 has requirement bad-package, but you have none",
             )
-        if (
-            "-m" in command
-            and "pip" in command
-            and "install" in command
-            and str(layout.rook_lock) in command
-        ):
+        if is_uv_install(command, layout.rook_lock):
             attempts["install"] += 1
-        return subprocess.CompletedProcess(
-            command,
-            0,
-            stdout="Looking in links: C:/Rook/app/python-wheelhouse\n",
-            stderr="",
-        )
+        return fake_install_result(runtime, layout, command, layout.rook_lock)
 
     monkeypatch.setattr(post_install, "_run_install_command", fake_run)
     monkeypatch.setattr(post_install._INSTALL_LOGGER, "error", fake_error)

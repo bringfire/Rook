@@ -96,9 +96,13 @@ def test_inputs_present_bypasses_degraded_branch(tmp_path, monkeypatch):
 
     monkeypatch.setattr(module, "_make_rebuild_guard", _noop_guard)
 
-    # Stub the pip check that runs after _install_from_wheelhouse_once succeeds
+    # Stub the pip check, freeze comparison and uv evidence that run after
+    # _install_from_wheelhouse_once succeeds.
     stub_result = type('obj', (object,), {'returncode': 0, 'stdout': '', 'stderr': ''})()
     monkeypatch.setattr(module, "_run_install_command", lambda *a, **k: stub_result)
+    monkeypatch.setattr(module.python_runtime_install, "freeze_mismatches", lambda *a, **k: [])
+    stub_uv = type('uv', (object,), {'evidence': lambda self: {'name': 'uv'}})()
+    monkeypatch.setattr(module, "_bundled_uv", lambda layout: stub_uv)
 
     result = module._install_from_wheelhouse(
         "rook-mcp", layout, layout.rook_venv, layout.rook_lock, "rook"

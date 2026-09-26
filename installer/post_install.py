@@ -188,6 +188,7 @@ def _ensure_private_runtime_inputs(layout: python_runtime_install.RuntimeLayout,
         (layout.private_python, "private Python runtime"),
         (layout.wheelhouse, "Python wheelhouse"),
         (layout.bootstrap_lock, "bootstrap requirements lock"),
+        (layout.installer_tools_lock, "installer tools lock"),
         (layout.runtime_manifest, "Python runtime manifest"),
         (lock, "requirements lock"),
     ]
@@ -198,14 +199,63 @@ def _ensure_private_runtime_inputs(layout: python_runtime_install.RuntimeLayout,
     return True
 
 
+_BUNDLED_UV: dict[Path, python_runtime_install.BundledTool] = {}
+
+
+def _bundled_uv(
+    layout: python_runtime_install.RuntimeLayout,
+) -> python_runtime_install.BundledTool | None:
+    """uv.exe from the hash-locked wheelhouse wheel, extracted once per finalizer run."""
+    if layout.rook_root in _BUNDLED_UV:
+        return _BUNDLED_UV[layout.rook_root]
+    try:
+        tool = python_runtime_install.extract_bundled_uv(
+            layout.wheelhouse,
+            layout.installer_tools_lock,
+            layout.installer_cache / "tools",
+        )
+    except (OSError, ValueError, KeyError) as exc:
+        print(f"Could not prepare the bundled uv installer tool: {exc}")
+        _INSTALL_LOGGER.error("bundled uv extraction failed: %r", exc)
+        return None
+    _INSTALL_LOGGER.info("bundled uv ready: %s", tool.evidence())
+    _BUNDLED_UV[layout.rook_root] = tool
+    return tool
+
+
+def _remove_uv_cache(label: str, cache_dir: Path) -> None:
+    try:
+        if cache_dir.exists():
+            shutil.rmtree(cache_dir)
+    except OSError as exc:
+        # Not fatal: the venv does not depend on the cache (hardlinks survive it),
+        # and the finalizer removes the whole installer-cache root at exit.
+        _INSTALL_LOGGER.warning("%s uv cache cleanup failed at %s: %r", label, cache_dir, exc)
+
+
+def _remove_installer_cache(runtime_root: Path) -> None:
+    """Drop uv caches and the extracted uv.exe; runs on every finalizer exit."""
+    installer_cache = python_runtime_install.RuntimeLayout.from_rook_root(
+        runtime_root, PRIVATE_PYTHON_VERSION
+    ).installer_cache
+    _BUNDLED_UV.pop(runtime_root, None)
+    try:
+        if installer_cache.exists():
+            shutil.rmtree(installer_cache)
+    except OSError as exc:
+        _INSTALL_LOGGER.warning("installer cache cleanup failed at %s: %r", installer_cache, exc)
+
+
 def _create_venv(layout: python_runtime_install.RuntimeLayout, venv_dir: Path) -> Path | None:
     venv_python = get_venv_python(venv_dir)
     if venv_python.exists():
         return venv_python
 
     print(f"Creating virtual environment at {venv_dir}...")
+    # --without-pip: ensurepip costs ~15 s per venv; uv installs the pinned pip +
+    # setuptools from the bootstrap lock instead.
     result = _run_install_command(
-        [str(layout.private_python), "-m", "venv", str(venv_dir)],
+        [str(layout.private_python), "-m", "venv", "--without-pip", str(venv_dir)],
         env=python_runtime_install.build_sanitized_python_env(require_virtualenv=False),
         timeout=600,
     )
@@ -251,6 +301,7 @@ def _record_install_state(
     python_identity_hash: str,
     lockfile_sha256: str,
     pip_check_output: str,
+    installer_tool: dict[str, str],
 ) -> None:
     state = python_runtime_install.read_install_state(layout.install_state)
     state.pop("schema_version", None)
@@ -269,6 +320,9 @@ def _record_install_state(
         "lockfile_sha256": lockfile_sha256,
         "installed_utc": _utc_now(),
         "pip_check": pip_check_output.strip(),
+        # The tool that installed this venv, and proof it installed exactly the locks.
+        "installer_tool": installer_tool,
+        "freeze_matches_locks": True,
     }
     python_runtime_install.write_install_state(layout.install_state, state)
 
@@ -353,50 +407,42 @@ def _install_from_wheelhouse_once(
     if not venv_python:
         return None, "create"
 
-    print(f"Upgrading pip bootstrap tools for {label} from bundled wheelhouse...")
-    bootstrap_command = python_runtime_install.build_offline_pip_bootstrap_command(
-        venv_python,
-        layout.wheelhouse,
-        layout.bootstrap_lock,
-    )
-    python_runtime_install.assert_offline_pip_command(bootstrap_command)
-    bootstrap_result = _run_install_command(
-        bootstrap_command,
-        env=python_runtime_install.build_sanitized_python_env(require_virtualenv=True),
-    )
-    bootstrap_output = _combined_output(bootstrap_result)
-    if bootstrap_result.returncode != 0:
-        print(f"{label} bootstrap tool upgrade failed with exit code {bootstrap_result.returncode}")
-        return None, "bootstrap"
-    try:
-        python_runtime_install.assert_local_wheelhouse_output(bootstrap_output)
-    except ValueError as exc:
-        print(f"{label} bootstrap failed release validation: {exc}")
-        return None, "validation"
+    uv = _bundled_uv(layout)
+    if uv is None:
+        return None, "tools"
 
-    print(
-        f"Installing {label} from bundled wheelhouse into {venv_dir} "
-        "(offline; no internet download required)..."
-    )
-    command = python_runtime_install.build_offline_pip_install_command(
-        venv_python,
-        layout.wheelhouse,
-        lock,
-    )
-    python_runtime_install.assert_offline_pip_command(command)
-    result = _run_install_command(
-        command,
-        env=python_runtime_install.build_sanitized_python_env(require_virtualenv=True),
-    )
-    output = _combined_output(result)
-    if result.returncode != 0:
-        print(f"{label} install failed with exit code {result.returncode}")
-        return None, "install"
+    cache_dir = layout.uv_cache_dir(runtime_name)
+    _remove_uv_cache(label, cache_dir)
     try:
-        python_runtime_install.assert_local_wheelhouse_output(output)
-    except ValueError as exc:
-        print(f"{label} install failed release validation: {exc}")
-        return None, "validation"
+        # Bootstrap (pip + setuptools) first, then the runtime lock: the venv ends
+        # up with the same distributions the pip-based installer produced.
+        for stage, requirements, description in (
+            ("bootstrap", layout.bootstrap_lock, "pip bootstrap tools"),
+            ("install", lock, "runtime packages"),
+        ):
+            print(
+                f"Installing {label} {description} from bundled wheelhouse into {venv_dir} "
+                "(offline; no internet download required)..."
+            )
+            command = python_runtime_install.build_offline_uv_install_command(
+                uv.executable, venv_python, layout.wheelhouse, requirements, cache_dir
+            )
+            python_runtime_install.assert_offline_uv_command(command)
+            result = _run_install_command(
+                command, env=python_runtime_install.build_sanitized_uv_env()
+            )
+            if result.returncode != 0:
+                print(f"{label} {description} install failed with exit code {result.returncode}")
+                return None, stage
+            try:
+                python_runtime_install.assert_uv_install_output(_combined_output(result))
+            except ValueError as exc:
+                print(f"{label} {description} failed release validation: {exc}")
+                return None, "validation"
+    finally:
+        # Hardlinked files survive the cache; everything after this point (pip
+        # check, freeze, validation imports) proves the venv stands on its own.
+        _remove_uv_cache(label, cache_dir)
 
     return venv_python, None
 
@@ -536,6 +582,34 @@ def _install_from_wheelhouse(
         )
         return None
 
+    uv = _bundled_uv(layout)  # memoised: the tool that just installed this venv
+    freeze = _run_install_command(
+        [str(venv_python), "-m", "pip", "freeze", "--all"],
+        env=python_runtime_install.build_sanitized_python_env(require_virtualenv=True),
+        timeout=300,
+    )
+    mismatches = (
+        python_runtime_install.freeze_mismatches(freeze.stdout, [layout.bootstrap_lock, lock])
+        if freeze.returncode == 0
+        else [f"pip freeze exited {freeze.returncode}"]
+    )
+    if uv is None:
+        mismatches.append("bundled uv evidence unavailable")
+    if mismatches:
+        print(f"{label} installed packages differ from the locks: {mismatches}")
+        _INSTALL_LOGGER.error("%s freeze differs from locks: %s", label, mismatches)
+        _record_venv_rebuild_summary(
+            layout.rook_root,
+            runtime_name,
+            label,
+            retry_count,
+            "failed",
+            "freeze",
+            guard_close_failures,
+            guard_thread_died_unexpectedly,
+        )
+        return None
+
     _record_install_state(
         layout,
         runtime_name,
@@ -545,6 +619,7 @@ def _install_from_wheelhouse(
         python_identity_hash,
         lockfile_sha256,
         _combined_output(check),
+        uv.evidence(),
     )
     _record_venv_rebuild_summary(
         layout.rook_root,
@@ -1466,6 +1541,9 @@ def _run_with_last_gasp(runtime_root: Path | None = None) -> int:
             root, phase_reached="finalizer-crashed", final_outcome="failed"
         )
         return 1
+    finally:
+        if not args.uninstall:
+            _remove_installer_cache(root)
 
 
 if __name__ == "__main__":
