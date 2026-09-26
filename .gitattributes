@@ -36,3 +36,7 @@ third_party/prime-agent/LICENSE text eol=lf
 # Prime runtime payload skill: packaged and verified byte-for-byte as LF, so every
 # checkout must produce LF regardless of core.autocrlf.
 installer/agent-assets/prime-skills/** text eol=lf
+# Third-party licence texts ship byte-for-byte as published upstream (#598).
+third_party/occt/*.txt -text -whitespace
+src/RookNative/vendor/httplib/LICENSE -text -whitespace
+src/RookNative/vendor/nlohmann/LICENSE.MIT -text -whitespace

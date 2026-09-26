@@ -84,7 +84,9 @@ do not rely on a prior developer deploy, PATH entry, or machine-wide OCCT
 installation.
 
 Default source root:
-`<repo>\..\OCCT\build-rook\win64\vc14\bin` (sibling checkout; override with `/DOcctRuntimeRoot=...` at ISCC time)
+`<repo>\..\OCCT\build-rook\win64\vc14\bin` (sibling checkout). Step 3B resolves `$OcctRuntimeRoot`
+once; its validator, this check, and ISCC (`/DOcctRuntimeRoot=$OcctRuntimeRoot`) all use that value.
+The DLL sha256 values are pinned in `third_party/occt/occt-provenance.json`.
 
 | File | Source |
 |------|--------|
@@ -136,6 +138,25 @@ source-tree `PYTHONPATH` entries.
 | `installer/runtime/requirements-chirp-lock.txt` | Fully pinned hash-locked Chirp requirements |
 | `installer/runtime/python-runtime-manifest.json` | Runtime, wheelhouse, lockfile, audit, license/provenance, source provenance, and import-origin manifest |
 | `installer/python_runtime_install.py` | Stdlib post-install helper for private runtime installs |
+
+## Licence and Third-Party Notices (#598)
+
+Installed with every installation (`{app}`) or with the plugins component
+(`RookNative\notices\...`), so a plugins-only install carries them too.
+
+| File | Installed as |
+|------|--------------|
+| `LICENSE` | `{app}\LICENSE` (Rook, MIT) |
+| `installer/THIRD_PARTY_NOTICES.txt` | `{app}\THIRD_PARTY_NOTICES.txt` (installed notice index) |
+| `third_party/occt/LICENSE_LGPL_21.txt`, `OCCT_LGPL_EXCEPTION.txt`, `NOTICE.OCCT.txt`, `SOURCE.OCCT.txt` | `RookNative\notices\occt\` |
+| `src/RookNative/vendor/httplib/LICENSE` | `RookNative\notices\cpp-httplib\LICENSE` |
+| `src/RookNative/vendor/nlohmann/LICENSE.MIT` | `RookNative\notices\nlohmann-json\LICENSE.MIT` |
+| `src/Rook/UI/Vision/Resources/fonts/OFL-*.txt`, `SOURCES.md` | `RookNative\notices\fonts\` |
+
+Not installed, but required for the release: `third_party/occt/occt-provenance.json`
+(the pin), `scripts/occt/rook_occt_bundle.py` and `scripts/occt/rook-occt-configure.txt`,
+and the generated `artifacts/occt/rook-occt-8.0.0-source-bundle.zip` + manifest,
+which are published beside the installer (Step 9).
 
 ## Bundled FFmpeg Payload
 
@@ -216,7 +237,8 @@ Run this to check all paths at once:
 ```powershell
 $Repo = (git rev-parse --show-toplevel) -replace "/", "\"   # the Rook checkout
 $VcRedistRoot = "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Redist\MSVC\14.44.35112\x64"
-$OcctRuntimeRoot = "$Repo\..\OCCT\build-rook\win64\vc14\bin"
+# Reuse the OcctRuntimeRoot resolved and validated in Step 3B; never re-derive it here.
+if (-not $OcctRuntimeRoot) { throw 'Resolve $OcctRuntimeRoot in Step 3B first.' }
 $missing = New-Object System.Collections.Generic.List[string]
 
 $files = @(
@@ -257,6 +279,24 @@ $files = @(
   "scripts\ffmpeg\rook-ffmpeg-enable-allowlist.json",
   "scripts\ffmpeg\rook-ffmpeg-source.json",
   "scripts\validate-ffmpeg-bundle.ps1",
+  "LICENSE",
+  "installer\THIRD_PARTY_NOTICES.txt",
+  "third_party\occt\occt-provenance.json",
+  "third_party\occt\LICENSE_LGPL_21.txt",
+  "third_party\occt\OCCT_LGPL_EXCEPTION.txt",
+  "third_party\occt\NOTICE.OCCT.txt",
+  "third_party\occt\SOURCE.OCCT.txt",
+  "scripts\occt\rook_occt_bundle.py",
+  "scripts\occt\rook-occt-configure.txt",
+  "src\RookNative\vendor\httplib\LICENSE",
+  "src\RookNative\vendor\nlohmann\LICENSE.MIT",
+  "src\Rook\UI\Vision\Resources\fonts\OFL-Archivo.txt",
+  "src\Rook\UI\Vision\Resources\fonts\OFL-CormorantGaramond.txt",
+  "src\Rook\UI\Vision\Resources\fonts\OFL-EBGaramond.txt",
+  "src\Rook\UI\Vision\Resources\fonts\OFL-JetBrainsMono.txt",
+  "src\Rook\UI\Vision\Resources\fonts\SOURCES.md",
+  "artifacts\occt\rook-occt-8.0.0-source-bundle.zip",
+  "artifacts\occt\rook-occt-source-bundle-manifest.json",
   "docs\ONBOARDING_NEW_CLAUDE.md",
   "docs\CURRENT_ARCHITECTURE.md",
   "docs\AGENT_ARCHITECTURE.md",

@@ -62,9 +62,63 @@ When picked up:
    parameterized). Rebuild `RookNative.rhp`, re-measure the DLL closure (`dumpbin`), update the
    numbers above.
 5. Re-run the live verification (Task 10) on the 7.9.3 artifact.
-6. Update `THIRD_PARTY_NOTICES.md` if the OCCT version string changes.
+6. Re-pin `third_party/occt/occt-provenance.json` (commit, file-listing digest, recipe,
+   toolchain, DLL sha256 values), copy the new tag's `LICENSE_LGPL_21.txt` and
+   `OCCT_LGPL_EXCEPTION.txt`, update the version in `NOTICE.OCCT.txt`, `SOURCE.OCCT.txt`,
+   `installer/THIRD_PARTY_NOTICES.txt` and `THIRD_PARTY_NOTICES.md`, and rename the source
+   bundle.
 
-## Licensing
+## Licensing and corresponding source (#598)
 
-OCCT is LGPL-2.1 + the OCCT exception, used unmodified + **dynamically linked**. See
-`THIRD_PARTY_NOTICES.md`.
+OCCT is LGPL-2.1 with the Open CASCADE exception, and RookNative links it
+**dynamically**. The 11 DLLs above are installed beside RookNative together with the
+licence, the exception, `NOTICE.OCCT.txt` and `SOURCE.OCCT.txt`
+(`RookNative\notices\occt\`, plugins component).
+
+### Build provenance (reconstructed)
+
+`third_party/occt/occt-provenance.json` is the pin: tag `V8_0_0`, commit
+`d3056ef80c9668f395da40f5fd7be186cae4501f`, the sha256 of the commit's full file listing,
+the toolchain (VS 2022 17.8, MSVC 14.38.33130, x64, Release, shared), and the sha256 of each
+shipped DLL. The configure recipe is `scripts/occt/rook-occt-configure.txt`.
+
+This provenance was **reconstructed on 2026-09-26**, not recorded at build time. The
+evidence:
+- The DLLs installed by Rook 1.6.0 are byte-identical to `<OCCT>\build-rook\win64\vc14\bin`.
+- The checkout's only reflog entry is the clone at the tag commit, its tree is clean, and no
+  source file was modified after the clone.
+- The recipe is read from that build directory's `CMakeCache.txt` and
+  `CMakeCXXCompiler.cmake`.
+
+**Limitation:** a clean tree and a clone-only reflog cannot exclude edits that were made
+and reverted during the June build. No such edits are known.
+
+### Source bundle, published with every release
+
+Rook publishes the corresponding source **beside the installer**, as a separate download:
+`rook-occt-8.0.0-source-bundle.zip` plus `rook-occt-source-bundle-manifest.json`. It is
+never packaged inside the installer. `scripts/occt/rook_occt_bundle.py`:
+
+- **`build`** refuses unless the tag still names the pinned commit. It archives that commit
+  from a private bare clone with every line-ending conversion disabled; OCCT's
+  `.gitattributes` sets `eol=crlf` on some files, and a plain `git archive` on a
+  `core.autocrlf=true` machine would rewrite them. It then adds the recipe, provenance,
+  licences and this document, and writes a deterministic zip and its manifest.
+- **`validate`** fails closed on any of these:
+  - a DLL in the exact `OcctRuntimeRoot` passed to ISCC differs from its pinned hash;
+  - the `.iss` ships a different DLL set;
+  - a licence text differs from its pin;
+  - a notice isn't installed with the plugins component;
+  - the bundle's bytes, commit or members differ;
+  - any source file differs from the pinned commit. It recomputes every file's git blob
+    hash and mode from the archive and checks the listing digest, independently of git.
+
+The release validator (`scripts/validate-release-artifacts.ps1`) binds the published
+bundle file to the provenance commit and records its sha256 in the release manifest.
+
+**Why not a written offer?** LGPL-2.1 §6(c) also allows accompanying the binaries with a
+written offer to supply the source. That offer has to stay valid for at least three years
+and be fulfilled on request, which is an ongoing administrative commitment. Publishing the
+source next to every binary download (§6(d), and §4's "equivalent access to copy the
+source code from the same place") avoids it. Recipients are not required to download the
+bundle.

@@ -112,7 +112,6 @@ Type: filesandordirs; Name: "{app}\.agents\skills"
 Type: filesandordirs; Name: "{app}\Skills"
 Type: filesandordirs; Name: "{app}\.codex"
 Type: files; Name: "{app}\.mcp.json"
-Type: files; Name: "{app}\LICENSE"
 Type: files; Name: "{app}\BUILDING.md"
 ; Replace the installer-owned sealed wheelhouse instead of overlaying stale wheels.
 Type: filesandordirs; Name: "{app}\python-wheelhouse"; Components: mcp chirp
@@ -177,6 +176,26 @@ Source: "{#FfmpegDir}\LICENSE.FFmpeg.txt"; DestDir: "{userappdata}\McNeel\Rhinoc
 Source: "{#FfmpegDir}\NOTICE.FFmpeg.txt"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\ffmpeg"; Components: plugins; Flags: ignoreversion
 Source: "{#FfmpegDir}\SOURCE.FFmpeg.txt"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\ffmpeg"; Components: plugins; Flags: ignoreversion
 Source: "{#FfmpegDir}\README.md"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\ffmpeg"; Components: plugins; Flags: ignoreversion
+
+; --- Licence and third-party notices (#598) ---
+; Rook's own licence and the installed notice index ship with every installation.
+Source: "{#RepoRoot}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#RepoRoot}\installer\THIRD_PARTY_NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
+; OCCT (LGPL-2.1 + Open CASCADE exception) ships beside RookNative; corresponding source is
+; the separate rook-occt-8.0.0-source-bundle.zip published with each release, never in here.
+Source: "{#RepoRoot}\third_party\occt\LICENSE_LGPL_21.txt"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\notices\occt"; Components: plugins; Flags: ignoreversion
+Source: "{#RepoRoot}\third_party\occt\OCCT_LGPL_EXCEPTION.txt"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\notices\occt"; Components: plugins; Flags: ignoreversion
+Source: "{#RepoRoot}\third_party\occt\NOTICE.OCCT.txt"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\notices\occt"; Components: plugins; Flags: ignoreversion
+Source: "{#RepoRoot}\third_party\occt\SOURCE.OCCT.txt"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\notices\occt"; Components: plugins; Flags: ignoreversion
+; MIT libraries compiled into RookNative.rhp
+Source: "{#RepoRoot}\src\RookNative\vendor\httplib\LICENSE"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\notices\cpp-httplib"; Components: plugins; Flags: ignoreversion
+Source: "{#RepoRoot}\src\RookNative\vendor\nlohmann\LICENSE.MIT"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\notices\nlohmann-json"; Components: plugins; Flags: ignoreversion
+; SIL OFL 1.1 fonts embedded in Rook.rhp: readable copies of their licences and provenance
+Source: "{#RepoRoot}\src\Rook\UI\Vision\Resources\fonts\OFL-Archivo.txt"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\notices\fonts"; Components: plugins; Flags: ignoreversion
+Source: "{#RepoRoot}\src\Rook\UI\Vision\Resources\fonts\OFL-CormorantGaramond.txt"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\notices\fonts"; Components: plugins; Flags: ignoreversion
+Source: "{#RepoRoot}\src\Rook\UI\Vision\Resources\fonts\OFL-EBGaramond.txt"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\notices\fonts"; Components: plugins; Flags: ignoreversion
+Source: "{#RepoRoot}\src\Rook\UI\Vision\Resources\fonts\OFL-JetBrainsMono.txt"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\notices\fonts"; Components: plugins; Flags: ignoreversion
+Source: "{#RepoRoot}\src\Rook\UI\Vision\Resources\fonts\SOURCES.md"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\notices\fonts"; Components: plugins; Flags: ignoreversion
 
 ; --- Python MCP Server ---
 Source: "{#McpServerDir}\pyproject.toml"; DestDir: "{app}\mcp_server"; Components: mcp; Flags: ignoreversion

@@ -84,6 +84,16 @@ function New-ValidatorFixture {
         bundle_sha256 = $sourceBundleSha
     } | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $sourceBundleManifestPath -Encoding UTF8
 
+    $occtProvenance = Get-Content -LiteralPath (Join-Path $RepoRoot 'third_party\occt\occt-provenance.json') -Raw | ConvertFrom-Json
+    $occtBundlePath = Join-Path $tempRoot ([string]$occtProvenance.source_bundle_name)
+    Set-Content -LiteralPath $occtBundlePath -Value 'fake occt source bundle bytes' -Encoding ASCII
+    $occtManifestPath = Join-Path $tempRoot 'rook-occt-source-bundle-manifest.json'
+    [ordered]@{
+        bundle_path = $occtBundlePath
+        bundle_sha256 = (Get-FileHash -LiteralPath $occtBundlePath -Algorithm SHA256).Hash
+        source_commit = [string]$occtProvenance.source.commit
+    } | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $occtManifestPath -Encoding UTF8
+
     $smokeManifestPath = Join-Path $tempRoot "smoke-$Version.json"
     $pythonRuntimeManifestPath = Join-Path $tempRoot 'python-runtime-manifest.json'
     $installStatePath = Join-Path $tempRoot 'install-state.json'
@@ -294,6 +304,8 @@ function New-ValidatorFixture {
         SmokeManifestPath = $smokeManifestPath
         OutputManifestPath = (Join-Path $tempRoot "release-manifest-$Version.json")
         SourceBundleManifestPath = $sourceBundleManifestPath
+        OcctSourceBundleManifestPath = $occtManifestPath
+        OcctBundlePath = $occtBundlePath
     }
 }
 
@@ -331,6 +343,7 @@ function Test-ValidatorWritesExactArtifactManifest {
             '-GitSha', $fixture.GitSha,
             '-InstallerPath', $fixture.InstallerPath,
             '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-OcctSourceBundleManifestPath', $fixture.OcctSourceBundleManifestPath,
             '-SmokeManifestPath', $fixture.SmokeManifestPath,
             '-OutputManifestPath', $fixture.OutputManifestPath,
             '-MinInstallerBytes', '1'
@@ -343,6 +356,8 @@ function Test-ValidatorWritesExactArtifactManifest {
         Assert-Contains -Text $manifestText -Expected '"git_sha"' -Message 'Release manifest must contain git_sha.'
         Assert-Contains -Text $manifestText -Expected '"installer_sha256"' -Message 'Release manifest must contain installer_sha256.'
         Assert-Contains -Text $manifestText -Expected '"ffmpeg_source_bundle_sha256"' -Message 'Release manifest must contain ffmpeg_source_bundle_sha256.'
+        Assert-Contains -Text $manifestText -Expected '"occt_source_bundle_sha256"' -Message 'Release manifest must contain occt_source_bundle_sha256.'
+        Assert-Contains -Text $manifestText -Expected '"occt_source_commit"' -Message 'Release manifest must contain occt_source_commit.'
         Assert-Contains -Text $manifestText -Expected '"rook_bim"' -Message 'Release manifest must contain RookBIM artifact identity.'
         Assert-Contains -Text $manifestText -Expected '"runtime":  "net48"' -Message 'Release manifest must identify RookBIM as a net48 artifact.'
         Assert-Contains -Text $manifestText -Expected '"assembly_version"' -Message 'Release manifest must record RookBIM assembly version.'
@@ -365,6 +380,7 @@ function Test-ValidatorAcceptsInstallerOlderThanInstallerScriptByDefault {
             '-GitSha', $fixture.GitSha,
             '-InstallerPath', $fixture.InstallerPath,
             '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-OcctSourceBundleManifestPath', $fixture.OcctSourceBundleManifestPath,
             '-SmokeManifestPath', $fixture.SmokeManifestPath,
             '-OutputManifestPath', $fixture.OutputManifestPath,
             '-MinInstallerBytes', '1'
@@ -390,6 +406,7 @@ function Test-ValidatorRejectsInstallerOlderThanInstallerScriptWhenRequired {
             '-GitSha', $fixture.GitSha,
             '-InstallerPath', $fixture.InstallerPath,
             '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-OcctSourceBundleManifestPath', $fixture.OcctSourceBundleManifestPath,
             '-SmokeManifestPath', $fixture.SmokeManifestPath,
             '-OutputManifestPath', $fixture.OutputManifestPath,
             '-MinInstallerBytes', '1',
@@ -415,6 +432,7 @@ function Test-DocumentedValidatorCommandDefaultsRepoRoot {
                 '-GitSha', $fixture.GitSha,
                 '-InstallerPath', $fixture.InstallerPath,
                 '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+                '-OcctSourceBundleManifestPath', $fixture.OcctSourceBundleManifestPath,
                 '-SmokeManifestPath', $fixture.SmokeManifestPath,
                 '-OutputManifestPath', $fixture.OutputManifestPath,
                 '-MinInstallerBytes', '1'
@@ -441,6 +459,7 @@ function Test-ValidatorRejectsGitShaThatDoesNotMatchCheckout {
             '-GitSha', $bogusSha,
             '-InstallerPath', $fixture.InstallerPath,
             '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-OcctSourceBundleManifestPath', $fixture.OcctSourceBundleManifestPath,
             '-SmokeManifestPath', $fixture.SmokeManifestPath,
             '-OutputManifestPath', $fixture.OutputManifestPath,
             '-MinInstallerBytes', '1'
@@ -464,6 +483,7 @@ function Test-ValidatorRejectsFailedSmokeEvidence {
             '-GitSha', $fixture.GitSha,
             '-InstallerPath', $fixture.InstallerPath,
             '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-OcctSourceBundleManifestPath', $fixture.OcctSourceBundleManifestPath,
             '-SmokeManifestPath', $fixture.SmokeManifestPath,
             '-OutputManifestPath', $fixture.OutputManifestPath,
             '-MinInstallerBytes', '1'
@@ -487,6 +507,7 @@ function Test-ValidatorRejectsMissingPluginManagerEvidence {
             '-GitSha', $fixture.GitSha,
             '-InstallerPath', $fixture.InstallerPath,
             '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-OcctSourceBundleManifestPath', $fixture.OcctSourceBundleManifestPath,
             '-SmokeManifestPath', $fixture.SmokeManifestPath,
             '-OutputManifestPath', $fixture.OutputManifestPath,
             '-MinInstallerBytes', '1'
@@ -510,6 +531,7 @@ function Test-ValidatorRejectsMissingChatServiceEvidence {
             '-GitSha', $fixture.GitSha,
             '-InstallerPath', $fixture.InstallerPath,
             '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-OcctSourceBundleManifestPath', $fixture.OcctSourceBundleManifestPath,
             '-SmokeManifestPath', $fixture.SmokeManifestPath,
             '-OutputManifestPath', $fixture.OutputManifestPath,
             '-MinInstallerBytes', '1'
@@ -533,6 +555,7 @@ function Test-ValidatorRejectsLegacySingleHostSmokeManifest {
             '-GitSha', $fixture.GitSha,
             '-InstallerPath', $fixture.InstallerPath,
             '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-OcctSourceBundleManifestPath', $fixture.OcctSourceBundleManifestPath,
             '-SmokeManifestPath', $fixture.SmokeManifestPath,
             '-OutputManifestPath', $fixture.OutputManifestPath,
             '-MinInstallerBytes', '1'
@@ -556,6 +579,7 @@ function Test-ValidatorUsesCompanionSelfReportAsAuthoritativePath {
             '-GitSha', $fixture.GitSha,
             '-InstallerPath', $fixture.InstallerPath,
             '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-OcctSourceBundleManifestPath', $fixture.OcctSourceBundleManifestPath,
             '-SmokeManifestPath', $fixture.SmokeManifestPath,
             '-OutputManifestPath', $fixture.OutputManifestPath,
             '-MinInstallerBytes', '1'
@@ -578,6 +602,7 @@ function Test-ValidatorRejectsIncompleteCompanionSelfReport {
             '-GitSha', $fixture.GitSha,
             '-InstallerPath', $fixture.InstallerPath,
             '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-OcctSourceBundleManifestPath', $fixture.OcctSourceBundleManifestPath,
             '-SmokeManifestPath', $fixture.SmokeManifestPath,
             '-OutputManifestPath', $fixture.OutputManifestPath,
             '-MinInstallerBytes', '1'
@@ -603,6 +628,7 @@ function Test-ValidatorRejectsStaleCompanionSelfReport {
             '-GitSha', $fixture.GitSha,
             '-InstallerPath', $fixture.InstallerPath,
             '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-OcctSourceBundleManifestPath', $fixture.OcctSourceBundleManifestPath,
             '-SmokeManifestPath', $fixture.SmokeManifestPath,
             '-OutputManifestPath', $fixture.OutputManifestPath,
             '-MinInstallerBytes', '1'
@@ -631,6 +657,7 @@ function Test-ValidatorRejectsStaleInstallStateHashes {
             '-GitSha', $fixture.GitSha,
             '-InstallerPath', $fixture.InstallerPath,
             '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-OcctSourceBundleManifestPath', $fixture.OcctSourceBundleManifestPath,
             '-SmokeManifestPath', $fixture.SmokeManifestPath,
             '-OutputManifestPath', $fixture.OutputManifestPath,
             '-MinInstallerBytes', '1'
@@ -659,6 +686,7 @@ function Test-ValidatorRejectsStaleInstallStateLockfilePath {
             '-GitSha', $fixture.GitSha,
             '-InstallerPath', $fixture.InstallerPath,
             '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-OcctSourceBundleManifestPath', $fixture.OcctSourceBundleManifestPath,
             '-SmokeManifestPath', $fixture.SmokeManifestPath,
             '-OutputManifestPath', $fixture.OutputManifestPath,
             '-MinInstallerBytes', '1'
@@ -687,6 +715,7 @@ function Test-ValidatorRejectsStaleInstallStatePythonPath {
             '-GitSha', $fixture.GitSha,
             '-InstallerPath', $fixture.InstallerPath,
             '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-OcctSourceBundleManifestPath', $fixture.OcctSourceBundleManifestPath,
             '-SmokeManifestPath', $fixture.SmokeManifestPath,
             '-OutputManifestPath', $fixture.OutputManifestPath,
             '-MinInstallerBytes', '1'
@@ -715,6 +744,7 @@ function Test-ValidatorRejectsStaleInstallStateRuntimePythonIdentity {
             '-GitSha', $fixture.GitSha,
             '-InstallerPath', $fixture.InstallerPath,
             '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-OcctSourceBundleManifestPath', $fixture.OcctSourceBundleManifestPath,
             '-SmokeManifestPath', $fixture.SmokeManifestPath,
             '-OutputManifestPath', $fixture.OutputManifestPath,
             '-MinInstallerBytes', '1'
@@ -743,6 +773,7 @@ function Test-ValidatorRejectsSuffixOnlyDspyCachePaths {
             '-GitSha', $fixture.GitSha,
             '-InstallerPath', $fixture.InstallerPath,
             '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-OcctSourceBundleManifestPath', $fixture.OcctSourceBundleManifestPath,
             '-SmokeManifestPath', $fixture.SmokeManifestPath,
             '-OutputManifestPath', $fixture.OutputManifestPath,
             '-MinInstallerBytes', '1'
@@ -770,6 +801,7 @@ function Test-ValidatorRejectsBaseRuntimeChatServicePython {
             '-GitSha', $fixture.GitSha,
             '-InstallerPath', $fixture.InstallerPath,
             '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-OcctSourceBundleManifestPath', $fixture.OcctSourceBundleManifestPath,
             '-SmokeManifestPath', $fixture.SmokeManifestPath,
             '-OutputManifestPath', $fixture.OutputManifestPath,
             '-MinInstallerBytes', '1'
@@ -798,6 +830,7 @@ function Test-ValidatorRejectsSuffixOnlyImportOrigins {
             '-GitSha', $fixture.GitSha,
             '-InstallerPath', $fixture.InstallerPath,
             '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-OcctSourceBundleManifestPath', $fixture.OcctSourceBundleManifestPath,
             '-SmokeManifestPath', $fixture.SmokeManifestPath,
             '-OutputManifestPath', $fixture.OutputManifestPath,
             '-MinInstallerBytes', '1'
@@ -834,6 +867,7 @@ function Test-ValidatorRejectsStalePythonRuntimeRookGitSha {
             '-GitSha', $fixture.GitSha,
             '-InstallerPath', $fixture.InstallerPath,
             '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-OcctSourceBundleManifestPath', $fixture.OcctSourceBundleManifestPath,
             '-SmokeManifestPath', $fixture.SmokeManifestPath,
             '-OutputManifestPath', $fixture.OutputManifestPath,
             '-MinInstallerBytes', '1'
@@ -870,6 +904,7 @@ function Test-ValidatorRejectsPythonRuntimeReleaseVersionMismatch {
             '-GitSha', $fixture.GitSha,
             '-InstallerPath', $fixture.InstallerPath,
             '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-OcctSourceBundleManifestPath', $fixture.OcctSourceBundleManifestPath,
             '-SmokeManifestPath', $fixture.SmokeManifestPath,
             '-OutputManifestPath', $fixture.OutputManifestPath,
             '-MinInstallerBytes', '1'
@@ -880,6 +915,46 @@ function Test-ValidatorRejectsPythonRuntimeReleaseVersionMismatch {
     } finally {
         Remove-Item -LiteralPath $fixture.TempRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
+}
+
+function Invoke-ValidatorWithOcctDamage {
+    param([string]$Damage)
+    $fixture = New-ValidatorFixture
+    try {
+        if ($Damage -eq 'bundle-bytes') {
+            Add-Content -LiteralPath $fixture.OcctBundlePath -Value 'tampered' -Encoding ASCII
+        } else {
+            $manifest = Get-Content -LiteralPath $fixture.OcctSourceBundleManifestPath -Raw | ConvertFrom-Json
+            $manifest.source_commit = '0000000000000000000000000000000000000000'
+            $manifest | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $fixture.OcctSourceBundleManifestPath -Encoding UTF8
+        }
+        return Invoke-Validator -Arguments @(
+            '-File', $Validator,
+            '-Version', $fixture.Version,
+            '-RepoRoot', $RepoRoot,
+            '-GitSha', $fixture.GitSha,
+            '-InstallerPath', $fixture.InstallerPath,
+            '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-OcctSourceBundleManifestPath', $fixture.OcctSourceBundleManifestPath,
+            '-SmokeManifestPath', $fixture.SmokeManifestPath,
+            '-OutputManifestPath', $fixture.OutputManifestPath,
+            '-MinInstallerBytes', '1'
+        )
+    } finally {
+        Remove-Item -LiteralPath $fixture.TempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Test-ValidatorRejectsChangedOcctSourceBundle {
+    $result = Invoke-ValidatorWithOcctDamage -Damage 'bundle-bytes'
+    Assert-True -Condition ($result.ExitCode -ne 0) -Message 'Validator must reject an OCCT source bundle whose bytes differ from its manifest.'
+    Assert-Contains -Text $result.Output -Expected 'OCCT source bundle checksum mismatch' -Message "OCCT checksum error was not specific. Output: $($result.Output)"
+}
+
+function Test-ValidatorRejectsOcctSourceBundleForAnotherCommit {
+    $result = Invoke-ValidatorWithOcctDamage -Damage 'commit'
+    Assert-True -Condition ($result.ExitCode -ne 0) -Message 'Validator must reject an OCCT source bundle bound to a different commit.'
+    Assert-Contains -Text $result.Output -Expected 'does not match the provenance commit' -Message "OCCT commit error was not specific. Output: $($result.Output)"
 }
 
 Test-ReleaseValidatorRequiresPythonRuntimeEvidence
@@ -904,5 +979,7 @@ Test-ValidatorRejectsBaseRuntimeChatServicePython
 Test-ValidatorRejectsSuffixOnlyImportOrigins
 Test-ValidatorRejectsStalePythonRuntimeRookGitSha
 Test-ValidatorRejectsPythonRuntimeReleaseVersionMismatch
+Test-ValidatorRejectsChangedOcctSourceBundle
+Test-ValidatorRejectsOcctSourceBundleForAnotherCommit
 
 Write-Host 'Release artifact validator tests passed.'

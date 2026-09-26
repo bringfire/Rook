@@ -1,0 +1,18 @@
+Rook includes Open CASCADE Technology (OCCT) 8.0.0.
+
+OCCT is third-party software, Copyright (c) Open CASCADE SAS, licensed under the
+GNU Lesser General Public License version 2.1 with the Open CASCADE exception.
+The licence and the exception are installed beside this notice:
+
+  LICENSE_LGPL_21.txt
+  OCCT_LGPL_EXCEPTION.txt
+
+RookNative.rhp loads the following OCCT libraries from its plug-in folder at run
+time. They were built from OCCT tag V8_0_0 with no known source modifications
+(the build provenance is reconstructed; see SOURCE.OCCT.txt):
+
+  TKernel.dll TKMath.dll TKG2d.dll TKG3d.dll TKGeomBase.dll TKGeomAlgo.dll
+  TKBRep.dll TKTopAlgo.dll TKPrim.dll TKBO.dll TKShHealing.dll
+
+You may replace these DLLs with your own build of a compatible OCCT version.
+The corresponding source for the shipped DLLs is described in SOURCE.OCCT.txt.
