@@ -27,11 +27,13 @@ function Get-CimInstance { return @() }
 function Invoke-FixturePython {
  param($FilePath,$Argv)
  $calls.Add(@{file=$FilePath;argv=@($Argv)})
- if ($Argv[1] -eq '-c') {
-  # Only the executable boundary is replaced. Run the actual origin probe against
-  # a fixture package, not installed Rook; its verifier has no executable code.
+ if ($Argv[0] -ceq '-I' -and $Argv[1] -like '*.py' -and (Test-Path -LiteralPath $Argv[1] -PathType Leaf)) {
+  # The origin probe runs from a temp file (PowerShell 5.1 quoting, #576). Only the
+  # executable boundary is replaced: run that actual probe file's source against a
+  # fixture package, not installed Rook; its verifier has no executable code.
   $prefix="import sys; sys.path.insert(0, sys.argv[1] + '/Lib/site-packages'); "
-  & $env:TEST_PYTHON -I -B -c ($prefix+$Argv[2]) @($Argv[3..($Argv.Count-1)])
+  $probe=[IO.File]::ReadAllText($Argv[1])
+  & $env:TEST_PYTHON -I -B -c ($prefix+$probe) @($Argv[2..($Argv.Count-1)])
  } elseif ($Argv[1] -eq '-m') {
   $global:LASTEXITCODE=0
  } else { throw 'Unregistered child boundary' }
@@ -124,12 +126,26 @@ def test_only_selected_fresh_verifier_is_invoked(tmp_path):
         assert Path(call["file"]) == tmp_path / "fresh/verify-rook-venv/Scripts/python.exe"
     probe = result["calls"][0]["argv"]
     assert str(tmp_path / "fresh/verification-rook.json") in probe
+    probe_file = Path(probe[1])
+    assert probe[0] == "-I" and probe_file.name.startswith("rook-origin-probe-") and probe_file.suffix == ".py"
+    assert not probe_file.exists(), "the temp origin probe must be removed after it runs"
+    assert result["calls"][1]["argv"][:3] == ["-I", "-m", "rook.agent.chat.prime_runtime_artifact"]
 
 
-@pytest.mark.parametrize("case", ["unspecified", "missing-python", "missing-record", "wrong-site", "inconsistent-record"])
-def test_old_environment_cannot_rescue_selected_admission(tmp_path, case):
+@pytest.mark.parametrize(
+    ("case", "reason"),
+    [
+        ("unspecified", "requires an explicit absolute -PythonBuildRoot"),
+        ("missing-python", "Sealed wheel verification input missing"),
+        ("missing-record", "Sealed wheel verification input missing"),
+        # These two must be refused by the real origin probe, not by a harness error.
+        ("wrong-site", "Sealed-wheel verifier origin refused."),
+        ("inconsistent-record", "Sealed-wheel verifier origin refused."),
+    ],
+)
+def test_old_environment_cannot_rescue_selected_admission(tmp_path, case, reason):
     result = run_case(tmp_path, case)
-    assert result["failure"], result
+    assert result["failure"] and reason in result["failure"], result
     for call in result["calls"]:
         assert Path(call["file"]) == tmp_path / "fresh/verify-rook-venv/Scripts/python.exe"
         assert "-m" not in call["argv"], "runtime verification must not follow failed origin admission"
