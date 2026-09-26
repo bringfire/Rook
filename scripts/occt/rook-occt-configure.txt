@@ -10,7 +10,9 @@
 # Toolchain: Visual Studio 2022 17.8, MSVC toolset 14.38.33130 (cl 19.38.33145.0), x64
 # Output:    <build>\win64\vc14\bin (the 11 DLLs listed in occt-provenance.json)
 
-cmake -S <OCCT> -B <OCCT>\build-rook -G "Visual Studio 17 2022" -A x64 ^
+# -T pins the recorded toolset; without it CMake picks the newest installed one
+# (14.44 on the release machine), which would not be the shipped build's compiler.
+cmake -S <OCCT> -B <OCCT>\build-rook -G "Visual Studio 17 2022" -A x64 -T "v143,version=14.38.33130" ^
   -DBUILD_LIBRARY_TYPE=Shared ^
   -DBUILD_CPP_STANDARD=C++17 ^
   -DBUILD_MODULE_FoundationClasses=ON ^

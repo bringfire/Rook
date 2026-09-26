@@ -495,6 +495,23 @@ and companion self-report evidence in the release notes. Do not use registry
 `FileName` values or `Get-Process.Modules` absence as proof of managed
 companion load.
 
+Verify the licence and third-party notices the installation actually carries (#598).
+Every directly installed notice must exist at its installed location with exactly
+the bytes of the repository file the `.iss` packages: Rook's `LICENSE`, the notice
+index, and the OCCT, cpp-httplib, nlohmann/json, font and FFmpeg notices.
+"When installed" entries (the Prime runtime and private Python notices) must exist
+because this smoke installs the full product. Keep the evidence file with the smoke
+manifest:
+
+```powershell
+& $bundlePython -I scripts\verify_installed_notices.py --output installer\output\installed-notices-X.Y.Z.json
+if ($LASTEXITCODE -ne 0) { throw 'Installed licence/notice files are missing or differ from their sources.' }
+```
+
+This checks the installed files from the full smoke install. A plugins-only
+installation is not exercised; its notice selection is covered by the `.iss`
+guard tests.
+
 Generate the Python/runtime evidence from the installed private Rook venv before
 writing the smoke manifest:
 
@@ -684,7 +701,8 @@ exactly before committing or opening the public PR. The public PR must record:
 
 - private release SHA and public base SHA;
 - public promotion commit SHA;
-- installer, FFmpeg source-bundle, OCCT source-bundle, smoke-manifest, and release-manifest hashes; and
+- installer, FFmpeg source-bundle, OCCT source-bundle, smoke-manifest, release-manifest, and
+  installed-notices evidence (`installer\output\installed-notices-X.Y.Z.json`) hashes; and
 - the complete promotion inventory.
 
 After that PR is reviewed and merged, create the release in the public repository and
