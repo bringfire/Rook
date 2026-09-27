@@ -36,7 +36,6 @@ GUIDANCE_FILES = (
     ROOT / "docs" / "AGENT_ARCHITECTURE.md",
     ROOT / "docs" / "CURRENT_ARCHITECTURE.md",
     ROOT / "docs" / "rook_docs" / "README.md",
-    ROOT / "scripts" / "session-start.sh",
     ROOT / "mcp_server" / "src" / "rook" / "learning" / "dspy_signatures.py",
 )
 INSTALLER_GUIDANCE_FILES = (
@@ -67,7 +66,6 @@ ACTIVE_RETIREMENT_GUIDANCE_FILES = (
     ROOT / "AGENT_SETUP.md",
     ROOT / "installer" / "agent-assets" / "ROOK_CLAUDE_POST_INSTALL.md",
     ROOT / "installer" / "agent-assets" / "ROOK_CODEX_POST_INSTALL.md",
-    ROOT / "scripts" / "session-start.sh",
 )
 RETAINED_WASP_SKILL_ROOTS = tuple(
     ROOT / prefix / skill

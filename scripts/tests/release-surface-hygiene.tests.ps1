@@ -103,10 +103,12 @@ function Test-Metadata {
     Assert-Contains -Text $resource -Expected "VALUE `"ProductVersion`", `"$expectedVersion.0`"" -Message 'Native ProductVersion string must match pyproject.'
 
     Assert-True -Condition ($plugin.skills -eq './.claude/skills/') -Message 'Claude plugin skills path must be plugin-root-relative.'
-    # Claude Code loads the plugin's hooks/hooks.json automatically; a manifest 'hooks' entry pointing at it is
-    # rejected as a duplicate ('Duplicate hooks file detected', Claude Code 2.1.x) and the whole plugin fails to load.
-    Assert-True -Condition ($null -eq $plugin.PSObject.Properties['hooks']) -Message 'Claude plugin manifest must not declare hooks/hooks.json; Claude Code auto-loads it and rejects the duplicate.'
-    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $RepoRoot 'hooks\hooks.json') -PathType Leaf) -Message 'hooks/hooks.json must exist for auto-loading.'
+    # The plugin ships skills only. A hook runs a program on the user's machine (claude.ai labels the plugin
+    # 'Can run code without asking'), and the retired bash SessionStart hook needed Git Bash on Windows. Its
+    # guidance now lives in the MCP server's instructions, which every client receives.
+    Assert-True -Condition ($null -eq $plugin.PSObject.Properties['hooks']) -Message 'Claude plugin manifest must not declare hooks.'
+    Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $RepoRoot 'hooks\hooks.json'))) -Message 'hooks/hooks.json must not exist; Claude Code auto-loads it.'
+    Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $RepoRoot 'scripts\session-start.sh'))) -Message 'The retired session-start hook script must not return.'
     Assert-True -Condition ($plugin.repository -eq $PublicRepository) -Message 'Claude plugin repository must be public.'
     Assert-True -Condition ($marketplace.plugins[0].repository -eq $PublicRepository) -Message 'Marketplace plugin repository must be public.'
 
@@ -231,8 +233,6 @@ function Test-Workflow {
         'git worktree add --detach',
         'bringfire/rook-release',
         'Get-FileHash',
-        'scripts/session-start.sh',
-        'hooks/hooks.json',
         '.claude-plugin/plugin.json',
         '.claude-plugin/marketplace.json',
         'LICENSE'
@@ -241,20 +241,19 @@ function Test-Workflow {
     }
 
     $expectedSkills = @('capture-convention', 'chirp', 'chirp-cascade', 'clean-layers', 'design-grasshopper', 'execute-grasshopper', 'plan-grasshopper', 'project-setup', 'twisted-column')
-    $expectedSingletons = @('.claude-plugin/plugin.json', '.claude-plugin/marketplace.json', 'hooks/hooks.json', 'scripts/session-start.sh', 'LICENSE')
+    $expectedSingletons = @('.claude-plugin/plugin.json', '.claude-plugin/marketplace.json', 'LICENSE')
+    $expectedRetired = @('hooks/hooks.json', 'scripts/session-start.sh')
     $actualSkills = @(Get-LiteralPowerShellArray -Text $workflow -VariableName 'publicSkillNames')
     $actualSingletons = @(Get-LiteralPowerShellArray -Text $workflow -VariableName 'singletonPaths')
+    $actualRetired = @(Get-LiteralPowerShellArray -Text $workflow -VariableName 'retiredPublicPaths')
     Assert-True -Condition (($actualSkills -join "`n") -eq ($expectedSkills -join "`n")) -Message 'Public skill promotion inventory must equal the nine approved roots in order.'
-    Assert-True -Condition (($actualSingletons -join "`n") -eq ($expectedSingletons -join "`n")) -Message 'Public singleton promotion inventory must equal the five self-contained paths in order.'
+    Assert-True -Condition (($actualSingletons -join "`n") -eq ($expectedSingletons -join "`n")) -Message 'Public singleton promotion inventory must equal the three self-contained paths in order.'
+    Assert-True -Condition (($actualRetired -join "`n") -eq ($expectedRetired -join "`n")) -Message 'Public promotion must delete the retired hook paths from rook-release.'
 
     Assert-Contains -Text $workflow -Expected 'gh -R bringfire/rook-release release create' -Message 'Release must be created explicitly in rook-release.'
     Assert-NotContains -Text $workflow -Unexpected "gh release create v`$Version" -Message 'Workflow must not create a release in the private repository.'
     Assert-Contains -Text $workflow -Expected 'Release-installer payload guard failed' -Message 'Release workflow must run the full installer guard after builds.'
 
-    $hooks = Get-Text 'hooks/hooks.json' | ConvertFrom-Json
-    $hookCommand = $hooks.hooks.SessionStart[0].hooks[0].command
-    Assert-Contains -Text $hookCommand -Expected 'scripts/session-start.sh' -Message 'Hook manifest must execute the promoted session-start script.'
-    Assert-True -Condition (Test-Path -LiteralPath (Get-RepoPath 'scripts/session-start.sh') -PathType Leaf) -Message 'Private session-start script is missing.'
     Assert-True -Condition (Test-Path -LiteralPath (Get-RepoPath 'LICENSE') -PathType Leaf) -Message 'Private LICENSE is missing.'
 
     $plugin = Get-Text '.claude-plugin/plugin.json' | ConvertFrom-Json

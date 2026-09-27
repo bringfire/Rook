@@ -649,7 +649,8 @@ Create the public branch from the then-current `bringfire/rook-release` `origin/
 stop if either checkout is dirty or the public checkout is not based on that fetched
 commit.
 
-The byte-promoted inventory is exactly nine skill roots plus five singleton files:
+The byte-promoted inventory is exactly nine skill roots plus three singleton files,
+and two retired public paths are deleted:
 
 ```powershell
 $publicSkillNames = @(
@@ -666,9 +667,11 @@ $publicSkillNames = @(
 $singletonPaths = @(
   '.claude-plugin/plugin.json',
   '.claude-plugin/marketplace.json',
-  'hooks/hooks.json',
-  'scripts/session-start.sh',
   'LICENSE'
+)
+$retiredPublicPaths = @(
+  'hooks/hooks.json',
+  'scripts/session-start.sh'
 )
 
 $promotionRoot = Join-Path $env:TEMP "rook-public-promotion-$Version"
@@ -687,12 +690,13 @@ if ((git -C $publicRoot merge-base HEAD origin/main).Trim() -ne $publicBaseSha) 
 ```
 
 For each listed skill, exact-replace only `.claude/skills/<name>` in the public
-checkout from the detached private source. Copy the five singleton files to their
+checkout from the detached private source. Copy the three singleton files to their
 same relative paths. Exact-delete only the retired public skill roots
-`.claude/skills/design-road` and `.claude/skills/masterplan-roads`; do not enumerate or
-delete other public directories. `hooks/hooks.json` must resolve to the promoted
-`scripts/session-start.sh`, and both manifests' `SEE LICENSE IN LICENSE` value must
-resolve to the promoted `LICENSE`. Public-only README, site, and release-note edits are
+`.claude/skills/design-road` and `.claude/skills/masterplan-roads` and each path in
+`$retiredPublicPaths`; do not enumerate or delete other public directories. The plugin
+ships no hooks: the always-on guidance that the retired `SessionStart` hook injected now
+comes from the MCP server's `instructions`, which every client receives. Both
+manifests' `SEE LICENSE IN LICENSE` value must resolve to the promoted `LICENSE`. Public-only README, site, and release-note edits are
 separate reviewed changes in the public PR—not private-byte copies.
 
 Generate source and candidate inventories for the promoted files containing relative

@@ -3655,16 +3655,37 @@ async def _poll_for_prompt_change(
     return await call_rhino_func("/command/prompt", "GET")
 
 
-mcp = Server(
-    "rook",
-    instructions=(
-        "Rook connects AI to Rhino 3D and Grasshopper for geometry creation, "
-        "parametric modeling, and scene queries. "
-        "Call rhino_ping to verify the connection — it should return pong. "
-        "If all tools suddenly hang, a modal dialog is blocking Rhino's UI thread. "
-        "Only the user can dismiss it by switching to the Rhino window."
-    ),
+# Sent to every MCP client at initialize (Claude chat, Cowork, Claude Code, Codex),
+# so it is the one place guidance reaches every app without a plugin or a hook.
+# Keep it short and client-neutral: skills may not be installed, and slash-command
+# syntax differs between apps.
+SERVER_INSTRUCTIONS = (
+    "Rook connects AI to Rhino 3D and Grasshopper for geometry creation, "
+    "parametric modeling, and scene queries. "
+    "Call rhino_ping to verify the connection — it should return pong. "
+    "If all tools suddenly hang, a modal dialog is blocking Rhino's UI thread. "
+    "Only the user can dismiss it by switching to the Rhino window.\n\n"
+    "Some Rook tools may be hidden by the active tool profile: find one with "
+    "rook_tools_search, read its schema with rook_tools_read, and call it with "
+    "rook_tools_call.\n\n"
+    "Grasshopper work, when Rook's skills are installed, is routed by need. For a "
+    "clear, bounded build or change, use the execute-grasshopper skill directly: "
+    "admit the live document with a fresh snapshot, resolve exact components and "
+    "ports, mutate only execution-owned state, and verify. For an ambiguous or "
+    "open-ended brief, use the read-only design-grasshopper skill and stop for the "
+    "user's material decisions. The read-only plan-grasshopper skill is optional, "
+    "for large, destructive, cross-session, preservation-sensitive, or high-risk "
+    "work. Skills do not invoke the next stage automatically. The twisted-column "
+    "skill builds parametric columns.\n\n"
+    "Chirp components are LLM-powered Grasshopper components. chirp_create "
+    "requires a category: planner, interpreter, critic, narrator, classifier, "
+    "gate, or editor. The Correction input pin and the Reasoning output pin are "
+    "added to every component automatically; do not include them in pins_in or "
+    "pins_out. Use the chirp skill for a single component and the chirp-cascade "
+    "skill for a multi-component workflow."
 )
+
+mcp = Server("rook", instructions=SERVER_INSTRUCTIONS)
 
 
 async def _all_tool_schemas() -> list[Tool]:
