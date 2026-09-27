@@ -2,7 +2,9 @@
 
 Most tests in this folder are pure unit tests that mock `call_rhino` and
 do not need Rhino running. Those tests do not request any of the fixtures
-below; they will not be affected by this conftest.
+below. What applies to every test is the run-wide data isolation: writable
+Rook data goes to a temporary ROOK_DATA_DIR, and the run fails if the
+repository's tracked `knowledge/` files change (see below).
 
 The fixtures here exist for the `@pytest.mark.requires_rhino` live-integration
 tests (see test_block_replace_object_geometry_live.py). The live document reset
@@ -21,8 +23,12 @@ throwaway Rhino session.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
@@ -36,6 +42,124 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SRC = _REPO_ROOT / "mcp_server" / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
+
+
+# Keep test writes out of the repository's tracked `knowledge/`. Without install
+# variables, runtime_paths falls back to dev mode, where `knowledge/` is both the
+# bundled store and the writable data root, so learning code under test (the
+# contextual MAB, MAB selectors, GH operations knowledge, teaching notes) rewrote
+# tracked files. Pointing ROOK_DATA_DIR at a per-run temporary folder keeps dev
+# mode (install root == repo) and still reads bundled knowledge from the repo
+# (resolve_readable_knowledge_path falls back to it). This must run before any
+# test module imports rook, because several modules resolve paths at import.
+# The variables are overridden even when already set, so a shell that inherited
+# an installed Rook's environment cannot write into the installed data folder or
+# its DSPy cache, or run tests in release mode; set ROOK_TEST_USE_RUNTIME_ENV=1 to
+# keep the caller's runtime environment.
+_TEST_DATA_PREFIX = "rook-test-data-"
+_OWNER_LOCK_NAME = "owner.lock"
+_TEST_DATA_ROOT: Path | None = None
+_OWNER_LOCK = None  # held open for the whole run; see _sweep_ended_runs
+
+
+def _sweep_ended_runs() -> None:
+    # On Windows a run cannot always delete its own folder at exit: DSPy's disk
+    # cache keeps its database files open until the process ends. Each run keeps
+    # its folder's owner.lock open for its whole life, and Windows refuses to
+    # delete an open file, so a lock that deletes proves its run has ended.
+    # Folders without a lock are left alone. POSIX allows deleting open files, so
+    # the proof does not hold there; runs there remove their own folder at exit.
+    if os.name != "nt":
+        return
+    for candidate in Path(tempfile.gettempdir()).glob(f"{_TEST_DATA_PREFIX}*"):
+        lock = candidate / _OWNER_LOCK_NAME
+        try:
+            if not lock.is_file():
+                continue
+            lock.unlink()
+        except OSError:
+            continue  # held open by a live run
+        shutil.rmtree(candidate, ignore_errors=True)
+
+
+if os.environ.get("ROOK_TEST_USE_RUNTIME_ENV") != "1":
+    _sweep_ended_runs()
+    _run_root = Path(tempfile.mkdtemp(prefix=_TEST_DATA_PREFIX))
+    _OWNER_LOCK = open(_run_root / _OWNER_LOCK_NAME, "w", encoding="utf-8")
+    _OWNER_LOCK.write(str(os.getpid()))
+    _OWNER_LOCK.flush()
+    _TEST_DATA_ROOT = _run_root / "data"
+    _TEST_DATA_ROOT.mkdir()
+    os.environ["ROOK_INSTALL_ROOT"] = str(_REPO_ROOT)
+    os.environ["ROOK_DATA_DIR"] = str(_TEST_DATA_ROOT)
+    os.environ["DSPY_CACHEDIR"] = str(_TEST_DATA_ROOT / "dspy-cache")
+    os.environ["ROOK_MODE"] = "dev"
+
+
+def _knowledge_snapshot() -> dict[str, tuple[str, str]] | None:
+    """Git status plus content hash of every changed or untracked path under knowledge/.
+
+    Returns None where git or the repository is unavailable, which disables the guard.
+    """
+
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(_REPO_ROOT), "status", "--porcelain", "-uall", "--", "knowledge"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=120,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode != 0:
+        return None
+    snapshot: dict[str, tuple[str, str]] = {}
+    for line in completed.stdout.splitlines():
+        if len(line) < 4:
+            continue
+        relative = line[3:].strip().strip('"')
+        path = _REPO_ROOT / relative
+        digest = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else "missing"
+        snapshot[relative] = (line[:2], digest)
+    return snapshot
+
+
+def pytest_sessionstart(session):
+    session.config._rook_knowledge_before = _knowledge_snapshot()
+
+
+def pytest_sessionfinish(session, exitstatus):
+    before = getattr(session.config, "_rook_knowledge_before", None)
+    after = _knowledge_snapshot() if before is not None else None
+    changed: list[str] = []
+    if before is not None and after is not None:
+        changed = sorted(path for path in set(before) | set(after) if before.get(path) != after.get(path))
+    session.config._rook_knowledge_changed = changed
+    if changed:
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+    if _TEST_DATA_ROOT is not None:
+        if _OWNER_LOCK is not None:
+            _OWNER_LOCK.close()
+        # DSPy's still-open cache can survive this on Windows. The folder and its
+        # owner.lock then stay, so the next run's _sweep_ended_runs removes them
+        # once this process has exited.
+        shutil.rmtree(_TEST_DATA_ROOT, ignore_errors=True)
+        if not _TEST_DATA_ROOT.exists():
+            shutil.rmtree(_TEST_DATA_ROOT.parent, ignore_errors=True)
+
+
+def pytest_terminal_summary(terminalreporter):
+    changed = getattr(terminalreporter.config, "_rook_knowledge_changed", [])
+    if not changed:
+        return
+    terminalreporter.write_sep("=", "tests modified the repository's knowledge/ files", red=True)
+    for relative in changed:
+        terminalreporter.write_line(f"  {relative}")
+    terminalreporter.write_line(
+        "Write test data under tmp_path or ROOK_DATA_DIR, never the repository's knowledge/ folder."
+    )
 
 
 def _native_headers() -> dict:
