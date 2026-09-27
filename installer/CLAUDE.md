@@ -200,8 +200,13 @@ native dialog or unknown prompt blocks deterministic execution.
 Run `/mcp` in Claude Code and look for `rook`. If it is missing, ask the user to
 fully quit the Claude app (Quit from its icon near the clock, not just closing
 the window) and reopen it. If `rook` is still missing, Claude may have been
-installed after Rook: ask the user to run the Rook installer again. Never ask
-the user to use a terminal or edit configuration files for this.
+installed after Rook: the installer registers Rook in Claude's desktop config
+only when Claude is already installed. The sign is a `rook` entry in
+`%USERPROFILE%\.claude.json` but none in
+`%APPDATA%\Claude\claude_desktop_config.json`; Rook may then work in the Code
+tab but not in Chat or Cowork. Ask the user to run the Rook installer again and
+then fully quit and reopen Claude. Never ask the user to use a terminal or edit
+configuration files for this.
 
 ### Rhino not responding
 
