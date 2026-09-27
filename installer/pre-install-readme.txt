@@ -15,9 +15,11 @@ What gets installed:
 
 Requirements:
   - Rhino 8 (must be installed before running this installer)
-  - The Claude or ChatGPT desktop app, installed and opened once BEFORE you
-    run this installer. The installer only connects the apps it finds; if you
-    add an app later, run this installer again.
+  - The Claude or ChatGPT desktop app. Install Claude and open it once BEFORE
+    you run this installer: Rook connects to Claude only if Claude is already
+    installed. If you install Claude later: open Claude once, fully
+    quit it, run this installer again with the Claude component selected,
+    then reopen Claude. ChatGPT can be installed before or after.
 
 Important:
   - Close Rhino, Rhino.Inside.Revit, and Revit before installing.
