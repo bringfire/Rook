@@ -203,7 +203,7 @@ function Test-Guidance {
     # Customize > Plugins; the Claude Code CLI plugin commands are a qualified fallback.
     $preInstall = Get-Text 'installer/pre-install-readme.txt'
     Assert-Contains -Text $preInstall -Expected 'Install Claude and open it once BEFORE' -Message 'Pre-install readme must say to install Claude before Rook.'
-    Assert-Contains -Text $preInstall -Expected 'If you install Claude later, run this installer again' -Message 'Pre-install readme must give the recovery when Claude is installed after Rook.'
+    Assert-Contains -Text $preInstall -Expected 'run this installer again with the Claude component selected' -Message 'Pre-install readme must give the recovery when Claude is installed after Rook.'
     Assert-Contains -Text $preInstall -Expected 'Customize >' -Message 'Pre-install readme must give the no-terminal Claude plugin path.'
     Assert-NotContains -Text $preInstall -Unexpected '/plugin marketplace add' -Message 'Pre-install readme must not send users to Claude Code CLI commands.'
     $claudePostInstall = Get-Text 'installer/agent-assets/ROOK_CLAUDE_POST_INSTALL.md'
@@ -217,7 +217,8 @@ function Test-Guidance {
         Assert-Contains -Text $postInstall -Expected 'rook_tools_call' -Message 'Post-install prompts must warn about approving the rook_tools_call gateway.'
         Assert-Contains -Text $postInstall -Expected 'mark this step PASS when all nine are listed' -Message 'Post-install prompts must let the skills step pass from session evidence.'
     }
-    Assert-Contains -Text $claudePostInstall -Expected 'Claude was probably installed after Rook' -Message 'Claude post-install prompt must recognise a Claude install that came after Rook.'
+    Assert-Contains -Text $claudePostInstall -Expected "Rook's desktop registration is probably missing" -Message 'Claude post-install prompt must recognise missing desktop registration.'
+    Assert-Contains -Text $claudePostInstall -Expected 'the one exception is the read-only file check in step 1' -Message 'Claude post-install prompt must explicitly permit its read-only file check.'
 }
 
 function Test-Workflow {
