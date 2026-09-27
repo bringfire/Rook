@@ -1,26 +1,14 @@
-You're helping me finish setting up Rook (the Rhino + Grasshopper plugin) right
-after installing it. Run these checks in order, then clean up and report.
+You're helping me finish setting up Rook (the Rhino + Grasshopper plugin) right after installing it. Run these checks in order, then clean up and report. Use only the Rook tools; never use any screen-control, computer-use or Windows-control tool, and never ask me to use a terminal. Don't mark a step PASS without showing me the tool output.
 
-1. MCP connection — list your MCP servers or inspect your available MCP tools. Confirm
-   "rook" is present with the full default catalog. If missing, tell me (the installer
-   registers it; I may need to restart you).
-2. Rhino — make sure Rhino 8 is running, then call rhino_ping; expect "pong". If it
-   fails, remind me to start Rhino and that the RookNative plugin must be loaded
-   (I can run ShowRookChat in Rhino to check).
-3. Geometry round-trip — create a red sphere at the origin, radius 5; then list the
-   document objects to confirm it exists.
-4. Grasshopper (only if GH is open) — take a canvas snapshot to confirm GH control;
-   skip if GH isn't open.
-5. Skills — confirm the routed Grasshopper skills are available:
-   /design-grasshopper, /plan-grasshopper, and /execute-grasshopper. Route a clear
-   bounded build directly to execute, an ambiguous brief to read-only design, and large
-   or high-risk work through the optional read-only plan stage. Also confirm /chirp is
-   available. If the skills are missing and you can run slash commands, install the
-   plugin (otherwise ask me to run these):
-       /plugin marketplace add bringfire/rook-release
-       /plugin install rook@rook
-   then confirm the curated Rook skills appear.
-6. Clean up — delete the test sphere you created (and any test layer) so my document
-   is left exactly as it was.
-7. Report — a short PASS/FAIL for each step; for any FAIL, the most likely cause and
-   fix.
+1. Connection: call rhino_ping and expect "pong". If there are no Rook tools at all, tell me to fully quit Claude (right-click its icon near the clock, then Quit) and reopen it; if that doesn't help, Claude may have been installed after Rook, so I should run the Rook installer again. If Rhino isn't running, ask me to start Rhino 8 from the Start menu; don't launch it yourself. If Rook didn't load in Rhino, I can type ShowRookChat in Rhino to check. If the call hangs, Rhino is showing a dialog: tell me to switch to Rhino and close it.
+2. Rhino sessions: call rhino_sessions and confirm exactly one Rhino window is available.
+3. Before touching anything: call rhino_document and tell me the units and object count. Warn me if the model already has work in it, and wait for my go-ahead if it does.
+4. Round trip: create a red sphere at the origin with radius 5 (document units), then list the objects to confirm it exists. Note the new object's ID.
+5. Grasshopper: call gh_status. If Grasshopper isn't open, ask me to open it and try again instead of marking this FAILED. Once it's available, report its version and take a canvas snapshot with gh_snapshot.
+6. Skills: list the Rook skills you have. I expect nine: capture-convention, chirp, chirp-cascade, clean-layers, design-grasshopper, execute-grasshopper, plan-grasshopper, project-setup, twisted-column (shown with a "rook:" prefix). Don't try to install anything. If they're missing, tell me to add them in the Claude app: Customize > Plugins > Add > Add marketplace, enter bringfire/rook-release, select Sync (again if it says "Failed to add marketplace"), then add Rook. Only if I'm using the Claude Code command line instead, tell me to type /plugin marketplace add bringfire/rook-release and then /plugin install rook@rook.
+7. Clean up: delete only the sphere you created, by its ID, and confirm the object count is back to the number from step 3.
+8. Report: a short PASS/FAIL for each step, and for any FAIL, the most likely cause and the fix in plain words.
+
+About approvals: Claude may ask before each Rook tool. It's safe for me to choose "Always allow" for tools that only read, such as rhino_ping, rhino_document and gh_status. For anything that creates, changes or deletes, and for rook_tools_call (which can run any Rook tool), I should choose "Allow once".
+
+Full guide: https://bringfire.github.io/rook-release/start/setup-verify/

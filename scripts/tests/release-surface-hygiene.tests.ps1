@@ -197,6 +197,24 @@ function Test-Guidance {
     Assert-Contains -Text $mcpReadme -Expected 'profile' -Message 'MCP README must describe profile admission.'
 
     Assert-NotContains -Text (Get-Text 'BUILDING.md') -Unexpected '..\RookRoads\RookRoads.csproj' -Message 'Supported build guidance must not build RookRoads.'
+
+    # No-terminal install path (verified live 2026-09-27): the installer connects the
+    # apps it finds, so the AI app must be installed first; Claude skills come from
+    # Customize > Plugins; the Claude Code CLI plugin commands are a qualified fallback.
+    $preInstall = Get-Text 'installer/pre-install-readme.txt'
+    Assert-Contains -Text $preInstall -Expected 'BEFORE you' -Message 'Pre-install readme must say to install the AI app before Rook.'
+    Assert-Contains -Text $preInstall -Expected 'Customize >' -Message 'Pre-install readme must give the no-terminal Claude plugin path.'
+    Assert-NotContains -Text $preInstall -Unexpected '/plugin marketplace add' -Message 'Pre-install readme must not send users to Claude Code CLI commands.'
+    $claudePostInstall = Get-Text 'installer/agent-assets/ROOK_CLAUDE_POST_INSTALL.md'
+    $codexPostInstall = Get-Text 'installer/agent-assets/ROOK_CODEX_POST_INSTALL.md'
+    Assert-Contains -Text $claudePostInstall -Expected 'Customize > Plugins > Add > Add marketplace' -Message 'Claude post-install prompt must give the no-terminal plugin path.'
+    Assert-Contains -Text $claudePostInstall -Expected "Only if I'm using the Claude Code command line" -Message 'Claude post-install prompt may offer /plugin commands only as the command-line fallback.'
+    Assert-NotContains -Text $claudePostInstall -Unexpected 'you can run slash commands' -Message 'Claude post-install prompt must not have the agent install the plugin by slash command.'
+    Assert-NotContains -Text $codexPostInstall -Unexpected '/plugin' -Message 'Codex post-install prompt must not mention Claude plugin commands.'
+    foreach ($postInstall in @($claudePostInstall, $codexPostInstall)) {
+        Assert-Contains -Text $postInstall -Expected 'never ask me to use a terminal' -Message 'Post-install prompts must keep users out of the terminal.'
+        Assert-Contains -Text $postInstall -Expected 'rook_tools_call' -Message 'Post-install prompts must warn about approving the rook_tools_call gateway.'
+    }
 }
 
 function Test-Workflow {

@@ -197,8 +197,11 @@ native dialog or unknown prompt blocks deterministic execution.
 
 ### MCP tools not available
 
-Run `/mcp` in Claude Code and look for `rook`. If it is missing, restart Claude
-Code from the intended project directory and check the Rook MCP configuration.
+Run `/mcp` in Claude Code and look for `rook`. If it is missing, ask the user to
+fully quit the Claude app (Quit from its icon near the clock, not just closing
+the window) and reopen it. If `rook` is still missing, Claude may have been
+installed after Rook: ask the user to run the Rook installer again. Never ask
+the user to use a terminal or edit configuration files for this.
 
 ### Rhino not responding
 
