@@ -2,7 +2,9 @@
 
 Most tests in this folder are pure unit tests that mock `call_rhino` and
 do not need Rhino running. Those tests do not request any of the fixtures
-below; they will not be affected by this conftest.
+below. What applies to every test is the run-wide data isolation: writable
+Rook data goes to a temporary ROOK_DATA_DIR, and the run fails if the
+repository's tracked `knowledge/` files change (see below).
 
 The fixtures here exist for the `@pytest.mark.requires_rhino` live-integration
 tests (see test_block_replace_object_geometry_live.py). The live document reset
@@ -21,8 +23,13 @@ throwaway Rhino session.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
@@ -36,6 +43,101 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SRC = _REPO_ROOT / "mcp_server" / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
+
+
+# Keep test writes out of the repository's tracked `knowledge/`. Without install
+# variables, runtime_paths falls back to dev mode, where `knowledge/` is both the
+# bundled store and the writable data root, so learning code under test (the
+# contextual MAB, MAB selectors, GH operations knowledge, teaching notes) rewrote
+# tracked files. Pointing ROOK_DATA_DIR at a per-run temporary folder keeps dev
+# mode (install root == repo) and still reads bundled knowledge from the repo
+# (resolve_readable_knowledge_path falls back to it). This must run before any
+# test module imports rook, because several modules resolve paths at import.
+# The variables are overridden even when already set, so a shell that inherited
+# an installed Rook's environment cannot write into the installed data folder;
+# set ROOK_TEST_USE_RUNTIME_ENV=1 to keep the caller's runtime environment.
+_TEST_DATA_PREFIX = "rook-test-data-"
+_TEST_DATA_ROOT: Path | None = None
+
+
+def _sweep_stale_test_data(max_age_seconds: float = 3600.0) -> None:
+    # On Windows a run cannot always delete its own folder at exit: DSPy's disk
+    # cache keeps its database files open until the process ends. Remove earlier
+    # runs' folders here instead, leaving any that might belong to a live run.
+    cutoff = time.time() - max_age_seconds
+    for stale in Path(tempfile.gettempdir()).glob(f"{_TEST_DATA_PREFIX}*"):
+        try:
+            if stale.is_dir() and stale.stat().st_mtime < cutoff:
+                shutil.rmtree(stale, ignore_errors=True)
+        except OSError:
+            pass
+
+
+if os.environ.get("ROOK_TEST_USE_RUNTIME_ENV") != "1":
+    _sweep_stale_test_data()
+    _TEST_DATA_ROOT = Path(tempfile.mkdtemp(prefix=_TEST_DATA_PREFIX)) / "data"
+    _TEST_DATA_ROOT.mkdir()
+    os.environ["ROOK_INSTALL_ROOT"] = str(_REPO_ROOT)
+    os.environ["ROOK_DATA_DIR"] = str(_TEST_DATA_ROOT)
+
+
+def _knowledge_snapshot() -> dict[str, tuple[str, str]] | None:
+    """Git status plus content hash of every changed or untracked path under knowledge/.
+
+    Returns None where git or the repository is unavailable, which disables the guard.
+    """
+
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(_REPO_ROOT), "status", "--porcelain", "-uall", "--", "knowledge"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=120,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode != 0:
+        return None
+    snapshot: dict[str, tuple[str, str]] = {}
+    for line in completed.stdout.splitlines():
+        if len(line) < 4:
+            continue
+        relative = line[3:].strip().strip('"')
+        path = _REPO_ROOT / relative
+        digest = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else "missing"
+        snapshot[relative] = (line[:2], digest)
+    return snapshot
+
+
+def pytest_sessionstart(session):
+    session.config._rook_knowledge_before = _knowledge_snapshot()
+
+
+def pytest_sessionfinish(session, exitstatus):
+    before = getattr(session.config, "_rook_knowledge_before", None)
+    after = _knowledge_snapshot() if before is not None else None
+    changed: list[str] = []
+    if before is not None and after is not None:
+        changed = sorted(path for path in set(before) | set(after) if before.get(path) != after.get(path))
+    session.config._rook_knowledge_changed = changed
+    if changed:
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+    if _TEST_DATA_ROOT is not None:
+        shutil.rmtree(_TEST_DATA_ROOT.parent, ignore_errors=True)
+
+
+def pytest_terminal_summary(terminalreporter):
+    changed = getattr(terminalreporter.config, "_rook_knowledge_changed", [])
+    if not changed:
+        return
+    terminalreporter.write_sep("=", "tests modified the repository's knowledge/ files", red=True)
+    for relative in changed:
+        terminalreporter.write_line(f"  {relative}")
+    terminalreporter.write_line(
+        "Write test data under tmp_path or ROOK_DATA_DIR, never the repository's knowledge/ folder."
+    )
 
 
 def _native_headers() -> dict:
