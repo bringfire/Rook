@@ -29,7 +29,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
@@ -54,31 +53,47 @@ if str(_SRC) not in sys.path:
 # (resolve_readable_knowledge_path falls back to it). This must run before any
 # test module imports rook, because several modules resolve paths at import.
 # The variables are overridden even when already set, so a shell that inherited
-# an installed Rook's environment cannot write into the installed data folder;
-# set ROOK_TEST_USE_RUNTIME_ENV=1 to keep the caller's runtime environment.
+# an installed Rook's environment cannot write into the installed data folder or
+# its DSPy cache, or run tests in release mode; set ROOK_TEST_USE_RUNTIME_ENV=1 to
+# keep the caller's runtime environment.
 _TEST_DATA_PREFIX = "rook-test-data-"
+_OWNER_LOCK_NAME = "owner.lock"
 _TEST_DATA_ROOT: Path | None = None
+_OWNER_LOCK = None  # held open for the whole run; see _sweep_ended_runs
 
 
-def _sweep_stale_test_data(max_age_seconds: float = 3600.0) -> None:
+def _sweep_ended_runs() -> None:
     # On Windows a run cannot always delete its own folder at exit: DSPy's disk
-    # cache keeps its database files open until the process ends. Remove earlier
-    # runs' folders here instead, leaving any that might belong to a live run.
-    cutoff = time.time() - max_age_seconds
-    for stale in Path(tempfile.gettempdir()).glob(f"{_TEST_DATA_PREFIX}*"):
+    # cache keeps its database files open until the process ends. Each run keeps
+    # its folder's owner.lock open for its whole life, and Windows refuses to
+    # delete an open file, so a lock that deletes proves its run has ended.
+    # Folders without a lock are left alone. POSIX allows deleting open files, so
+    # the proof does not hold there; runs there remove their own folder at exit.
+    if os.name != "nt":
+        return
+    for candidate in Path(tempfile.gettempdir()).glob(f"{_TEST_DATA_PREFIX}*"):
+        lock = candidate / _OWNER_LOCK_NAME
         try:
-            if stale.is_dir() and stale.stat().st_mtime < cutoff:
-                shutil.rmtree(stale, ignore_errors=True)
+            if not lock.is_file():
+                continue
+            lock.unlink()
         except OSError:
-            pass
+            continue  # held open by a live run
+        shutil.rmtree(candidate, ignore_errors=True)
 
 
 if os.environ.get("ROOK_TEST_USE_RUNTIME_ENV") != "1":
-    _sweep_stale_test_data()
-    _TEST_DATA_ROOT = Path(tempfile.mkdtemp(prefix=_TEST_DATA_PREFIX)) / "data"
+    _sweep_ended_runs()
+    _run_root = Path(tempfile.mkdtemp(prefix=_TEST_DATA_PREFIX))
+    _OWNER_LOCK = open(_run_root / _OWNER_LOCK_NAME, "w", encoding="utf-8")
+    _OWNER_LOCK.write(str(os.getpid()))
+    _OWNER_LOCK.flush()
+    _TEST_DATA_ROOT = _run_root / "data"
     _TEST_DATA_ROOT.mkdir()
     os.environ["ROOK_INSTALL_ROOT"] = str(_REPO_ROOT)
     os.environ["ROOK_DATA_DIR"] = str(_TEST_DATA_ROOT)
+    os.environ["DSPY_CACHEDIR"] = str(_TEST_DATA_ROOT / "dspy-cache")
+    os.environ["ROOK_MODE"] = "dev"
 
 
 def _knowledge_snapshot() -> dict[str, tuple[str, str]] | None:
@@ -125,7 +140,14 @@ def pytest_sessionfinish(session, exitstatus):
     if changed:
         session.exitstatus = pytest.ExitCode.TESTS_FAILED
     if _TEST_DATA_ROOT is not None:
-        shutil.rmtree(_TEST_DATA_ROOT.parent, ignore_errors=True)
+        if _OWNER_LOCK is not None:
+            _OWNER_LOCK.close()
+        # DSPy's still-open cache can survive this on Windows. The folder and its
+        # owner.lock then stay, so the next run's _sweep_ended_runs removes them
+        # once this process has exited.
+        shutil.rmtree(_TEST_DATA_ROOT, ignore_errors=True)
+        if not _TEST_DATA_ROOT.exists():
+            shutil.rmtree(_TEST_DATA_ROOT.parent, ignore_errors=True)
 
 
 def pytest_terminal_summary(terminalreporter):
