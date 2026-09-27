@@ -2,19 +2,22 @@ Rook — AI agents for Rhino 3D & Grasshopper
 
 Rook connects your AI assistant directly to Rhino 8 and Grasshopper for
 AI-assisted modeling, parametric automation, and conversational design. It works
-with any MCP-capable assistant (Claude Code, Codex, Cursor, Windsurf, and others).
+with the Claude and ChatGPT desktop apps, and with other MCP-capable assistants.
+No terminal, Git, or config files are needed.
 
 What gets installed:
   - RookNative.rhp   C++ plugin (high-performance Rhino bridge)
   - Rook.rhp         C# companion (Grasshopper support)
   - MCP server       Python service with bundled CPython 3.11.9
   - Knowledge stores Component and command libraries
-  - Curated skills for Codex (~/.codex/skills). Claude Code installs skills from
-    the Rook marketplace plugin after setup.
+  - Connections to the Claude and ChatGPT (Codex) desktop apps, and Rook's
+    skills for ChatGPT. Claude gets the skills from the Rook plugin after setup.
 
 Requirements:
   - Rhino 8 (must be installed before running this installer)
-  - An MCP-capable AI assistant (Claude Code, Codex, ...)
+  - The Claude or ChatGPT desktop app, installed and opened once BEFORE you
+    run this installer. The installer only connects the apps it finds; if you
+    add an app later, run this installer again.
 
 Important:
   - Close Rhino, Rhino.Inside.Revit, and Revit before installing.
@@ -24,11 +27,19 @@ Important:
     the plugins for that user's Rhino session.
 
 After installation:
-  1. Open (or restart) Rhino 8.
-  2. Connect your AI assistant to the Rook MCP server.
-  3. Hand your assistant the post-install prompt placed in your Rook folder
-     (ROOK_CLAUDE_POST_INSTALL.md or ROOK_CODEX_POST_INSTALL.md) - it verifies the
-     connection, runs a quick smoke test, sets up skills, and reports.
+  1. Start Rhino 8 from the Start menu.
+  2. Fully quit your AI app and open it again (closing the window is not
+     always enough; use Quit from its icon near the clock).
+  3. Claude only: add Rook's skills in the Claude app. Open Customize >
+     Plugins > Add > Add marketplace, enter bringfire/rook-release, select
+     Sync (again if it says "Failed to add marketplace"), then add Rook.
+  4. Paste the post-install prompt from your Rook folder into a new
+     conversation (ROOK_CLAUDE_POST_INSTALL.md for Claude, or
+     ROOK_CODEX_POST_INSTALL.md for ChatGPT). It checks the connection, runs
+     a quick test, and reports.
+
+Step-by-step guide:
+https://bringfire.github.io/rook-release/start/install/
 
 --------------------------------------------------------------------------------
 
