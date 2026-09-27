@@ -26,8 +26,9 @@ experience:
 Other MCP-compatible clients (Cursor, Windsurf, and the older "Claude Desktop" chat
 app at claude.ai/download) get the tools admitted by their configured profile, but not the orchestration
 skills (`/design-grasshopper`, `/plan-grasshopper`, `/execute-grasshopper`, etc.)
-or the session-start hook — those are Claude Code (marketplace
-plugin) and Codex (installer) features. For the guided workflows, use Claude Code or
+— those are Claude Code (marketplace plugin) and Codex (installer) features. Every
+client receives the Rook MCP server's instructions, which carry the Chirp and
+Grasshopper routing rules. For the guided workflows, use Claude Code or
 Codex.
 
 The routed Grasshopper workflow has three user skills. Use

@@ -142,7 +142,6 @@ ACTIVE_CASCADE_GUIDANCE = (
     ROOT / "README.md",
     ROOT / "QUICK_START.md",
     ROOT / "AGENT_SETUP.md",
-    ROOT / "scripts" / "session-start.sh",
     ROOT / "installer" / "agent-assets" / "ROOK_CODEX_POST_INSTALL.md",
     ROOT / "installer" / "agent-assets" / "ROOK_CLAUDE_POST_INSTALL.md",
 )
