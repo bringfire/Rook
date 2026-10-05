@@ -10,7 +10,7 @@
 
 **Tech Stack:** Windows, Python >=3.10, packaged Python 3.11.9; `msal==1.39.0`, `google-auth==2.56.3`, existing PyJWT/cryptography/HTTP transports; existing C# net48/net7/net8 companion and tests.
 
-**Spec:** `docs/superpowers/specs/2026-10-05-enterprise-google-workforce-federation-design.md` (revised after review of `50c8c4bd`).
+**Spec:** `docs/superpowers/specs/2026-10-05-enterprise-google-workforce-federation-design.md` (revised after reviews of `50c8c4bd` and `33f975ba`).
 
 **Status:** Written for review at the user's request. No implementation tasks below have run. MSAL's scoped dependency exception is approved; the selected STS contract, revised scope and this plan still require review before implementation. Cloud OAuth Preview is unapproved. Live credentials, configuration and spend are separate prerequisites.
 
@@ -21,10 +21,13 @@
 - Python retains credential ownership and DPAPI persistence. No MSAL broker extras, MSAL Extensions, `pymsalruntime`, shared service-account keys or employee CLI requirement.
 - Preserve development pins `requests==2.34.2`, `PyJWT==2.13.0`, `cryptography==50.0.0`; packaged pins `requests==2.34.2`, `PyJWT==2.14.0`, `cryptography==50.0.1`. Add only reviewed MSAL requirements; do not incidentally synchronize existing profiles.
 - Imports are pending, never active. Activation requires validated Entra identity plus successful STS exchange and atomic revision/authorization-epoch checks. Disconnect invalidates both slots and late candidates.
+- Activation includes text/Chirp refusal and stop-only retirement in Task 4. Persist pending retirement until confirmed; failure keeps committed authorization, reports restart required and blocks workforce leases.
+- Refresh writes require generation, verified principal and expected cache revision, plus cancellation/deadline checks under the mutation lock. Set the thread-safe cancellation event before releasing the async lock on timeout.
 - One active Google authorization per Windows user; opaque version-2 firm binding; same-principal refresh stable, successful reconnect rotates. Zero fallback to ambient credentials.
 - First workforce slice: images/videos. Vertex text and Vertex-required Chirp under workforce mode fail explicitly before dispatch/startup; preserve all legacy and non-Vertex behavior.
 - Imports <=64 KiB, serialized MSAL cache <=256 KiB, version-2 store <=512 KiB, assertion/token/JWKS responses <=1 MiB, claim clock tolerance <=60 seconds.
 - Token issuance <=30 seconds aggregate, individual request <=20 seconds. Browser interaction <=180 seconds; fixed owned configuration request ceiling 210 seconds.
+- Firm **Check sign-in** tests identity/exchange only: no model requests; image/video access, billing and quota remain explicitly unverified.
 - Existing image model `vertex_ai/gemini-3.1-flash-image` at `global`; video `vertex_ai/veo-3.1-fast-generate-001` at `us-central1`. Shared region changes require deliberate active save.
 - One submission dispatch per job; no automatic resubmit; restart interrupts without automatic poll/fetch. Local stop is not confirmed remote cancellation.
 - Actual account/tenant/project/client/pool values, credentials, private evidence and media stay outside repository/worktrees. Examples and tests are synthetic.
@@ -33,9 +36,9 @@
 ## Review Focus
 
 1. Pending reimport while the browser is open: stale success cannot activate a different pending revision (Task 2/4 tests).
-2. Disconnect/reconnect with the same employee: a late refresh or callback cannot resurrect the old session or publish its artifact (Task 4/6 tests).
+2. An old refresh returns after timeout or after a newer refresh commits: cancellation/deadline/revision checks refuse cache writes and late leases despite unchanged generation (Task 2/4/5 tests).
 3. Missing `oid` on refresh despite successful initial sign-in: reject before STS and preserve the previous protected cache (Task 3/4 tests).
-4. An existing legacy store plus firm import: legacy text/Chirp must continue until successful activation; activation must disclose their workforce limitation (Task 2/7 tests).
+4. Existing Vertex Chirp at activation: retire without replacement credential resolution; failure blocks leases and is reported with committed state; concurrent startup cannot reinstall a Vertex child (Task 4 tests). Import/failed login still leaves legacy authorization usable (Task 2/7 tests).
 5. Development imports pass but packaged runtime lacks MSAL: closed readiness error and failed packaging qualification, not an apparent connected state (Task 1/9 tests).
 
 ## Files and interface map
@@ -69,8 +72,12 @@ WorkforceCredentialContext  # access_token (repr=False), expires_at, generation,
                            # workforce_pool_user_project, quota_project_id
 ActivationTicket  # pending_revision:str, authorization_epoch:str
 WorkforceActiveRecord  # settings, generation, principal_id, connection_fingerprint,
-                       # protected principal/cache/key association and cache revision
+                       # protected principal/cache/key association, cache_revision:int,
+                       # chirp_retirement_pending:bool (true at activation)
 ActiveVertexAuthorizationSnapshot = VertexRecord | WorkforceActiveRecord
+FirmSignInCheckResult  # contract_version=2, check_scope='identity_exchange', state,
+                      # code:str|None, generation:str|None; image_access, video_access,
+                      # billing, quota are each the literal 'unverified'; no token
 ```
 
 New binding version 2 has exactly nine fields: `binding_version`, `authorization_generation`, `principal_id`, `connection_fingerprint`, `project_id`, `workforce_pool_user_project`, `quota_project_id` (nullable), `location`, `model_id`. Version 1 retains exactly its current five fields for legacy providers.
@@ -101,7 +108,7 @@ Python: `& $RookPython -m pytest <exact test paths> -q`. Expected result is ever
 
 **Files:** create `vertex_workforce_contract.py`, `vertex_workforce_store.py`, `mcp_server/tests/test_vertex_workforce_store.py`; modify `vertex_auth.py`, `test_vertex_auth.py` for envelope delegation and mode validation.
 
-**Interfaces:** `parse_firm_settings(raw: bytes) -> FirmSettings`; `VertexWorkforceStore.import_pending(settings: FirmSettings) -> ActivationTicket`; `read_pending() -> tuple[FirmSettings, ActivationTicket] | None`; `activate(ticket: ActivationTicket, candidate: EntraSessionCandidate, exchange: WorkforceExchangeResult, *, cancel_check: Callable[[], None]) -> WorkforceCredentialContext`; `discard_pending() -> None`; `disconnect_all() -> None`; `snapshot_active() -> ActiveVertexAuthorizationSnapshot | None`; `load_active_session(expected_generation: str) -> tuple[FirmSettings, PrivatePrincipal, str]`; `commit_refreshed_cache(expected_generation: str, principal: PrivatePrincipal, serialized_cache: str) -> None`. The store builds opaque identity IDs/fingerprints internally; callers cannot choose their values. The post-activation context remains in memory; the Google bearer is not written into active settings.
+**Interfaces:** `parse_firm_settings(raw: bytes) -> FirmSettings`; `VertexWorkforceStore.import_pending(settings: FirmSettings) -> ActivationTicket`; `read_pending() -> tuple[FirmSettings, ActivationTicket] | None`; `activate(ticket: ActivationTicket, candidate: EntraSessionCandidate, exchange: WorkforceExchangeResult, *, cancel_check: Callable[[], None]) -> WorkforceCredentialContext`; `discard_pending() -> None`; `disconnect_all() -> None`; `snapshot_active() -> ActiveVertexAuthorizationSnapshot | None`; `load_active_session(expected_generation: str) -> tuple[FirmSettings, PrivatePrincipal, str, int]` (settings, principal, serialized cache, cache revision); `commit_refreshed_cache(expected_generation: str, expected_cache_revision: int, principal: PrivatePrincipal, serialized_cache: str, *, deadline: float, cancel_check: Callable[[], None]) -> int` (new revision); `mark_chirp_retired(expected_generation: str, *, deadline: float, cancel_check: Callable[[], None]) -> None`. The store builds opaque identity IDs/fingerprints internally; callers cannot choose their values. The post-activation context remains in memory; the Google bearer is not written into active settings. Its bearer is not eligible for lease issuance until pending retirement is cleared.
 
 - [ ] Add failing `test_import_failure_cancel_and_disconnect_keep_slots_consistent` and `test_v1_active_survives_pending_import`: import must preserve active generation/ciphertext and issue zero recycler calls; failed parsing leaves both slots untouched. Discard leaves active untouched. Disconnect empties both and advances a retained authorization epoch. Reimport invalidates an earlier ticket. `test_same_employee_reconnect_rotates_generation` asserts rotation only on activation.
 
@@ -116,8 +123,20 @@ Python: `& $RookPython -m pytest <exact test paths> -q`. Expected result is ever
   with pytest.raises(VertexAuthError):
       store.activate(ticket, candidate, exchange, cancel_check=lambda: None)
   ```
-- [ ] Run `& $RookPython -m pytest mcp_server/tests/test_vertex_workforce_store.py mcp_server/tests/test_vertex_auth.py -q`; observe missing contracts/behavior.
-- [ ] Define immutable types and the version-2 envelope `authorization_epoch`, `pending`, `active`. Use existing mutation/DPAPI/atomic-write patterns; preserve embedded legacy active record generation. Implement compare-and-swap activation, strict bounds/duplicate-key refusal, protected identity association and keyed settings fingerprint. Cache-only refresh changes no authorization generation/epoch. Provide legacy mode delegation so every earlier auth test passes before later consumers use these contracts.
+- [ ] Add failing `test_cache_commit_rejects_cancelled_or_expired_worker` and `test_old_cache_revision_cannot_overwrite_new_refresh`, using an injected monotonic clock and cancellation event. Hold revision N, successfully commit N+1, then attempt the old write with the same generation/principal; assert fixed `vertex_refresh_stale`, unchanged N+1 ciphertext/revision and no merging. Expired/cancelled writes must be refused after lock acquisition and before replacement. Test activation starts with pending retirement and generation-conditional clearing cannot clear a newer session's flag.
+
+  ```python
+  revision = store.load_active_session(generation)[3]
+  newer = store.commit_refreshed_cache(generation, revision, principal, new_cache,
+      deadline=deadline, cancel_check=check_new_worker)
+  with pytest.raises(VertexAuthError) as denied:
+      store.commit_refreshed_cache(generation, revision, principal, old_cache,
+          deadline=deadline, cancel_check=check_old_worker)
+  assert denied.value.code == 'vertex_refresh_stale'
+  assert store.load_active_session(generation)[2:] == (new_cache, newer)
+  ```
+- [ ] Run `& $RookPython -m pytest mcp_server/tests/test_vertex_workforce_store.py mcp_server/tests/test_vertex_auth.py -q`; observe missing contracts/behavior, including revision/deadline/retirement assertions.
+- [ ] Define immutable types and the version-2 envelope `authorization_epoch`, `pending`, `active`. Use existing mutation/DPAPI/atomic-write patterns; preserve embedded legacy active record generation. Implement compare-and-swap activation, strict bounds/duplicate-key refusal, protected identity association and keyed settings fingerprint. Cache writes increment a nonnegative revision under the mutation lock after checking principal/generation/revision, cancellation and deadline; reread current envelope before modifying only the cache fields. Cache-only refresh changes no authorization generation/epoch. Activation sets pending retirement; clearing it requires matching generation and verified lifecycle completion, never a cache-only update. Provide legacy mode delegation so every earlier auth test passes before later consumers use these contracts.
 - [ ] Run those tests plus store write-failure, future-schema, oversized-cache/envelope, cancelled mutex-wait and interrupted atomic-write cases. Verify no plaintext serialized cache in store bytes/repr.
 - [ ] Commit: `feat(auth): separate pending firm settings and active session`.
 
@@ -125,14 +144,15 @@ Python: `& $RookPython -m pytest <exact test paths> -q`. Expected result is ever
 
 **Files:** create `vertex_entra.py`, `mcp_server/tests/test_vertex_entra.py`; reuse callback lifecycle utilities from `vertex_oauth.py` by a small local extraction only if necessary; rerun `test_vertex_oauth.py` for any extraction.
 
-**Interfaces:** `EntraSessionAdapter.begin(settings: FirmSettings, ticket: ActivationTicket, *, cancel_check: Callable[[], None]) -> EntraSessionCandidate`; `EntraSessionAdapter.refresh(settings: FirmSettings, serialized_cache: str, expected: PrivatePrincipal, *, deadline: float) -> EntraSessionCandidate`; `EntraSessionAdapter.verify_assertion(raw: str, settings: FirmSettings, *, expected_nonce: str | None, expected_principal: PrivatePrincipal | None, deadline: float) -> VerifiedEntraAssertion`. Cache text is already unprotected only inside Python; never export it to C#.
+**Interfaces:** `EntraSessionAdapter.begin(settings: FirmSettings, ticket: ActivationTicket, *, cancel_check: Callable[[], None]) -> EntraSessionCandidate`; `EntraSessionAdapter.refresh(settings: FirmSettings, serialized_cache: str, expected: PrivatePrincipal, *, deadline: float, cancel_check: Callable[[], None]) -> EntraSessionCandidate`; `EntraSessionAdapter.verify_assertion(raw: str, settings: FirmSettings, *, expected_nonce: str | None, expected_principal: PrivatePrincipal | None, deadline: float, cancel_check: Callable[[], None]) -> VerifiedEntraAssertion`. Cache text is already unprotected only inside Python; never export it to C#. Pass the operation's cancellation/deadline through the bounded MSAL discovery/token and JWKS transports, checking before dispatch and after response.
 
 - [ ] Add failing signed synthetic-token tests: `test_missing_oid_stops_before_exchange`, `test_missing_tid_stops_before_exchange`, `test_refresh_missing_oid_preserves_cache`, `test_refreshed_tid_oid_must_match`, `test_wrong_nonce_and_replayed_callback_rejected`. Assertions: no returned candidate/token on failure, cache bytes unchanged, zero Google calls. Verify issuer/audience/signature/time with an injected clock and synthetic keys.
 
   ```python
   with pytest.raises(VertexAuthError):
       adapter.verify_assertion(signed_missing_oid, settings,
-          expected_nonce=nonce, expected_principal=None, deadline=deadline)
+          expected_nonce=nonce, expected_principal=None, deadline=deadline,
+          cancel_check=check_worker)
   assert google_calls == []
   assert persisted_cache == prior_cache
   ```
@@ -141,11 +161,11 @@ Python: `& $RookPython -m pytest <exact test paths> -q`. Expected result is ever
 - [ ] Test 180-second interaction deadline, 30-second refresh aggregate, <=20-second request, <=1 MiB responses, <=60-second time tolerance, one bounded unknown-key refresh, wrong callback host/path/port, invalid form/duplicate parameters, no redirects, PII logging disabled, cache <=256 KiB. Entra errors expose only fixed public codes. Test cancellation at callback, token response and cache serialization; no late durable write.
 - [ ] Run `test_vertex_entra.py`, `test_vertex_msal_dependency.py`, `test_vertex_oauth.py`; commit `feat(auth): add verified Entra desktop session adapter`.
 
-## Task 4: Pin SDK STS exchange and atomic firm activation
+## Task 4: Pin SDK STS exchange, activation and stop-only Chirp retirement
 
-**Files:** create `vertex_workforce_exchange.py`, `mcp_server/tests/test_vertex_workforce_exchange.py`; modify `vertex_backend.py`; extend `test_vertex_backend.py`, `test_vertex_workforce_store.py`.
+**Files:** create `vertex_workforce_exchange.py`, `mcp_server/tests/test_vertex_workforce_exchange.py`; modify `vertex_backend.py`, `vertex_auth.py`, `chirp_manager.py`; extend `test_vertex_backend.py`, `test_vertex_auth.py`, `test_vertex_workforce_store.py`, `test_chirp_manager.py`, `test_vertex_runtime_integration.py`.
 
-**Interfaces:** `exchange_assertion(settings: FirmSettings, assertion: VerifiedEntraAssertion, *, deadline: float, request: object | None = None) -> WorkforceExchangeResult`; `connect_vertex_workforce(ticket: ActivationTicket, *, store: VertexWorkforceStore, entra: EntraSessionAdapter, cancel_check: Callable[[], None], recycler: Callable[[str | None], None]) -> VertexOperationResult`; `refresh_vertex_workforce(*, store: VertexWorkforceStore, entra: EntraSessionAdapter, expected_generation: str, deadline: float) -> WorkforceCredentialContext`. Exchange returns only bearer/expiry/project roles; Task 2's activation assigns the final durable generation/opaque binding values and returns the complete in-memory context. Refresh loads Task 2's bound session, verifies principal, exchanges, generation-conditionally persists the cache and rechecks the active snapshot before returning context.
+**Interfaces:** `exchange_assertion(settings: FirmSettings, assertion: VerifiedEntraAssertion, *, deadline: float, cancel_check: Callable[[], None], request: object | None = None) -> WorkforceExchangeResult`; `connect_vertex_workforce(ticket: ActivationTicket, *, store: VertexWorkforceStore, entra: EntraSessionAdapter, cancel_check: Callable[[], None], retire: Callable[[str, float, Callable[[], None]], None]) -> VertexOperationResult`; `refresh_vertex_workforce(*, store: VertexWorkforceStore, entra: EntraSessionAdapter, expected_generation: str, deadline: float, cancel_check: Callable[[], None]) -> WorkforceCredentialContext`; `chirp_manager.retire_after_workforce_commit(expected_generation: str, deadline: float, cancel_check: Callable[[], None]) -> None`; `vertex_backend.finish_workforce_retirement(*, store: VertexWorkforceStore, expected_generation: str, deadline: float, cancel_check: Callable[[], None], retire: Callable[[str, float, Callable[[], None]], None]) -> None`. The production retire callback obtains the current store snapshot rather than replacement credentials. Exchange returns only bearer/expiry/project roles; Task 2 activation creates the durable binding and pending retirement flag. The backend retires then generation-conditionally clears the flag. Refresh refuses pending retirement, loads the bound cache/revision, verifies principal, exchanges, commits using Task 2's revision/deadline/cancellation checks and rechecks active context before returning a lease candidate.
 
 - [ ] Add failing `test_sts_id_token_contract_has_no_client_auth` with fake SDK transport. Assert exact endpoint, token-exchange grant, workforce audience, `cloud-platform`, ID-token subject type, access-token requested type, decoded SDK `options.userProject`, no Authorization/client ID/client secret, one call and preserved quota metadata. Add response expiry/type/body bounds and STS refusal cases.
 
@@ -157,17 +177,33 @@ Python: `& $RookPython -m pytest <exact test paths> -q`. Expected result is ever
   assert not {'client_id', 'client_secret'} & captured.form.keys()
   ```
 - [ ] Add held-response races: `test_failed_login_preserves_active_after_import`, `test_cancel_after_exchange_cannot_activate`, `test_reimport_rejects_late_exchange`, `test_disconnect_rejects_late_exchange`, `test_active_save_rejects_candidate`. Assert active bytes/generation unchanged except deliberate mutations, no candidate cache merging, and zero late recycler/activation.
-- [ ] Run `test_vertex_workforce_exchange.py`, `test_vertex_backend.py`, `test_vertex_workforce_store.py` to observe failures.
-- [ ] Construct pinned `identity_pool.Credentials` using a Rook supplier that accepts only a verified assertion; preserve SDK form encoding. Share the existing aggregate deadline and disable redirects/implicit HTTP retries through the request adapter. Initial sign-in/exchange works entirely in the candidate cache; activate via Task 2's ticket and invoke existing recycling only after successful commit. A recycler failure reports committed state plus restart-required, not rolled-back authorization.
-- [ ] Run those tests and `test_vertex_entra.py`; commit `feat(auth): activate firm sessions through pinned STS exchange`.
+- [ ] Add `test_timed_out_refresh_cannot_write_or_return_context` and `test_old_refresh_returns_after_newer_commit`: hold the old Entra/STS response, revoke its cancellation event/deadline, complete a newer refresh with unchanged generation, then release the old worker. Assert no further Google dispatch, no old cache/context return, and N+1 cache/revision preserved. Releasing the old worker must settle, not leave an unobserved thread exception.
+- [ ] Add `test_workforce_activation_retires_without_resolving_bootstrap`, `test_workforce_retirement_failure_keeps_committed_state`, `test_vertex_startup_racing_activation_cannot_reinstall_child`, `test_workforce_text_refused_before_adc_or_child_start`. Test no-child success, verified event/forced retirement, unowned/still-live failure, no replacement credential lookup or child startup, and legacy/non-Vertex behavior. A pre-activation Entra/STS failure must issue zero retire calls.
 
-**Identity checkpoint:** inspect the actual scopes, nonce/signature/principal verification, mock STS wire evidence, no-network guarantees, encrypted persistence and late-worker races. Do not advance with an unexplained grant mismatch. Record that the SDK construction test passed while real exchange remains not run.
+  ```python
+  assert bootstrap_calls == [] and replacement_starts == []
+  assert success_result.success and retired_pid == prior_owned_pid
+  assert successful_store.snapshot_active().chirp_retirement_pending is False
+  assert failure_result.code == 'vertex_restart_required'
+  assert failed_store.snapshot_active().generation == failure_result.generation
+  assert failed_store.snapshot_active().chirp_retirement_pending is True
+  with pytest.raises(VertexAuthError):
+      refresh_vertex_workforce(store=failed_store, entra=entra,
+          expected_generation=failure_result.generation, deadline=deadline,
+          cancel_check=check_worker)
+  ```
+- [ ] Run `& $RookPython -m pytest mcp_server/tests/test_vertex_workforce_exchange.py mcp_server/tests/test_vertex_backend.py mcp_server/tests/test_vertex_workforce_store.py mcp_server/tests/test_chirp_manager.py mcp_server/tests/test_vertex_auth.py mcp_server/tests/test_vertex_runtime_integration.py -q`; observe missing exchange, retirement and late-worker protections.
+- [ ] Construct pinned `identity_pool.Credentials` using a Rook supplier that accepts only a verified assertion; preserve SDK form encoding. Share the existing aggregate deadline and disable redirects/implicit HTTP retries through the request adapter. Check cancellation/deadline at network boundaries, cache commit and final context return; never retry stale cache commits. Initial sign-in/exchange works entirely in the candidate cache; activation commits before stop-only retirement. Keep exchange/commit/retirement within the 30-second post-browser phase; existing retirement waits (10 seconds graceful, 2 seconds forced) are capped by remaining time.
+- [ ] Install workforce guards now in `apply_vertex_litellm_arguments`, legacy text readiness/token loading, `_resolve_vertex_bootstrap`, live discovery reuse and every child-launch path. Use fixed `vertex_text_federation_unsupported` with zero ADC fallback. Add the stop-only path under the existing replacement lock, reusing `_retire_discovered_process` and exact ownership checks before any replacement credential resolution; conservatively retire the existing managed sidecar, never start its replacement. Launch/reuse rechecks mode/generation under that lock; cap lock acquisition and waits by remaining time, avoid nested acquisition of the non-reentrant lock, and never hold the store mutation lock during retirement. Retirement failure preserves pending retirement and committed generation, reports `vertex_restart_required`, and blocks workforce leases. `finish_workforce_retirement` supports verified retry through Task 7's explicit check, including after restart; passive status/startup cannot clear the flag. Non-Vertex startup uses its normal path with no Vertex bootstrap after retirement.
+- [ ] Run those tests plus `test_vertex_entra.py`, `test_chirp_manager.py`, `test_vertex_auth.py`, `test_vertex_runtime_integration.py`; commit `feat(auth): activate firm sessions with STS and verified Chirp retirement`.
+
+**Identity checkpoint:** inspect actual scopes/claims, mock STS wire evidence, encrypted persistence, cache-revision and expired-worker refusal, and stop-only retirement ordering/failure/recovery. Confirm no executable path can activate workforce credentials before its text/Chirp guards exist. Do not advance with an unexplained grant mismatch or an old sidecar reported retired without evidence. Record that SDK construction passed while real exchange remains not run.
 
 ## Task 5: Extend lease contracts and consumers before media transport
 
 **Files:** modify `vertex_token_lease.py`, `agent/chat/vertex_media_http.py`, `VertexAccessTokenContract.cs`, `ChatServiceVertexAccessTokenSource.cs`; tests `test_vertex_token_lease.py`, `test_vertex_media_http.py`, `ChatServiceVertexAccessTokenSourceTests.cs`. Add `src/Rook.Tests/Services/Vision/Generation/VertexBindingV2Tests.cs`.
 
-**Interfaces:** preserve `IVertexAccessTokenSource.AcquireAsync(model, location, expectedBinding, ct)` / `ValidateBindingAsync(binding, ct)`; extend managed `VertexAuthorizationBinding` with nullable legacy-compatible principal/fingerprint/user/quota-project properties and versioned closed serializers. `VertexAccessTokenLease` gains `ContractVersion` and `QuotaProjectId`. Python `VertexTokenLeaseService.acquire` gains `contract_version: int = 1`; its workforce loader calls Task 4's `refresh_vertex_workforce`, not the legacy ADC loader. V1 behavior remains testable.
+**Interfaces:** preserve `IVertexAccessTokenSource.AcquireAsync(model, location, expectedBinding, ct)` / `ValidateBindingAsync(binding, ct)`; extend managed `VertexAuthorizationBinding` with nullable legacy-compatible principal/fingerprint/user/quota-project properties and versioned closed serializers. `VertexAccessTokenLease` gains `ContractVersion` and `QuotaProjectId`. Python `VertexTokenLeaseService.acquire` gains `contract_version: int = 1`; its workforce loader calls Task 4's `refresh_vertex_workforce` with a per-worker thread-safe cancellation check, not the legacy ADC loader. V1 behavior remains testable.
 
 - [ ] Add failing Python `test_same_principal_refresh_preserves_v2_binding`, `test_validate_checks_owned_principal_without_refresh`, `test_old_client_cannot_acquire_workforce_lease`; managed `V2Lease_RejectsQuotaAndPrincipalMismatch`, `V1Binding_RoundTripsWithoutExtraFields`, `ValidationV2_UsesClosedShape`. Assert exactly nine v2 binding fields, fixed upgrade error, no token on mismatch.
 
@@ -178,8 +214,9 @@ Python: `& $RookPython -m pytest <exact test paths> -q`. Expected result is ever
       await service.acquire(model, location, initial.binding, contract_version=1)
   assert denied.value.code == 'vertex_client_upgrade_required'
   ```
-- [ ] Run both Python files and focused managed tests without `--no-build`; observe the missing contract behavior.
-- [ ] Define contracts and update Python/C# parsers, failure mappings and test fakes in the same commit. Recheck current active context before cached reuse, before/after refresh and validation-only publication calls. Refresh/cache persistence is generation-conditional. Validate quota/project values and consistency with binding. Legacy ADC remains legacy; it is not advertised as firm acceptance and is never used as a workforce fallback. Unsupported external principal continuity fails the firm adapter before token issuance.
+- [ ] Add `test_acquire_timeout_revokes_worker_before_unlock`, `test_old_thread_cannot_cache_lease_after_newer_refresh`, `test_retirement_pending_blocks_cached_and_fresh_lease`: hold old thread completion, time out the async caller, complete a newer acquire, then release/observe the old worker. Assert cancellation is set before async lock release, zero old cache writes/lease installation and preserved newer revision/token cache. Cover caller cancellation and disconnect in addition to deadline expiry.
+- [ ] Run both Python files and focused managed tests without `--no-build`; observe missing contracts and async revocation/retirement protection.
+- [ ] Define contracts and update Python/C# parsers, failure mappings and test fakes in the same commit. Recheck active context and pending retirement before cached reuse, before/after refresh and validation-only publication calls. Set the per-worker cancellation event in timeout/cancellation handling before releasing the async lock; retain/observe the underlying worker until settled without extending the caller's 30-second ceiling. The thread receives the absolute deadline and cancel check; revoked results cannot enter `_cached_lease`. Refresh persistence uses Task 2's generation/principal/cache-revision transaction. Validate quota/project values and binding consistency. Legacy ADC remains legacy, never a workforce fallback.
 - [ ] Build all managed Debug targets and run the focused managed command; run `test_vertex_token_lease.py`, `test_vertex_media_http.py`, `test_vertex_auth.py`. Ensure existing callers compile before Task 6 uses new fields.
 - [ ] Commit: `feat(auth): carry firm identity and projects through versioned leases`.
 
@@ -204,13 +241,13 @@ Python: `& $RookPython -m pytest <exact test paths> -q`. Expected result is ever
 
 **Publication checkpoint:** inspect request counts and gate placement in real consumers, not only fake token-service tests. Confirm local stop is still `LocalStopOnlyOutcome`, no remote-cancel claim, no duplicate billed retry and no terminal overwrite.
 
-## Task 7: Expose pending/active firm settings and protect legacy text/Chirp
+## Task 7: Expose pending/active firm settings and identity-only sign-in checks
 
-**Files:** modify `vertex_configuration_http.py`, `vertex_backend.py`, `vertex_auth.py`, `chirp_manager.py`, `AgentChatClient.VertexConfiguration.cs`, `RookChatConfigurationDialog.Vertex.cs`. Extend `test_vertex_configuration_http.py`, `test_vertex_media_ui.py`, `test_vertex_backend.py`, `test_vertex_runtime_integration.py`, `test_chirp_manager.py`, `VertexConfigurationClientTests.cs`, `VertexConfigurationDialogTests.cs`.
+**Files:** modify `vertex_configuration_http.py`, `vertex_backend.py`, `AgentChatClient.VertexConfiguration.cs`, `RookChatConfigurationDialog.Vertex.cs`. Extend `test_vertex_configuration_http.py`, `test_vertex_media_ui.py`, `test_vertex_backend.py`, `test_vertex_runtime_integration.py`, `test_chirp_manager.py`, `VertexConfigurationClientTests.cs`, `VertexConfigurationDialogTests.cs`. Task 4 already owns text/Chirp refusal and retirement; rerun its regression tests here.
 
-**Interfaces:** add closed owned-route operations `import_firm {operation,settings_path}`, `discard_firm {operation}`, `connect_firm {operation,pending_revision,authorization_epoch}`, `firm_status {operation}`. Existing legacy operations retain their closed shapes. `ReadFirmConfigurationAsync(ct)`, `ImportFirmSettingsAsync(path, ct)`, `DiscardPendingFirmSettingsAsync(ct)`, `ConnectFirmAccountAsync(pendingRevision, authorizationEpoch, ct)` return a separate typed firm status with pending and active summaries. Existing `disconnect` clears both slots. Firm summaries never include tenant/object IDs, MSAL cache or assertion.
+**Interfaces:** add closed owned-route operations `import_firm {operation,settings_path}`, `discard_firm {operation}`, `connect_firm {operation,pending_revision,authorization_epoch}`, `firm_status {operation}`, `check_firm_sign_in {operation,authorization_generation}`. Existing legacy operations retain their closed shapes. `ReadFirmConfigurationAsync(ct)`, `ImportFirmSettingsAsync(path, ct)`, `DiscardPendingFirmSettingsAsync(ct)`, `ConnectFirmAccountAsync(pendingRevision, authorizationEpoch, ct)` return typed firm status with pending/active summaries. `vertex_backend.check_firm_sign_in(expected_generation: str, *, store: VertexWorkforceStore, entra: EntraSessionAdapter, deadline: float, cancel_check: Callable[[], None], retire: Callable[[str, float, Callable[[], None]], None]) -> FirmSignInCheckResult` uses Task 4 retirement/forced refresh, not a cached lease or model probe. Managed `CheckFirmSignInAsync(expectedGeneration, ct)` returns the closed result defined in Task 2. Existing `disconnect` clears both slots. Summaries/results contain no tenant/object IDs, MSAL cache, assertion or bearer.
 
-- [ ] Add failing `test_pending_import_is_not_connected_and_never_refreshes`, `test_failed_connect_keeps_legacy_chirp_usable`, `test_disconnect_clears_pending_and_rejects_late_callback`, `test_workforce_text_refused_before_adc_or_child_start`; managed `PendingFirmSettings_AreDistinctFromConnectedAccount`, `FirmConnect_UsesDisplayedRevision`. Assert no session mutation on passive read/import, explicit limitation before activation, no Google desktop JSON field in firm view.
+- [ ] Add failing `test_pending_import_is_not_connected_and_never_refreshes`, `test_failed_connect_keeps_legacy_chirp_usable`, `test_disconnect_clears_pending_and_rejects_late_callback`; managed `PendingFirmSettings_AreDistinctFromConnectedAccount`, `FirmConnect_UsesDisplayedRevision`. Assert no session mutation on passive read/import, explicit limitation before activation, no Google desktop JSON field in firm view. Rerun Task 4's workforce text/Chirp refusal tests.
 
   ```python
   assert store.snapshot_active().generation == legacy_generation
@@ -220,12 +257,24 @@ Python: `& $RookPython -m pytest <exact test paths> -q`. Expected result is ever
   assert denied.value.code == 'vertex_text_federation_unsupported'
   assert adc_calls == [] and child_starts == []
   ```
-- [ ] Run the listed Python configuration/backend/Chirp tests and focused managed configuration tests to observe failure.
-- [ ] Wire existing session-nonce admission to Task 4 without exposing a public token export. Use bounded file import and status responses. Show active and pending firm/project/location separately; include discard/reconnect actions and post-activation state. Refuse Vertex text readiness/generation through `apply_vertex_litellm_arguments` / `_default_token_loader` in workforce mode with `vertex_text_federation_unsupported`; refuse Vertex Chirp bootstrap before child launch. In active workforce mode, legacy `save` returns `vertex_firm_settings_reimport_required`; use pending reimport/reactivation for project/location/quota edits. Preserve legacy and non-Vertex branches and existing deliberate region saves. Do not pass a non-serializable supplier into LiteLLM or Chirp JSON.
-- [ ] Run those tests plus full Vertex Python tests, `test_vertex_oauth.py`, managed settings tests and all affected builds. Verify browser cancellation cleanup, wrong nonce/Origin/extra keys, version-1 migration, no billed passive probe, and existing manager restart semantics.
-- [ ] Commit: `feat(ui): add firm sign-in with pending settings and explicit readiness`.
+- [ ] Add `test_sign_in_check_success_leaves_models_billing_quota_unverified`, `test_sign_in_check_never_dispatches_model_requests`, `test_sign_in_check_timeout_or_disconnect_discards_success`; managed `SignInCheck_RejectsReadyOrVerifiedClaims`, `SignInCheck_MapsClosedFailureStates`. Use held Entra/STS responses, pending-retirement recovery and authorization-generation mismatch. Assert one real mock Entra refresh and STS call on success, no browser/text/model/submit/poll/fetch calls, and no successful UI state after cancellation.
 
-**Configuration checkpoint:** inspect pending/active UI copy, atomic activation evidence, import/failure/cancel/disconnect tests, shared text/Chirp consequences and compatibility before moving on.
+  ```python
+  assert result.check_scope == 'identity_exchange'
+  assert result.state == 'signed_in'
+  assert (result.image_access, result.video_access, result.billing, result.quota) == ('unverified',) * 4
+  assert model_calls == [] and browser_calls == []
+  ```
+- [ ] Run the listed Python configuration/backend/Chirp tests and focused managed configuration tests; observe missing sign-in-check operation, closed result/state mapping and cancellation protections.
+- [ ] Wire existing session-nonce admission to Task 4 without exposing a public token export. Show active/pending settings, discard/reconnect and restart-required states separately. Keep legacy `save` refused in active workforce mode with `vertex_firm_settings_reimport_required`; use pending reimport/reactivation. Preserve shared-region and non-Vertex behavior. Disclose media-only limitation before activation, not after it.
+- [ ] Keep the check's thread-safe cancellation/deadline semantics through the owned route: return fixed timeout within 30 seconds, observe the retained worker asynchronously, and keep its mutation slot busy until it settles. Do not await the current unbounded `shield(worker)` cleanup before returning a timed-out check. Disconnect can set cancellation and invalidate the store/tombstone immediately even while a worker is outstanding; it cannot be rejected merely as configuration busy. Late results neither restore success nor clear a newer worker's slot. Add route-level held-worker tests for these cases.
+- [ ] Implement **Check sign-in** with a 30-second aggregate deadline shared across stop-only recovery, forced Entra refresh, STS and result validation. Closed states: `signed_in`, `sign_in_required`, `exchange_denied`, `service_unavailable`, `authorization_changed`, `restart_required`; image/video/billing/quota are always literal `unverified`. No network on passive status, no model readiness endpoint and no **Generation ready** claim after STS. Success copy: **Sign-in and Google exchange passed. Image/video access, billing and quota remain unverified.** Errors use fixed public codes; state/code mismatches or a different returned generation are rejected by C#. Checking state is transient; timeout cannot restore the previous successful check as current.
+
+  Closed state/code mapping: `signed_in` -> null; `sign_in_required` -> `vertex_firm_sign_in_required`; `exchange_denied` -> `vertex_workforce_exchange_denied`; `service_unavailable` -> `vertex_token_issuance_timeout`, `vertex_request_failed` or `vertex_refresh_stale`; `authorization_changed` -> `vertex_authorization_changed`; `restart_required` -> `vertex_restart_required`. Add these fixed codes at their owning auth operations and bridge whitelist; raw provider bodies never become a code/message. A failed check can report only the captured generation, or null after local deletion, never a replacement connection.
+- [ ] Run those tests plus full Vertex Python tests, `test_vertex_oauth.py`, managed settings tests and all affected builds. Verify browser cancellation cleanup, wrong nonce/Origin/extra keys, version-1 migration, no billed passive probe, and existing manager restart semantics.
+- [ ] Commit: `feat(ui): add firm settings and identity-only sign-in checks`.
+
+**Configuration checkpoint:** inspect pending/active UI copy, atomic activation/retirement evidence, import/failure/cancel/disconnect tests, shared text/Chirp compatibility and **Check sign-in** request counts. STS success must leave both models, billing and quota unverified in the actual managed view.
 
 ## Task 8: Document firm administration and private acceptance evidence
 
@@ -235,7 +284,7 @@ Python: `& $RookPython -m pytest <exact test paths> -q`. Expected result is ever
 
 - [ ] Add failing `test_workforce_evidence_requires_real_refresh_and_project_attribution`, `test_inconclusive_intervention_is_not_pass`, `test_missing_live_prerequisites_cannot_be_pass`, `test_private_sentinels_rejected`. Retain all earlier Google-account evidence requirements.
 - [ ] Run `test_vertex_media_acceptance_harness.py`; observe missing workforce fields/status rules.
-- [ ] Update validator and guides with a synthetic non-secret firm settings example matching `FirmSettings`. Document Entra public desktop registration, `profile`/stable `oid` mapping, pool client-ID audience, group/IAM setup, user/quota/resource project roles, direct usage costs, broker-dependent Conditional Access limitation, media-only boundary, pending activation, disconnect and remote billing behavior. Existing Google account pilot remains its own procedure; no Advanced Protection bypass advice.
+- [ ] Update validator and guides with a synthetic non-secret firm settings example matching `FirmSettings`. Document Entra public desktop registration, `profile`/stable `oid` mapping, pool client-ID audience, group/IAM setup, project roles, direct usage costs, broker-dependent Conditional Access limitation, media-only boundary, pending activation, retirement-failure recovery, disconnect and remote billing behavior. **Check sign-in** verifies identity/exchange only; live output/billing evidence remains separate. Existing Google account pilot remains its own procedure; no Advanced Protection bypass advice.
 - [ ] Run validator tests and scan committed docs/fixtures for held private identifiers/credentials without printing them. Record automated and installed cases separately; incomplete private billing evidence is pending, not passed.
 - [ ] Commit: `docs(auth): document firm setup and workforce acceptance`.
 
@@ -248,7 +297,7 @@ Python: `& $RookPython -m pytest <exact test paths> -q`. Expected result is ever
 - [ ] Rebuild Debug and Release managed targets with `-t:Rebuild -p:RhinoPluginDir=` before final tests. Enumerate `$workforceVertexTests = @(rg --files mcp_server/tests -g 'test_vertex*.py')`, then run `& $RookPython -m pytest @workforceVertexTests mcp_server/tests/test_chirp_manager.py -q`; no unexpanded Windows wildcard. Run the full managed test suite without `--no-build`; report the known external Prime fixture `Task7_original_producer_values_survive_managed_http_parser` separately if still unavailable, with its exact cause. Never fabricate its dependencies or call the unexcluded gate passed.
 - [ ] Verify a clean source commit, then use `scripts/python-runtime/build-rook-python-wheelhouse.ps1` with explicit version, matching Chirp source, staged runtime and accepted dependency wheel cache. Keep evolving Task 9 evidence outside Git until this clean-source build finishes. Use its existing pinned runtime/wheelhouse contract and `scripts/validate-python-wheelhouse.ps1`; run offline installation/import/version/`pip check` verification for MSAL, Google auth and their required dependencies. Missing runtime/accepted wheels is a recorded package prerequisite, not permission for a dependency fallback. Do not silently fall back to a development interpreter and call it packaged qualification.
 - [ ] Run existing packaging/locked-input tests with their documented environment variables. Verify no broker extras, exact MSAL wheel digest, staged source commit and manifest imports, and review all dependency changes. Re-run inline-memory measurement only if output parsing/limits/allocation paths changed; preserve the earlier measurement's scope if they did not.
-- [ ] Request an independent authentication/whole-branch review after fresh checks. Reviewer examines actual MSAL scopes/public APIs, independent assertion validation, STS wire contract, protected-cache compare-and-swap, project/header rules, publication races, legacy regressions and staged dependency evidence. Resolve actionable findings with focused commits and relevant fresh checks; no live acceptance before this gate.
+- [ ] Request an independent authentication/whole-branch review after fresh checks. Reviewer examines MSAL scopes/public APIs, assertion validation, STS wire contract, cache-revision/cancellation/deadline checks, stop-only retirement and failure recovery, identity-only UI claims, project/header rules, publication races, legacy regressions and staged dependencies. Resolve actionable findings with focused commits and relevant fresh checks; no live acceptance before this gate.
 - [ ] Commit sanitized evidence: `test(auth): record fresh workforce and runtime verification`. Report passed/failed/not-run gates accurately.
 
 ## Task 10: Installed firm acceptance after prerequisites and spend approval
@@ -265,8 +314,8 @@ Python: `& $RookPython -m pytest <exact test paths> -q`. Expected result is ever
 
 ## Self-review and handoff
 
-Dependency order is deliberate: Task 1 admits the library; Task 2 defines types/store transactions; Task 3 defines verified Entra sessions; Task 4 defines exchange/activation; Task 5 defines lease contracts and consumers; Task 6 uses those contracts for media; Task 7 exposes completed operations; Task 8 specifies evidence; Task 9 rebuilds/packages/reviews; Task 10 proves live behavior. Every commit must remain independently buildable and pass relevant checks.
+Dependency order is deliberate: Task 1 admits the library; Task 2 defines types/revisioned store transactions; Task 3 defines verified Entra sessions; Task 4 enables exchange/activation together with text/Chirp guards and stop-only retirement; Task 5 defines lease contracts/consumers and async worker revocation; Task 6 uses those contracts for media; Task 7 exposes completed operations and identity-only checks; Task 8 specifies evidence; Task 9 rebuilds/packages/reviews; Task 10 proves live behavior. Every commit must remain independently buildable and pass relevant checks.
 
-Coverage maps spec sections 1-4 to Tasks 1/3/4/8; section 5 to Task 2; section 6 to Task 3; sections 7-8 to Tasks 5-7; section 9 to Task 7; section 10 to Tasks 1-9; section 11 to Tasks 8-10. All five Review Focus conditions have named owning tests. No implementation skill, dependency installation, Cloud permission grant or billed generation has been invoked while writing this plan.
+Coverage maps spec sections 1-4 to Tasks 1/3/4/8; section 5 to Task 2; section 6 to Tasks 2-5; sections 7-8 to Tasks 4-7; section 9 to Task 7; section 10 to Tasks 1-9; section 11 to Tasks 8-10. All five Review Focus conditions have named owning tests. No implementation skill, dependency installation, Cloud permission grant or billed generation has been invoked while writing this plan.
 
 Review the revised STS decision, media-only text/Chirp boundary and this plan before implementation. Native execution is preserved; the existing explicit MSAL exception is not permission to use Cloud OAuth Preview or to skip review/acceptance.
