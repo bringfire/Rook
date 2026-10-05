@@ -30,7 +30,7 @@ Full baseline logs are retained in the execution scratch workspace. Infrastructu
 
 ## Acceptance status
 
-Automated implementation acceptance: not run. Memory acceptance: not run. Installed live acceptance: not run; requires desktop OAuth client configuration, billed project, approved identity, and one-image/three-video budget. No live jobs have been submitted.
+Implementation and available automated checks pass. The full regression gate is incomplete because its existing external Prime real-producer fixture is unavailable. Memory acceptance passed on this host. Installed live acceptance is not run: no pilot project or desktop client has been selected and no browser consent has been performed. No live jobs have been submitted. These results do not establish installed Google production assurance.
 
 ## Token checkpoint
 
@@ -39,7 +39,28 @@ Recovered only token-specific code and the owned connection helper. Fresh checks
 ## Publication and race checkpoint
 
 Fresh managed media/handler suite passed 1,547 tests before repetition. Nine deterministic guarded-manager cases passed 25 repeated runs. Final rebuild also includes original-binding copy and restart-preservation assertions. Per-running-job transition gates re-read the durable terminal state; no network or sidecar call runs under the gate. Local stop persists Interrupted before cancellation, retains accepted original handles returned after stop, and performs no remote cancel. Guards run before creation and completion; failed final guards and cancellation remove only the new artifact. Completed jobs remain completed. Existing remote cancellation behavior passed. A null-valued existing Replicate metadata test caught a cloning regression; cloning now preserves null values.
-`nTask4: explicit global OAuth image provider reuses Gemini request encoding and existing inline artifact types. Shared root registry reaches panel and native callback. Fresh focused472/broader651 managed and14 Python tests passed. Synchronous handler publication failures before/after creation preserve only input artifacts; unknown qualified Vertex models cannot fall back to AI Studio.
+
+Task4: explicit global OAuth image provider reuses Gemini request encoding and existing inline artifact types. Shared root registry reaches panel and native callback. Fresh focused472/broader651 managed and14 Python tests passed. Synchronous handler publication failures before/after creation preserve only input artifacts; unknown qualified Vertex models cannot fall back to AI Studio.
 Task5: rebuilt925 video/generation tests passed. Tests cover one submission, original operation binding, per-read retry binding, disconnect, inline output, conflicting/empty/remote output rejection and separate Vertex person-generation mapping. Status persists no video data; result refetch decodes once. All provider errors omit upstream detail.
 Task6:88 Vertex Python tests and220 managed configuration/token tests pass. Full configuration suite additionally requires an unrelated existing Prime producer checkout at D:/prime-agent/.worktrees/rookchat-configuration; missing loader causes one Python failure and its dependent managed producer-fixture failure. The220 count excludes that unavailable managed fixture check. No replacement fixture was fabricated. Setup guide explains pilot and firm onboarding prerequisites.
 Task7:354 rebuilt managed tests,90 Python media contracts and Node execution of panel module passed. UI behavior test proves two simultaneous calls dispatch once, unknown submission never auto-retries, next deliberate request warns, local stop differs from confirmed completion, and Vertex price renders unavailable. Existing Gemini/API-key defaults remain first.
+
+## Fresh source verification and memory checkpoint
+
+Fresh `dotnet build src/Rook/Rook.csproj --configuration Debug` built net48 and net8.0: 0 errors, 274 existing/target-platform warnings. The required broad rebuilt managed filter ran 2,465 tests: 2,464 passed, one failed because `ROOK_TASK7_HTTP_FIXTURE` cannot be produced without the missing external Prime checkout/loader. A fresh run excluding exactly that prerequisite-dependent test passed all 2,464 tests. No product test was changed to hide the missing prerequisite.
+
+All Vertex Python suites plus vision/video MCP contracts: 293 passed, 11 DSPy deprecation warnings. The updated acceptance-validator and Node panel behavior checks then passed five tests. Provider-to-manager synthetic acceptance passed completion, disconnect, and restart behavior through existing registries, ledger and artifact store; it made no real Google calls.
+
+Memory probes ran five fresh x64 testhosts after rebuilding the affected test source. Fixtures emit UTF-8/Base64 into the existing capped reader without retaining a second expected payload. Each probe measures terminal status without decode, result decode, artifact publication and cleanup. The 250 MiB case also rejects one byte above the decoded cap before decoding. Separate stream tests enforce actual-read cap and cancellation. Samplers read process working/private memory every 10 ms and retain the OS peak working set. GC counters, managed-live diagnostics and weak references are supplementary; process peaks are the primary measurements.
+
+| Decoded MiB | Concurrent jobs | OS peak working MiB | Sampled peak private MiB | Live managed delta after cleanup MiB | Payload references retained |
+|---:|---:|---:|---:|---:|---|
+| 1 | 1 | 131.3 | 103.7 | 1.17 | none |
+| 16 | 1 | 229.0 | 219.6 | 0.17 | none |
+| 64 | 1 | 354.4 | 509.7 | 0.17 | none |
+| 250 | 1 | 1093.8 | 1752.3 | 0.17 | none |
+| 250 | 2 | 1962.3 | 3424.3 | 0.17 | none |
+
+This host has approximately 63.6 GiB visible RAM; no additional memory limit was imposed by the probe. No OOM occurred. Maximum concurrency remains two and the decoded cap remains 250 MiB. All weak references to encoded/decoded payload arrays were dead after cleanup/full GC; assertions enforce that condition. Earlier smaller-case retained process memory prompted this diagnostic, rather than being silently accepted. The memory result is host-specific and uses synthetic bytes, so it does not prove MP4 playback or a universal system minimum.
+
+Sanitized raw memory measurements and tested-assembly provenance are stored next to this report. Installed live acceptance remains separate: one image and three videos, including actual refresh, disconnect and restart. Local stop/race coverage is automated within the agreed budget. The source harness runs automated/memory gates and validates an operator's sanitized installed-session evidence; it does not create billed jobs or implement a production invalidation endpoint.

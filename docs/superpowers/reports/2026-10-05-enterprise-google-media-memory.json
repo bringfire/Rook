@@ -1,0 +1,406 @@
+{
+  "automated": {
+    "status": "not_run"
+  },
+  "memory": {
+    "status": "passed",
+    "host_memory_kib": {
+      "TotalVisibleMemorySize": 66724348,
+      "FreePhysicalMemory": 29507744
+    },
+    "cases": [
+      {
+        "status": "passed",
+        "decoded_mib": 1,
+        "concurrency": 1,
+        "process_id": 51448,
+        "architecture": "x64",
+        "baseline_working": 132812800,
+        "baseline_private": 106536960,
+        "retained_working": 128421888,
+        "retained_private": 101244928,
+        "gc_collections": [
+          66,
+          24,
+          11
+        ],
+        "baseline_managed": 35147280,
+        "retained_managed": 36369712,
+        "payload_references": [
+          {
+            "kind": "decoded",
+            "length": 1048576,
+            "alive": false
+          },
+          {
+            "kind": "encoded",
+            "length": 1398190,
+            "alive": false
+          },
+          {
+            "kind": "encoded",
+            "length": 1398190,
+            "alive": false
+          }
+        ],
+        "methodology": "fresh testhost; streaming constant Base64 fixture; 10ms process sampling; UTF8 JSON; no second expected payload",
+        "phases": [
+          {
+            "phase": "terminal_poll_no_decode",
+            "elapsed_ms": 696,
+            "sampled_working_peak": 122724352,
+            "sampled_private_peak": 97419264,
+            "os_peak_working_set": 133320704
+          },
+          {
+            "phase": "fetch_decode",
+            "elapsed_ms": 83,
+            "sampled_working_peak": 126418944,
+            "sampled_private_peak": 100126720,
+            "os_peak_working_set": 133320704
+          },
+          {
+            "phase": "publish",
+            "elapsed_ms": 437,
+            "sampled_working_peak": 135249920,
+            "sampled_private_peak": 108158976,
+            "os_peak_working_set": 135249920
+          },
+          {
+            "phase": "cleanup",
+            "elapsed_ms": 102,
+            "sampled_working_peak": 135413760,
+            "sampled_private_peak": 108777472,
+            "os_peak_working_set": 137658368
+          }
+        ]
+      },
+      {
+        "status": "passed",
+        "decoded_mib": 16,
+        "concurrency": 1,
+        "process_id": 13260,
+        "architecture": "x64",
+        "baseline_working": 132636672,
+        "baseline_private": 106536960,
+        "retained_working": 122679296,
+        "retained_private": 91762688,
+        "gc_collections": [
+          69,
+          27,
+          14
+        ],
+        "baseline_managed": 35140936,
+        "retained_managed": 35316664,
+        "payload_references": [
+          {
+            "kind": "encoded",
+            "length": 22369710,
+            "alive": false
+          },
+          {
+            "kind": "decoded",
+            "length": 16777216,
+            "alive": false
+          },
+          {
+            "kind": "encoded",
+            "length": 22369710,
+            "alive": false
+          }
+        ],
+        "methodology": "fresh testhost; streaming constant Base64 fixture; 10ms process sampling; UTF8 JSON; no second expected payload",
+        "phases": [
+          {
+            "phase": "terminal_poll_no_decode",
+            "elapsed_ms": 985,
+            "sampled_working_peak": 203456512,
+            "sampled_private_peak": 196276224,
+            "os_peak_working_set": 205463552
+          },
+          {
+            "phase": "fetch_decode",
+            "elapsed_ms": 225,
+            "sampled_working_peak": 233762816,
+            "sampled_private_peak": 226643968,
+            "os_peak_working_set": 234885120
+          },
+          {
+            "phase": "publish",
+            "elapsed_ms": 379,
+            "sampled_working_peak": 237740032,
+            "sampled_private_peak": 230281216,
+            "os_peak_working_set": 239882240
+          },
+          {
+            "phase": "cleanup",
+            "elapsed_ms": 103,
+            "sampled_working_peak": 237764608,
+            "sampled_private_peak": 227053568,
+            "os_peak_working_set": 240156672
+          }
+        ]
+      },
+      {
+        "status": "passed",
+        "decoded_mib": 64,
+        "concurrency": 1,
+        "process_id": 56856,
+        "architecture": "x64",
+        "baseline_working": 132546560,
+        "baseline_private": 107438080,
+        "retained_working": 122937344,
+        "retained_private": 99672064,
+        "gc_collections": [
+          78,
+          31,
+          18
+        ],
+        "baseline_managed": 35137728,
+        "retained_managed": 35314168,
+        "payload_references": [
+          {
+            "kind": "encoded",
+            "length": 89478574,
+            "alive": false
+          },
+          {
+            "kind": "decoded",
+            "length": 67108864,
+            "alive": false
+          },
+          {
+            "kind": "encoded",
+            "length": 89478574,
+            "alive": false
+          }
+        ],
+        "methodology": "fresh testhost; streaming constant Base64 fixture; 10ms process sampling; UTF8 JSON; no second expected payload",
+        "phases": [
+          {
+            "phase": "terminal_poll_no_decode",
+            "elapsed_ms": 1305,
+            "sampled_working_peak": 298848256,
+            "sampled_private_peak": 448069632,
+            "os_peak_working_set": 300978176
+          },
+          {
+            "phase": "fetch_decode",
+            "elapsed_ms": 794,
+            "sampled_working_peak": 364630016,
+            "sampled_private_peak": 534495232,
+            "os_peak_working_set": 364630016
+          },
+          {
+            "phase": "publish",
+            "elapsed_ms": 2379,
+            "sampled_working_peak": 369147904,
+            "sampled_private_peak": 347336704,
+            "os_peak_working_set": 369795072
+          },
+          {
+            "phase": "cleanup",
+            "elapsed_ms": 122,
+            "sampled_working_peak": 369348608,
+            "sampled_private_peak": 347992064,
+            "os_peak_working_set": 371589120
+          }
+        ]
+      },
+      {
+        "status": "passed",
+        "decoded_mib": 250,
+        "concurrency": 1,
+        "process_id": 65388,
+        "architecture": "x64",
+        "baseline_working": 132415488,
+        "baseline_private": 106586112,
+        "retained_working": 123310080,
+        "retained_private": 98099200,
+        "gc_collections": [
+          111,
+          40,
+          25
+        ],
+        "baseline_managed": 35136752,
+        "retained_managed": 35316936,
+        "payload_references": [
+          {
+            "kind": "encoded",
+            "length": 349525422,
+            "alive": false
+          },
+          {
+            "kind": "decoded",
+            "length": 262144000,
+            "alive": false
+          },
+          {
+            "kind": "encoded",
+            "length": 349525422,
+            "alive": false
+          }
+        ],
+        "methodology": "fresh testhost; streaming constant Base64 fixture; 10ms process sampling; UTF8 JSON; no second expected payload",
+        "phases": [
+          {
+            "phase": "terminal_poll_no_decode",
+            "elapsed_ms": 3139,
+            "sampled_working_peak": 820281344,
+            "sampled_private_peak": 1477701632,
+            "os_peak_working_set": 822165504
+          },
+          {
+            "phase": "one_byte_above_decoded_cap",
+            "elapsed_ms": 1779,
+            "sampled_working_peak": 1142317056,
+            "sampled_private_peak": 1811234816,
+            "os_peak_working_set": 1146896384
+          },
+          {
+            "phase": "fetch_decode",
+            "elapsed_ms": 2886,
+            "sampled_working_peak": 1085865984,
+            "sampled_private_peak": 1837420544,
+            "os_peak_working_set": 1146896384
+          },
+          {
+            "phase": "publish",
+            "elapsed_ms": 11694,
+            "sampled_working_peak": 1088737280,
+            "sampled_private_peak": 1071669248,
+            "os_peak_working_set": 1146896384
+          },
+          {
+            "phase": "cleanup",
+            "elapsed_ms": 149,
+            "sampled_working_peak": 1088913408,
+            "sampled_private_peak": 1072156672,
+            "os_peak_working_set": 1146896384
+          }
+        ]
+      },
+      {
+        "status": "passed",
+        "decoded_mib": 250,
+        "concurrency": 2,
+        "process_id": 39380,
+        "architecture": "x64",
+        "baseline_working": 132489216,
+        "baseline_private": 106803200,
+        "retained_working": 130056192,
+        "retained_private": 113885184,
+        "gc_collections": [
+          126,
+          40,
+          26
+        ],
+        "baseline_managed": 35144376,
+        "retained_managed": 35324272,
+        "payload_references": [
+          {
+            "kind": "encoded",
+            "length": 349525422,
+            "alive": false
+          },
+          {
+            "kind": "encoded",
+            "length": 349525422,
+            "alive": false
+          },
+          {
+            "kind": "decoded",
+            "length": 262144000,
+            "alive": false
+          },
+          {
+            "kind": "encoded",
+            "length": 349525422,
+            "alive": false
+          },
+          {
+            "kind": "decoded",
+            "length": 262144000,
+            "alive": false
+          },
+          {
+            "kind": "encoded",
+            "length": 349525422,
+            "alive": false
+          }
+        ],
+        "methodology": "fresh testhost; streaming constant Base64 fixture; 10ms process sampling; UTF8 JSON; no second expected payload",
+        "phases": [
+          {
+            "phase": "terminal_poll_no_decode",
+            "elapsed_ms": 3614,
+            "sampled_working_peak": 1522561024,
+            "sampled_private_peak": 2868908032,
+            "os_peak_working_set": 1524588544
+          },
+          {
+            "phase": "fetch_decode",
+            "elapsed_ms": 3377,
+            "sampled_working_peak": 2052374528,
+            "sampled_private_peak": 3590660096,
+            "os_peak_working_set": 2052374528
+          },
+          {
+            "phase": "publish",
+            "elapsed_ms": 20014,
+            "sampled_working_peak": 2055172096,
+            "sampled_private_peak": 2055462912,
+            "os_peak_working_set": 2057592832
+          },
+          {
+            "phase": "cleanup",
+            "elapsed_ms": 226,
+            "sampled_working_peak": 2055372800,
+            "sampled_private_peak": 2055581696,
+            "os_peak_working_set": 2057613312
+          }
+        ]
+      }
+    ],
+    "limitations": "Synthetic bytes verify bounded parsing/publication, not MP4 playback. Process measurements are specific to this host."
+  },
+  "live": {
+    "status": "not_run",
+    "budget": {
+      "images": 1,
+      "videos": 3
+    },
+    "cases": {
+      "image": {
+        "status": "not_run"
+      },
+      "completion_refresh": {
+        "status": "not_run"
+      },
+      "disconnect": {
+        "status": "not_run"
+      },
+      "restart": {
+        "status": "not_run"
+      }
+    },
+    "reason": "Requires installed provenance, firm project, desktop OAuth consent and actual Google execution evidence."
+  },
+  "provenance": {
+    "tested_commit": "72eeec82313b49708365691e105016bf434623a9",
+    "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked_source_sha256": {
+      "mcp_server/tests/test_vertex_media_acceptance_harness.py": "54ae563a9f39a7e5105467557576f8d461a7730286d2e8c74d03eb4cfd78cbb2",
+      "scripts/vertex_media_acceptance.py": "3d6346eb177e3d425ecd394dc2ab5e48de8b39e45dc73dd6cc8159462ba00e6c",
+      "src/Rook.Tests/Services/Vision/Video/Vertex/VertexInlineVideoMemoryTests.cs": "bbff37ec6a1965623fdf1ebcbe3a5e00ecb84de09e0c29edb4af3ac6a3219c7e",
+      "src/Rook.Tests/Services/Vision/Video/Vertex/VertexVeoManagerAcceptanceTests.cs": "00dcdb5cb35b665dcd05c170e87427c10bee527125eb30738c7edf27d65ef775"
+    },
+    "assembly_sha256": "e9589a83c7eee15ea2c4af1119616463f72f708401e033b629e0085d18ab69ce",
+    "assembly_modified_utc": "2026-10-05T15:52:11.048523+00:00",
+    "image_model": "vertex_ai/gemini-3.1-flash-image",
+    "image_location": "global",
+    "video_model": "vertex_ai/veo-3.1-fast-generate-001",
+    "video_location": "us-central1"
+  },
+  "recorded_utc": "2026-10-05T16:07:10.222386+00:00"
+}
