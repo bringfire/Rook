@@ -1,5 +1,7 @@
 import importlib.util
+from copy import deepcopy
 from pathlib import Path
+import pytest
 
 path=Path(__file__).resolve().parents[2]/'scripts/vertex_media_acceptance.py'
 
@@ -26,20 +28,86 @@ def test_mock_evidence_cannot_be_live_acceptance():
     report=harness().live_acceptance({'origin':'mock','cases':{'image':{'status':'passed'}}})
     assert report['status']=='not_run'
 
+def test_live_input_and_output_paths_cannot_be_in_any_checkout(tmp_path):
+    repo=tmp_path/'checkout'; repo.mkdir(); (repo/'.git').write_text('gitdir: elsewhere',encoding='utf-8')
+    assert not harness().private_evidence_path(repo/'ignored'/'pilot.json')
+    assert not harness().private_evidence_path(path.parent/'pilot.json')
+    assert harness().private_evidence_path(tmp_path/'private'/'pilot.json')
+
 def test_completion_before_intervention_is_inconclusive_and_no_fourth_video():
-    evidence={**installed_fields(),'origin':'installed_google_live','installed_verified':True,'submitted':{'images':1,'videos':3},
-        'cases':{'disconnect':{'completed_before_intervention':True}}}
+    evidence=complete_evidence()
+    evidence['cases']['disconnect']['completed_before_intervention']=True
     report=harness().live_acceptance(evidence)
     assert report['cases']['disconnect']['status']=='inconclusive'
     evidence['submitted']['videos']=4
-    assert harness().live_acceptance(evidence)['status']=='failed'
+    assert harness().live_acceptance(evidence)['status']!='passed'
 
-def test_live_pass_requires_refresh_playback_and_original_binding_evidence():
+def test_old_boolean_only_evidence_cannot_establish_live_acceptance():
     evidence={**installed_fields(),'origin':'installed_google_live','installed_verified':True,'submitted':{'images':1,'videos':3},
         'cases':{'image':{'status':'passed','dimensions_verified':True},
             'completion_refresh':{'status':'passed','refresh_count':1,'same_binding':True,'playback_verified':True,'three_frames_decoded':True,'duration_verified':True},
             'disconnect':{'status':'passed','state':'interrupted','later_google_calls':0,'published':False,'reconnect_resumed':False},
             'restart':{'status':'passed','state':'interrupted','automatic_google_calls':0,'binding_preserved':True,'old_artifacts_accessible':True}}}
-    assert harness().live_acceptance(evidence)['status']=='passed'
+    assert harness().live_acceptance(evidence)['status']!='passed'
     evidence['cases']['completion_refresh']['refresh_count']=0
-    assert harness().live_acceptance(evidence)['status']=='failed'
+    assert harness().live_acceptance(evidence)['status']!='passed'
+
+def complete_evidence():
+    evidence={**installed_fields(),'origin':'installed_google_live','installed_verified':True,'submitted':{'images':1,'videos':3},'secret_scan':'passed'}
+    proof=evidence['provenance']; proof.update(chirp_commit='d'*40,dirty_tree=False,installed_versions={'rook':'1.0.0','rook-mcp':'1.0.0','chirp':'1.0.0'})
+    proof['project_label']='pilot-project-01'; proof['account_label']='pilot-account-01'
+    evidence['gates']={name:{'status':'passed','tested_commit':proof['tested_commit'],'patch_sha256':proof['patch_sha256'],
+        'assembly_sha256':proof['installed_assembly_sha256'],'evidence_sha256':'e'*64} for name in ('automated','memory')}
+    def row(n,state):
+        return {'status':'passed','started_utc':'2026-10-05T12:00:00Z','ended_utc':'2026-10-05T12:01:00Z','elapsed_seconds':60,
+            'job_label':f'job-{n:02}','operation_label':f'operation-{n:02}','binding_label':'authorization-01',
+            'request_counts':{'submit':1,'poll':2,'fetch':int(state=='complete'),'refresh':int(n==2),'remote_cancel':0},
+            'ledger_transitions':['queued','submitting','polling',state]}
+    image=row(1,'complete'); image.pop('operation_label'); image['request_counts'].update(poll=0,fetch=0)
+    image['ledger_transitions']=['queued','submitting','complete']
+    image['artifact']={'sha256':'f'*64,'byte_count':2000,'width':1024,'height':1024,'requested_width':1024,'requested_height':1024}
+    completion=row(2,'complete')
+    completion['artifact']={'sha256':'f'*64,'byte_count':3000,'width':1280,'height':720,'resolution':'720p','aspect_ratio':'16:9',
+        'duration_seconds':4.1,'requested_duration_seconds':4,'decoded_frames':['first','middle','last'],'playback':'passed'}
+    completion['refresh_evidence']={'mode':'forced_in_memory_lease','first_inflight_poll_utc':'2026-10-05T12:00:05Z',
+        'lease_invalidated_utc':'2026-10-05T12:00:10Z','google_refresh_utc':'2026-10-05T12:00:15Z',
+        'subsequent_poll_utc':'2026-10-05T12:00:20Z','completed_utc':'2026-10-05T12:00:50Z',
+        'operation_before':'operation-02','operation_after':'operation-02','binding_before':'authorization-01','binding_after':'authorization-01',
+        'actual_refresh_count':1,'additional_submissions':0}
+    disconnect=row(3,'interrupted'); disconnect.update(first_inflight_poll_utc='2026-10-05T12:00:05Z',intervention_utc='2026-10-05T12:00:10Z',
+        later_google_calls=0,published=False,reconnect_resumed=False,new_binding_calls_for_old_job=0)
+    restart=row(4,'interrupted'); restart.update(first_inflight_poll_utc='2026-10-05T12:00:05Z',intervention_utc='2026-10-05T12:00:10Z',
+        automatic_google_calls=0,binding_preserved=True,old_artifacts_accessible=True)
+    evidence['cases']={'image':image,'completion_refresh':completion,'disconnect':disconnect,'restart':restart}
+    return evidence
+
+def test_closed_measured_evidence_retains_proof_and_matches_gates():
+    evidence=complete_evidence(); report=harness().live_acceptance(evidence)
+    assert report['status']=='passed'
+    assert report['cases']['completion_refresh']['evidence']==evidence['cases']['completion_refresh']
+    assert report['provenance']==evidence['provenance']
+
+@pytest.mark.parametrize('mutation',[
+    lambda e:e['cases']['completion_refresh']['refresh_evidence'].pop('lease_invalidated_utc'),
+    lambda e:e['cases']['completion_refresh']['refresh_evidence'].update(mode='natural_expiry'),
+    lambda e:e['cases']['completion_refresh']['refresh_evidence'].update(operation_after='operation-03'),
+    lambda e:e['cases']['completion_refresh']['refresh_evidence'].update(additional_submissions=1),
+    lambda e:e['cases']['completion_refresh']['refresh_evidence'].update(google_refresh_utc='2026-10-05T12:00:04Z'),
+    lambda e:e['cases']['completion_refresh']['artifact'].update(duration_seconds=5),
+    lambda e:e['cases']['completion_refresh']['artifact'].update(width=720),
+    lambda e:e['cases']['image']['artifact'].pop('sha256'),
+    lambda e:e['cases']['disconnect'].pop('first_inflight_poll_utc'),
+    lambda e:e['gates']['automated'].update(status='failed'),
+    lambda e:e['gates']['memory'].update(tested_commit='b'*40),
+    lambda e:e['provenance'].update(account_label='someone@example.com'),
+    lambda e:e['cases']['restart'].update(raw_response='secret-sentinel'),
+    lambda e:e.update(secret_scan='failed'),
+    lambda e:e['provenance'].update(tested_commit=123),
+    lambda e:e['cases']['image'].update(artifact=None),
+    lambda e:e['cases']['completion_refresh']['refresh_evidence'].update(actual_refresh_count=True),
+])
+def test_incomplete_or_inconsistent_proof_never_passes(mutation):
+    evidence=deepcopy(complete_evidence()); mutation(evidence)
+    report=harness().live_acceptance(evidence)
+    assert report['status']!='passed'
+    assert 'secret-sentinel' not in str(report)
