@@ -118,3 +118,68 @@ def test_incomplete_or_inconsistent_proof_never_passes(mutation):
     report=harness().live_acceptance(evidence)
     assert report['status']!='passed'
     assert 'secret-sentinel' not in str(report)
+
+
+def workforce_evidence():
+    evidence = complete_evidence()
+    evidence['workforce'] = {
+        'contract_version': 2, 'adapter': 'msal_public_desktop', 'exchange': 'google_auth_sts_id_token',
+        'principal_labels': ['employee-01', 'employee-02'],
+        'project_labels': {'resource': 'project-01', 'workforce_user': 'project-02', 'quota': 'project-03'},
+        'runtime_pins': {'python': '3.11.9', 'msal': '1.39.0', 'google-auth': '2.56.3', 'requests': '2.34.2', 'pyjwt': '2.14.0', 'cryptography': '50.0.1'},
+        'runtime_manifest_sha256': '1'*64, 'authentication_review': 'passed',
+        'prerequisites': {'administrator_setup': True, 'two_permitted_identities': True, 'spend_approved': True, 'installed_payload_verified': True},
+        'lifecycle': {key: 'passed' for key in ('pending_active', 'failed_login_preserved', 'cancel_preserved', 'retirement', 'disconnect', 'identity_continuity', 'switch_old_binding_rejected', 'denied_identity_observed')},
+        'sign_in_check': {'state': 'signed_in', 'check_scope': 'identity_exchange', 'entra_refresh_count': 1, 'sts_exchange_count': 1, 'model_calls': 0, 'image_access': 'unverified', 'video_access': 'unverified', 'billing': 'unverified', 'quota': 'unverified'},
+        'poll_refresh': {'entra_refresh_count': 1, 'sts_exchange_count': 1, 'signed_token_altered': False, 'binding_preserved': True, 'additional_submissions': 0},
+        'billing_attribution': {'resource': 'passed', 'workforce_user': 'passed', 'quota': 'passed'},
+    }
+    return evidence
+
+
+def test_workforce_evidence_requires_real_refresh_and_project_attribution():
+    evidence = workforce_evidence()
+    assert harness().live_acceptance(evidence)['status'] == 'passed'
+    for key in ('entra_refresh_count', 'sts_exchange_count'):
+        changed = deepcopy(evidence); changed['workforce']['poll_refresh'][key] = 0
+        assert harness().live_acceptance(changed)['status'] != 'passed'
+    changed = deepcopy(evidence); changed['workforce']['billing_attribution']['quota'] = 'pending'
+    report = harness().live_acceptance(changed)
+    assert report['status'] == 'pending' and report['workforce']['billing_attribution']['quota'] == 'pending'
+
+
+def test_inconclusive_intervention_is_not_pass():
+    evidence = workforce_evidence()
+    evidence['cases']['restart']['completed_before_intervention'] = True
+    assert harness().live_acceptance(evidence)['status'] == 'inconclusive'
+
+
+def test_workforce_optional_quota_is_explicitly_not_applicable():
+    evidence = workforce_evidence()
+    evidence['workforce']['project_labels']['quota'] = None
+    evidence['workforce']['billing_attribution']['quota'] = 'not_applicable'
+    assert harness().live_acceptance(evidence)['status'] == 'passed'
+    evidence['workforce']['billing_attribution']['quota'] = 'passed'
+    assert harness().live_acceptance(evidence)['status'] != 'passed'
+
+
+@pytest.mark.parametrize('key', ['administrator_setup', 'two_permitted_identities', 'spend_approved', 'installed_payload_verified'])
+def test_missing_live_prerequisites_cannot_be_pass(key):
+    evidence = workforce_evidence(); evidence['workforce']['prerequisites'][key] = False
+    assert harness().live_acceptance(evidence)['status'] == 'not_run'
+
+
+@pytest.mark.parametrize('mutate', [
+    lambda w: w['principal_labels'].append('private-sentinel@example.com'),
+    lambda w: w['project_labels'].update(resource='actual-private-sentinel'),
+    lambda w: w.update(assertion='private-sentinel'),
+    lambda w: w['lifecycle'].update(raw_response='private-sentinel'),
+    lambda w: w['sign_in_check'].update(image_access='verified'),
+    lambda w: w['poll_refresh'].update(signed_token_altered=True),
+    lambda w: w['runtime_pins'].update(msal='1.38.0'),
+    lambda w: w.update(authentication_review='pending'),
+])
+def test_private_sentinels_rejected(mutate):
+    evidence = workforce_evidence(); mutate(evidence['workforce'])
+    report = harness().live_acceptance(evidence)
+    assert report['status'] != 'passed' and 'private-sentinel' not in str(report)

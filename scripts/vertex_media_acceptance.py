@@ -102,7 +102,7 @@ def _case(row,name):
             valid=valid and type(row['automatic_google_calls']) is int and row['automatic_google_calls']==0 and row['binding_preserved'] is True and row['old_artifacts_accessible'] is True
     return ('passed',row) if valid else ('failed',None)
 
-def live_acceptance(evidence):
+def _legacy_live_acceptance(evidence):
     report={'status':'not_run','budget':dict(BUDGET),'cases':{name:{'status':'not_run'} for name in LIVE_CASES},
         'reason':'Requires installed provenance, firm project, desktop OAuth consent and actual Google execution evidence.'}
     if type(evidence) is not dict or evidence.get('origin')!='installed_google_live' or evidence.get('installed_verified') is not True:
@@ -141,6 +141,70 @@ def live_acceptance(evidence):
     statuses=[row['status'] for row in report['cases'].values()]
     report['status']='passed' if all(status=='passed' for status in statuses) and submitted==BUDGET else 'inconclusive' if 'inconclusive' in statuses else 'failed'
     report['reason']='Validated closed operator evidence and gate linkage. This validator does not execute or independently observe Google jobs; private source evidence remains outside the repository.'
+    return report
+
+
+def _workforce_proof(proof, evidence):
+    fields = 'contract_version adapter exchange principal_labels project_labels runtime_pins runtime_manifest_sha256 authentication_review prerequisites lifecycle sign_in_check poll_refresh billing_attribution'
+    if not _closed(proof, fields) or type(proof['contract_version']) is not int or proof['contract_version'] != 2:
+        return 'failed'
+    if proof['adapter'] != 'msal_public_desktop' or proof['exchange'] != 'google_auth_sts_id_token' or proof['authentication_review'] != 'passed':
+        return 'failed'
+    labels = proof['principal_labels']
+    if type(labels) is not list or len(labels) != 2 or len(set(str(v) for v in labels)) != 2 or not all(_label(v, 'employee') for v in labels):
+        return 'failed'
+    projects = proof['project_labels']
+    if not _closed(projects, 'resource workforce_user quota') or not all(_label(projects[k], 'project') for k in ('resource', 'workforce_user')) or projects['quota'] is not None and not _label(projects['quota'], 'project'):
+        return 'failed'
+    pins = {'python': '3.11.9', 'msal': '1.39.0', 'google-auth': '2.56.3', 'requests': '2.34.2', 'pyjwt': '2.14.0', 'cryptography': '50.0.1'}
+    if proof['runtime_pins'] != pins or not _sha(proof['runtime_manifest_sha256']):
+        return 'failed'
+    prerequisites = proof['prerequisites']
+    if not _closed(prerequisites, 'administrator_setup two_permitted_identities spend_approved installed_payload_verified') or any(type(v) is not bool for v in prerequisites.values()):
+        return 'failed'
+    if not all(prerequisites.values()):
+        return 'not_run'
+    lifecycle = proof['lifecycle']
+    if not _closed(lifecycle, 'pending_active failed_login_preserved cancel_preserved retirement disconnect identity_continuity switch_old_binding_rejected denied_identity_observed') or any(v != 'passed' for v in lifecycle.values()):
+        return 'failed'
+    check = proof['sign_in_check']
+    if not _closed(check, 'state check_scope entra_refresh_count sts_exchange_count model_calls image_access video_access billing quota'):
+        return 'failed'
+    if check['state'] != 'signed_in' or check['check_scope'] != 'identity_exchange' or any(check[k] != 'unverified' for k in ('image_access', 'video_access', 'billing', 'quota')) or type(check['model_calls']) is not int or check['model_calls'] != 0:
+        return 'failed'
+    refresh = proof['poll_refresh']
+    if not _closed(refresh, 'entra_refresh_count sts_exchange_count signed_token_altered binding_preserved additional_submissions') or refresh['signed_token_altered'] is not False or refresh['binding_preserved'] is not True or type(refresh['additional_submissions']) is not int or refresh['additional_submissions'] != 0:
+        return 'failed'
+    if any(type(row[k]) is not int or row[k] < 1 for row in (check, refresh) for k in ('entra_refresh_count', 'sts_exchange_count')):
+        return 'failed'
+    actual = evidence.get('cases', {}).get('completion_refresh', {}).get('refresh_evidence', {}).get('actual_refresh_count')
+    if actual != refresh['sts_exchange_count']:
+        return 'failed'
+    billing = proof['billing_attribution']
+    if not _closed(billing, 'resource workforce_user quota') or any(billing[k] not in ('passed', 'pending', 'failed') for k in ('resource', 'workforce_user')) or billing['quota'] not in (('not_applicable',) if projects['quota'] is None else ('passed', 'pending', 'failed')):
+        return 'failed'
+    return 'failed' if 'failed' in billing.values() else 'pending' if 'pending' in billing.values() else 'passed'
+
+
+def live_acceptance(evidence):
+    # Preserve the established personal Google result shape exactly. Workforce
+    # evidence adds a closed versioned section; never retain an invalid section.
+    if type(evidence) is not dict or 'workforce' not in evidence:
+        return _legacy_live_acceptance(evidence)
+    legacy = {k: v for k, v in evidence.items() if k != 'workforce'}
+    report = _legacy_live_acceptance(legacy)
+    try:
+        status = _workforce_proof(evidence['workforce'], evidence)
+    except (ValueError, TypeError, KeyError, AttributeError):
+        status = 'failed'
+    if status in ('failed', 'not_run'):
+        # Drop all provenance/case proof when any workforce field is untrusted.
+        report = _legacy_live_acceptance(None)
+        report.update(status=status, reason='Workforce evidence is incomplete or invalid. No further submission is authorized.')
+    elif report['status'] in ('passed', 'inconclusive'):
+        report['workforce'] = evidence['workforce']
+        if report['status'] == 'passed' and status == 'pending':
+            report.update(status='pending', reason='Media and sign-in evidence validated; private project billing attribution remains pending.')
     return report
 
 def provenance():

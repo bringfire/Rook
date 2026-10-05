@@ -1,5 +1,7 @@
 # Enterprise Google images and video in Rook
 
+For firms whose employees use Microsoft 365/Entra ID, follow [Microsoft firm sign-in setup](enterprise-google-workforce-setup.md). That flow uses existing work identities through Google Workforce Identity Federation. This page remains the separate Google-account desktop OAuth procedure.
+
 Rook uses a person's Google authorization to generate media in a firm's Google Cloud project. The firm controls access and pays for API usage in that project. Google's current documentation calls the platform **Gemini Enterprise Agent Platform**; its API service and IAM names still use `aiplatform`. A Workspace/Gemini subscription alone does not establish the project billing and IAM configuration required by this API workflow. [Google's project setup](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/start).
 
 ## Who sets up what
