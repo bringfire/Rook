@@ -9,6 +9,14 @@ import pytest
 from rook import chirp_manager
 
 
+def _admit_synthetic_bootstrap(monkeypatch, generation):
+    from rook.providers.vertex_auth import VertexMode
+    import uuid
+    store = SimpleNamespace(read=lambda: SimpleNamespace(mode=VertexMode.ADC, generation=generation),
+        _mutex_name='Local\\Rook.Chirp.Test.' + uuid.uuid4().hex, _mutex_timeout_ms=1000)
+    monkeypatch.setattr(chirp_manager.VertexStore, 'production', lambda: store)
+
+
 def test_start_chirp_marks_non_vertex_child_managed_without_secret_pipe(
     monkeypatch, tmp_path
 ):
@@ -107,6 +115,7 @@ def test_start_vertex_chirp_sends_one_bounded_envelope_only_through_stdin(
     }
     monkeypatch.setattr(chirp_manager.subprocess, "Popen", fake_popen)
 
+    _admit_synthetic_bootstrap(monkeypatch, envelope["generation"])
     proc = chirp_manager._start_chirp(
         chirp_home,
         vertex_bootstrap=envelope,
@@ -171,6 +180,7 @@ def test_bootstrap_write_failure_terminates_only_the_just_launched_child(
         lambda *_args, **_kwargs: _DummyProc(),
     )
 
+    _admit_synthetic_bootstrap(monkeypatch, "0" * 32)
     with pytest.raises(OSError, match="pipe failed"):
         chirp_manager._start_chirp(
             chirp_home,
@@ -203,6 +213,7 @@ def test_missing_bootstrap_pipe_terminates_only_the_just_launched_child(
         lambda *_args, **_kwargs: _DummyProc(),
     )
 
+    _admit_synthetic_bootstrap(monkeypatch, "0" * 32)
     with pytest.raises(RuntimeError, match="stdin pipe"):
         chirp_manager._start_chirp(
             chirp_home,
@@ -855,6 +866,7 @@ def test_restart_uses_manager_owned_home_not_discovery_home(monkeypatch, tmp_pat
         },
     )
 
+    _admit_synthetic_bootstrap(monkeypatch, "0" * 32)
     result = chirp_manager._restart_discovered_process(
         discovery,
         health,
@@ -954,6 +966,7 @@ async def test_concurrent_vertex_admission_restarts_stale_child_once(
         },
     )
 
+    _admit_synthetic_bootstrap(monkeypatch, "0" * 32)
     results = await asyncio.gather(
         chirp_manager.ensure_chirp_running("vertex_ai/gemini-2.5-pro"),
         chirp_manager.ensure_chirp_running("vertex_ai/gemini-2.5-pro"),
@@ -962,3 +975,81 @@ async def test_concurrent_vertex_admission_restarts_stale_child_once(
     assert all(result["running"] is True for result in results)
     assert retirements == [4101]
     assert starts == [4201]
+
+@pytest.mark.parametrize('live', [False, True, 'unowned', 'alive'])
+def test_workforce_activation_retires_without_resolving_bootstrap(monkeypatch, live):
+    import time
+    from rook.providers.vertex_auth import VertexMode
+    snapshot = SimpleNamespace(mode=VertexMode.WORKFORCE, generation='a' * 32, chirp_retirement_pending=True)
+    monkeypatch.setattr(chirp_manager.VertexStore, 'production', lambda: SimpleNamespace(read=lambda: snapshot))
+    discovery = {'host': '127.0.0.1', 'port': 9123, 'pid': 4101}
+    monkeypatch.setattr(chirp_manager, '_find_live_discovery', lambda: discovery if live else None)
+    monkeypatch.setattr(chirp_manager, '_chirp_process', None)
+    monkeypatch.setattr(chirp_manager, '_read_health_sync', lambda *args, **kwargs: {'rook_managed': live != 'unowned'})
+    calls = []
+    monkeypatch.setattr(chirp_manager, '_resolve_vertex_bootstrap', lambda *args: pytest.fail('Stop before credential resolution'))
+    monkeypatch.setattr(chirp_manager, '_start_chirp', lambda *args, **kwargs: pytest.fail('No replacement start'))
+    monkeypatch.setattr(chirp_manager, '_signal_retirement_event', lambda: calls.append('signal'))
+    monkeypatch.setattr(chirp_manager, '_wait_for_retirement', lambda *args: live != 'alive')
+    monkeypatch.setattr(chirp_manager, '_port_is_available', lambda *args: True)
+    monkeypatch.setattr(chirp_manager, '_reset_retirement_event', lambda: calls.append('reset'))
+    if live in ('unowned', 'alive'):
+        with pytest.raises(chirp_manager.VertexAuthError):
+            chirp_manager.retire_after_workforce_commit('a' * 32, time.monotonic() + 30, lambda: None)
+    else:
+        chirp_manager.retire_after_workforce_commit('a' * 32, time.monotonic() + 30, lambda: None)
+    assert calls == (['signal', 'reset'] if live is True else ['signal'] if live == 'alive' else [])
+
+
+@pytest.mark.asyncio
+async def test_workforce_refusal_precedes_live_chirp_reuse(monkeypatch):
+    from rook.providers.vertex_auth import VertexMode
+    snapshot = SimpleNamespace(mode=VertexMode.WORKFORCE, generation='a' * 32, chirp_retirement_pending=False)
+    monkeypatch.setattr(chirp_manager.VertexStore, 'production', lambda: SimpleNamespace(read=lambda: snapshot))
+    monkeypatch.setattr(chirp_manager, '_find_chirp_home', lambda: None)
+    monkeypatch.setattr(chirp_manager, '_find_live_discovery', lambda: pytest.fail('Refuse before reuse'))
+    result = await chirp_manager.ensure_chirp_running('vertex_ai/gemini-2.5-pro')
+    assert result['error_code'] == 'vertex_text_federation_unsupported' and not result['running']
+
+
+def test_vertex_startup_racing_activation_cannot_reinstall_child(monkeypatch, tmp_path):
+    from rook.providers.vertex_auth import VertexMode
+    snapshot = SimpleNamespace(mode=VertexMode.WORKFORCE, generation='a' * 32, chirp_retirement_pending=True)
+    monkeypatch.setattr(chirp_manager.VertexStore, 'production', lambda: SimpleNamespace(read=lambda: snapshot, _mutex_name='Local\\Rook.Workforce.Launch.Test', _mutex_timeout_ms=1000))
+    monkeypatch.setattr(chirp_manager.subprocess, 'Popen', lambda *args, **kwargs: pytest.fail('No stale launch'))
+    with pytest.raises(chirp_manager.VertexAuthError) as error:
+        chirp_manager._start_chirp(tmp_path, vertex_bootstrap={'generation': 'b' * 32})
+    assert error.value.code == 'vertex_text_federation_unsupported'
+
+
+
+def test_pre_activation_launch_waiter_rechecks_under_replacement_lock(monkeypatch, tmp_path):
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+    from .test_vertex_workforce_store import Protector
+    from rook.providers.vertex_auth import VertexStore, VertexRecord, VertexMode
+    from rook.providers.vertex_workforce_store import VertexWorkforceStore
+    from rook.providers.vertex_workforce_contract import FirmSettings, PrivatePrincipal, VerifiedEntraAssertion, EntraSessionCandidate, WorkforceExchangeResult
+    import uuid
+    base = VertexStore(tmp_path / 'vertex.json', protector=Protector(), mutex_name='Local\\Rook.Chirp.Race.' + uuid.uuid4().hex)
+    prior = base.replace(VertexRecord(1, '0' * 32, VertexMode.ADC, 'synthetic-firm-project', 'us-central1', None, None))
+    monkeypatch.setattr(chirp_manager.VertexStore, 'production', lambda: base)
+    monkeypatch.setattr(chirp_manager.subprocess, 'Popen', lambda *args, **kwargs: pytest.fail('No pre-activation bootstrap after activation'))
+    store = VertexWorkforceStore(base)
+    settings = FirmSettings(2, 'Synthetic firm', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', '123456789', 'synthetic-pool', 'synthetic-provider', 'synthetic-firm-project', 'synthetic-firm-project', None, 'us-central1')
+    principal = PrivatePrincipal(settings.entra_tenant_id, '33333333-3333-3333-3333-333333333333', 'bound-account')
+    candidate = EntraSessionCandidate(principal, '{}', VerifiedEntraAssertion('synthetic', principal, int(time.time()) + 60))
+    exchange = WorkforceExchangeResult('synthetic', int(time.time()) + 60, settings.project_id, settings.workforce_pool_user_project, None)
+    ticket = store.import_pending(settings)
+    entered = threading.Event()
+    def launch():
+        entered.set()
+        return chirp_manager._launch_registered_chirp(tmp_path, {'generation': prior.generation}, True)
+    with ThreadPoolExecutor() as pool:
+        with chirp_manager._replacement_lock:
+            waiter = pool.submit(launch)
+            assert entered.wait(2)
+            store.activate(ticket, candidate, exchange, cancel_check=lambda: None)
+        with pytest.raises(chirp_manager.VertexAuthError) as error:
+            waiter.result(timeout=2)
+        assert error.value.code == 'vertex_text_federation_unsupported'

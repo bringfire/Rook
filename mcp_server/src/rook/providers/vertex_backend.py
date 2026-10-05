@@ -594,3 +594,81 @@ def disconnect_vertex(
         return _result_from_error(exc)
     except Exception:
         return _generic_failure()
+
+# Workforce operations stay in the existing Python credential owner. Candidates
+# are isolated until exchange succeeds; only the store activates their cache.
+from dataclasses import asdict
+import time
+from .vertex_workforce_contract import (
+    WorkforceActiveRecord, WorkforceCredentialContext, auth_error,
+)
+from .vertex_workforce_exchange import exchange_assertion, _check as _check_workforce
+
+
+def finish_workforce_retirement(*, store, expected_generation, deadline, cancel_check, retire):
+    _check_workforce(deadline, cancel_check, store._monotonic)
+    active = store.snapshot_active()
+    if not isinstance(active, WorkforceActiveRecord) or active.generation != expected_generation:
+        raise auth_error('vertex_authorization_changed')
+    if not active.chirp_retirement_pending:
+        return
+    try:
+        retire(expected_generation, deadline, cancel_check)
+        _check_workforce(deadline, cancel_check, store._monotonic)
+        store.mark_chirp_retired(expected_generation, deadline=deadline, cancel_check=cancel_check)
+    except VertexAuthError:
+        raise
+    except Exception:
+        raise auth_error('vertex_restart_required') from None
+
+
+def connect_vertex_workforce(ticket, *, store, entra, cancel_check, retire):
+    generation = None
+    try:
+        pending = store.read_pending()
+        if pending is None or pending[1] != ticket:
+            raise auth_error('vertex_authorization_changed')
+        settings, _ = pending
+        candidate = entra.begin(settings, ticket, cancel_check=cancel_check)
+        if candidate.operation_deadline is None:
+            raise auth_error()
+        deadline = candidate.operation_deadline
+        _check_workforce(deadline, cancel_check, store._monotonic)
+        exchange = exchange_assertion(settings, candidate.assertion, deadline=deadline, cancel_check=cancel_check)
+        _check_workforce(deadline, cancel_check, store._monotonic)
+        context = store.activate(ticket, candidate, exchange, cancel_check=cancel_check)
+        generation = context.generation
+        finish_workforce_retirement(store=store, expected_generation=generation, deadline=deadline, cancel_check=cancel_check, retire=retire)
+        return _success(generation, 'Firm sign-in was saved for Google images and videos. Model access, billing and quota remain unverified.')
+    except VertexAuthError as error:
+        if generation is not None and error.code not in ('vertex_authorization_changed', 'vertex_authorization_declined'):
+            return _restart_required(generation)
+        return _result_from_error(error)
+    except Exception:
+        return _restart_required(generation) if generation is not None else _generic_failure()
+
+
+def refresh_vertex_workforce(*, store, entra, expected_generation, deadline, cancel_check, monotonic=time.monotonic):
+    def require_active():
+        _check_workforce(deadline, cancel_check, monotonic)
+        active = store.snapshot_active()
+        if not isinstance(active, WorkforceActiveRecord) or active.generation != expected_generation:
+            raise auth_error('vertex_authorization_changed')
+        if active.chirp_retirement_pending:
+            raise auth_error('vertex_restart_required')
+        return active
+    active = require_active()
+    settings, principal, cache, revision = store.load_active_session(expected_generation)
+    candidate = entra.refresh(settings, cache, principal, deadline=deadline, cancel_check=cancel_check)
+    current = require_active()
+    if current.cache_revision != revision:
+        raise auth_error('vertex_refresh_stale')
+    if candidate.principal != principal:
+        raise auth_error('vertex_authorization_changed')
+    exchange = exchange_assertion(settings, candidate.assertion, deadline=deadline, cancel_check=cancel_check)
+    require_active()
+    store.commit_refreshed_cache(expected_generation, revision, principal, candidate.serialized_cache, deadline=deadline, cancel_check=cancel_check)
+    current = require_active()
+    if (current.principal_id, current.connection_fingerprint) != (active.principal_id, active.connection_fingerprint):
+        raise auth_error('vertex_authorization_changed')
+    return WorkforceCredentialContext(**asdict(exchange), generation=active.generation, principal_id=active.principal_id, connection_fingerprint=active.connection_fingerprint)

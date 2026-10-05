@@ -27,6 +27,8 @@ from .providers.vertex_auth import (
     VERTEX_SCHEMA_VERSION,
     VertexAuthError,
     VertexStore,
+    VertexMode,
+    _WindowsNamedMutex,
     vertex_gemini_model_name,
 )
 
@@ -86,9 +88,9 @@ async def _read_health(host: str, port: int) -> dict | None:
         return None
 
 
-def _read_health_sync(host: str, port: int) -> dict | None:
+def _read_health_sync(host: str, port: int, *, timeout=None) -> dict | None:
     try:
-        with httpx.Client(timeout=HEALTH_TIMEOUT) as client:
+        with httpx.Client(timeout=HEALTH_TIMEOUT if timeout is None else timeout) as client:
             response = client.get(f"http://{host}:{port}/health")
         if response.status_code != 200:
             return None
@@ -381,13 +383,15 @@ def _reset_retirement_event() -> None:
     _set_retirement_event(reset=True)
 
 
-def _wait_for_retirement(discovery: dict, timeout: float) -> bool:
+def _wait_for_retirement(discovery: dict, timeout: float, cancel_check=None) -> bool:
     pid = discovery.get("pid")
     port = discovery.get("port")
     if type(pid) is not int or type(port) is not int:
         return False
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
+        if cancel_check is not None:
+            cancel_check()
         if not _is_pid_alive(pid):
             return True
         time.sleep(0.1)
@@ -406,6 +410,7 @@ def _port_is_available(host: str, port: int) -> bool:
 def _retire_discovered_process(
     discovery: dict,
     health_payload: dict,
+    *, deadline=None, cancel_check=None,
 ) -> tuple[str, int]:
     """Retire one managed child without inferring termination ownership."""
 
@@ -426,7 +431,14 @@ def _retire_discovered_process(
     except Exception as exc:
         raise _restart_required() from exc
 
-    if not _wait_for_retirement(discovery, RETIREMENT_MAX_WAIT):
+    def wait(limit):
+        if deadline is None:
+            return _wait_for_retirement(discovery, limit)
+        from .providers.vertex_workforce_exchange import _check
+        _check(deadline, cancel_check, time.monotonic)
+        return _wait_for_retirement(discovery, min(limit, deadline - time.monotonic()), cancel_check)
+
+    if not wait(RETIREMENT_MAX_WAIT):
         process = _chirp_process
         current = _read_discovery_for_port(port)
         owns_exact_process = (
@@ -449,7 +461,7 @@ def _retire_discovered_process(
                 _terminate_pid(pid)
         except Exception as exc:
             raise _restart_required() from exc
-        if not _wait_for_retirement(discovery, RETIREMENT_FORCE_WAIT):
+        if not wait(RETIREMENT_FORCE_WAIT):
             raise _restart_required()
 
     if not _port_is_available(host, port):
@@ -525,7 +537,39 @@ def _find_chirp_python(chirp_home: Path) -> Path | None:
     return None
 
 
-def _start_chirp(
+def _assert_chirp_authorization(vertex_required=False, expected_generation=None, *, store=None):
+    from .providers.vertex_workforce_contract import auth_error
+    record = (store or VertexStore.production()).read()
+    if record is not None and record.mode is VertexMode.WORKFORCE:
+        if vertex_required:
+            raise auth_error("vertex_text_federation_unsupported")
+        if record.chirp_retirement_pending:
+            raise auth_error("vertex_restart_required")
+    if expected_generation is not None and (record is None or record.generation != expected_generation):
+        raise _restart_required()
+
+
+def _start_chirp(chirp_home, *, vertex_bootstrap=None, requested_port=None):
+    # Serialize this final mode/generation check and launch against activation.
+    # Production callers also hold the replacement lock, so retirement observes
+    # the registered child rather than a stale launcher arriving afterward.
+    store = VertexStore.production()
+    with _WindowsNamedMutex(store._mutex_name, store._mutex_timeout_ms):
+        _assert_chirp_authorization(vertex_bootstrap is not None,
+            vertex_bootstrap.get("generation") if vertex_bootstrap is not None else None, store=store)
+        return _start_chirp_unlocked(chirp_home, vertex_bootstrap=vertex_bootstrap, requested_port=requested_port)
+
+
+def _launch_registered_chirp(chirp_home, vertex_bootstrap, vertex_required):
+    global _chirp_process
+    with _replacement_lock:
+        _assert_chirp_authorization(vertex_required,
+            vertex_bootstrap.get("generation") if vertex_bootstrap is not None else None)
+        _chirp_process = _start_chirp(chirp_home, vertex_bootstrap=vertex_bootstrap)
+        return _chirp_process
+
+
+def _start_chirp_unlocked(
     chirp_home: Path,
     *,
     vertex_bootstrap: dict[str, object] | None = None,
@@ -644,6 +688,8 @@ def _restart_discovered_process(
 ) -> dict:
     global _chirp_process
     with _replacement_lock:
+        _assert_chirp_authorization(vertex_bootstrap is not None,
+            vertex_bootstrap.get("generation") if vertex_bootstrap is not None else None)
         current = _find_live_discovery()
         same_process = (
             isinstance(current, dict)
@@ -727,6 +773,39 @@ def recycle_after_vertex_commit(generation: str | None) -> None:
     _restart_discovered_process(discovery, health_payload, vertex_bootstrap)
 
 
+def retire_after_workforce_commit(expected_generation, deadline, cancel_check):
+    """Stop only; do not resolve replacement credentials or launch a child."""
+    from .providers.vertex_workforce_exchange import _check
+    from .providers.vertex_workforce_contract import auth_error
+    _check(deadline, cancel_check, time.monotonic)
+    if not _replacement_lock.acquire(timeout=max(0, deadline - time.monotonic())):
+        raise auth_error("vertex_restart_required")
+    try:
+        _check(deadline, cancel_check, time.monotonic)
+        record = VertexStore.production().read()
+        if record is None or record.mode is not VertexMode.WORKFORCE or record.generation != expected_generation:
+            raise auth_error("vertex_authorization_changed")
+        discovery = _find_live_discovery()
+        if discovery is None:
+            if _chirp_process is not None and _chirp_process.poll() is None:
+                raise auth_error("vertex_restart_required")
+        else:
+            host, port = discovery.get("host", "127.0.0.1"), discovery.get("port")
+            if host != "127.0.0.1" or type(port) is not int:
+                raise auth_error("vertex_restart_required")
+            payload = _read_health_sync(host, port, timeout=min(2, deadline - time.monotonic()))
+            _check(deadline, cancel_check, time.monotonic)
+            if not isinstance(payload, dict):
+                raise auth_error("vertex_restart_required")
+            _retire_discovered_process(discovery, payload, deadline=deadline, cancel_check=cancel_check)
+        _check(deadline, cancel_check, time.monotonic)
+        current = VertexStore.production().read()
+        if current is None or current.generation != expected_generation:
+            raise auth_error("vertex_authorization_changed")
+    finally:
+        _replacement_lock.release()
+
+
 async def _handle_live_discovery(
     discovery: dict,
     effective_model: str,
@@ -737,6 +816,7 @@ async def _handle_live_discovery(
         return _error_result(_restart_required(), "127.0.0.1", 0)
     try:
         vertex_required = vertex_gemini_model_name(effective_model) is not None
+        _assert_chirp_authorization(vertex_required)
     except VertexAuthError as error:
         return _error_result(error, host, port)
     payload = await _read_health(host, port)
@@ -747,7 +827,12 @@ async def _handle_live_discovery(
         vertex_required=vertex_required,
     )
     if classified is not None:
-        return classified
+        try:
+            with _replacement_lock:
+                _assert_chirp_authorization(vertex_required)
+                return classified
+        except VertexAuthError as error:
+            return _error_result(error, host, port)
     if not isinstance(payload, dict):
         return None
     if not vertex_required:
@@ -799,6 +884,7 @@ async def ensure_chirp_running(required_model: str | None = None) -> dict:
     effective_model = _resolve_effective_model(required_model, chirp_home)
     try:
         vertex_required = vertex_gemini_model_name(effective_model) is not None
+        _assert_chirp_authorization(vertex_required)
     except VertexAuthError as error:
         return _error_result(error, "127.0.0.1", 0)
 
@@ -852,11 +938,11 @@ async def ensure_chirp_running(required_model: str | None = None) -> dict:
         except VertexAuthError as error:
             return _error_result(error, "127.0.0.1", 0)
 
-        _chirp_process = _start_chirp(
-            chirp_home,
-            vertex_bootstrap=bootstrap,
-        )
-        if _chirp_process is None:
+        try:
+            process = await asyncio.to_thread(_launch_registered_chirp, chirp_home, bootstrap, vertex_required)
+        except VertexAuthError as error:
+            return _error_result(error, "127.0.0.1", 0)
+        if process is None:
             return {"running": False, "host": "127.0.0.1", "port": 0, "error": "Failed to start Chirp process"}
 
         # Wait for discovery file to appear (Chirp writes it after binding port 0)
@@ -866,17 +952,17 @@ async def ensure_chirp_running(required_model: str | None = None) -> dict:
             elapsed += STARTUP_POLL_INTERVAL
 
             # Check if process died
-            if _chirp_process.poll() is not None:
+            if process.poll() is not None:
                 return {
                     "running": False,
                     "host": "127.0.0.1",
                     "port": 0,
-                    "error": f"Chirp process exited with code {_chirp_process.returncode} during startup",
+                    "error": f"Chirp process exited with code {process.returncode} during startup",
                 }
 
             # Check for discovery file
             disc = _find_live_discovery()
-            if disc and _process_owns_pid(_chirp_process, disc.get("pid")):
+            if disc and _process_owns_pid(process, disc.get("pid")):
                 host = disc.get("host", "127.0.0.1")
                 port = disc["port"]
                 # Discovery file appeared — now wait for health
