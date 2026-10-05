@@ -11,6 +11,18 @@ namespace Rook.Tests.Services.Vision
     public class VisionProviderRegistrationsTests
     {
         [Fact]
+        public void EnterpriseChoicesAreExplicitAndDefaultProvidersStayFirst()
+        {
+            var images=VisionProviderRegistrations.CreateImageRegistrations(()=>null,()=>null,()=>null);
+            var videos=VisionProviderRegistrations.CreateVideoRegistrations(()=>null,()=>null);
+            Assert.Equal("gemini",images[0].ProviderName);
+            Assert.Equal("veo",videos[0].ProviderName);
+            Assert.Single(images,p=>p.ProviderName=="vertex_ai");
+            Assert.Single(videos,p=>p.ProviderName=="vertex_ai");
+            Assert.Empty(videos.Last().SecretRequirements);
+            Assert.DoesNotContain(VisionProviderRegistrations.CreateCredentialMetadata().EnumerateProviders(),p=>p.ProviderName=="vertex_ai");
+        }
+        [Fact]
         public void CreateCredentialMetadata_merges_gemini_fal_and_replicate()
         {
             var metadata = VisionProviderRegistrations.CreateCredentialMetadata();

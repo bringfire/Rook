@@ -56,7 +56,8 @@ namespace Rook.Services.Vision.Video
             var registry = new DefaultVideoProviderRegistry(
                 VisionProviderRegistrations.CreateVideoRegistrations(
                     () => generationSecrets.GetSecret(GenerationSecretKeys.GeminiApiKey),
-                    () => generationSecrets.GetSecret(GenerationSecretKeys.FalApiKey)));
+                    () => generationSecrets.GetSecret(GenerationSecretKeys.FalApiKey),
+                    vertexAccessTokenSource));
 
             var mediaResolver = new ArtifactOnlyVideoMediaResolver(artifactStore);
             var actualLedger = ledger ?? new JsonlVideoJobLedger();

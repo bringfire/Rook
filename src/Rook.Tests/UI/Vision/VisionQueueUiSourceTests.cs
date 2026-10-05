@@ -7,6 +7,16 @@ namespace Rook.Tests.UI.Vision
     public class VisionQueueUiSourceTests
     {
         [Fact]
+        public void VertexStopAndSubmissionControlsExposeLocalAndBillingSemantics()
+        {
+            var js=ReadSourceFile("src","Rook","UI","Vision","Resources","app.js");
+            Assert.Contains("if (submitPending) return;",js);
+            Assert.Contains("Stop monitoring",js);
+            Assert.Contains("may continue and incur charges",js);
+            Assert.Contains("a new request may create another billed generation",js);
+            Assert.Contains("Billed to your Google Cloud project",js);
+        }
+        [Fact]
         public void QueueMarkup_ExposesStatusFilterButtonsWithActiveDefault()
         {
             var html = ReadSourceFile(

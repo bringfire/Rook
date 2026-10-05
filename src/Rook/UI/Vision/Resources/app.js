@@ -386,6 +386,7 @@ function readEnhancedPromptFromArtifact(artifact) {
 }
 
 async function generateImage() {
+    if (el.generateBtn.disabled) return;
     const prompt = el.prompt.value.trim();
     if (!prompt) { showStatus("Please enter a prompt.", "error"); return; }
 
@@ -406,6 +407,7 @@ async function generateImage() {
 }
 
 async function generateSyncImage(prompt, model) {
+    if (window.rookUnknownGoogleImageSubmission && !window.confirm("An earlier Google submission outcome is unknown; a new request may create another billed generation. Submit a deliberately new image?")) return;
     const sourcePath = capturedViewport && capturedViewport.file_path;
     if (!sourcePath) {
         showStatus("Capture a viewport first.", "error");
@@ -429,6 +431,8 @@ async function generateSyncImage(prompt, model) {
         const artifact = await bridgeCall("generate", args);
         renderGeneratedArtifact(artifact, "Image generated.");
     } catch (e) {
+        if (model && model.provider_name === "vertex_ai" && (e.message || "").includes("submission outcome is unknown"))
+            window.rookUnknownGoogleImageSubmission = true;
         if (model && isCredentialFailureMessage(e.message)) {
             markProviderCredentialInvalid(model.provider_name);
         }
@@ -1255,6 +1259,8 @@ async function studioEnhancePrompt() {
 }
 
 async function studioGenerate() {
+    if (el.studioGenerateBtn.disabled) return;
+    if (window.rookUnknownGoogleImageSubmission && !window.confirm("An earlier Google submission outcome is unknown; a new request may create another billed generation. Submit a deliberately new image?")) return;
     const prompt = el.studioPrompt.value.trim();
     if (!prompt) { showStudioStatus("Please enter a prompt.", "error"); return; }
     if (!hasStudioSourceImage()) {
@@ -1303,6 +1309,8 @@ async function studioGenerate() {
         if (model && isCredentialFailureMessage(e.message)) {
             markProviderCredentialInvalid(model.provider_name);
         }
+        if (model && model.provider_name === "vertex_ai" && (e.message || "").includes("submission outcome is unknown"))
+            window.rookUnknownGoogleImageSubmission = true;
         showStudioStatus(e.message, "error");
     } finally {
         setGenerating(el.studioGenerateBtn, el.studioGenerateText, el.studioGenerateSpinner, false);
@@ -2456,6 +2464,7 @@ const Video = (() => {
     let userPersonGenOverride = null;  // null = follow defaults; else sticky.
     let estimateTimer = null;
     let estimatePending = null;
+    let submitPending = false;
 
     // Frame-picker state.
     let pickerSlot = null;             // "start" | "end" | "reference"
@@ -2814,6 +2823,19 @@ const Video = (() => {
     //   Veo 3.x:  T2V w/ refs          → allow_adult  (image-based)
     //   Veo 3.x:  I2V or Interp        → allow_adult
     function applyPersonGenDefault() {
+        const selected = currentModel();
+        const vertex = selected && selected.provider_name === "vertex_ai";
+        if (![...ve.personGenSelect.options].some(option => option.value === "disallow")) {
+            const option = document.createElement("option");
+            option.value = "disallow"; option.textContent = "Disallow people";
+            ve.personGenSelect.appendChild(option);
+        }
+        for (const option of ve.personGenSelect.options) {
+            option.disabled = vertex ? !["allow_adult", "disallow"].includes(option.value) : option.value === "disallow";
+            option.hidden = option.disabled;
+        }
+        if (userPersonGenOverride !== null && [...ve.personGenSelect.options].some(option => option.value === userPersonGenOverride && option.disabled))
+            userPersonGenOverride = null;
         if (userPersonGenOverride !== null) {
             ve.personGenSelect.value = userPersonGenOverride;
             return;
@@ -2825,7 +2847,7 @@ const Video = (() => {
         const hasRefs = referenceFrames.length > 0;
 
         let def;
-        if (isVeo2) {
+        if (vertex || isVeo2) {
             def = "allow_adult";
         } else if (mode === "t2v" && !hasRefs) {
             def = "allow_all";
@@ -3105,7 +3127,7 @@ const Video = (() => {
     }
 
     function updateGenerateEnablement() {
-        ve.generateBtn.disabled = !isFormReady();
+        ve.generateBtn.disabled = submitPending || !isFormReady();
     }
 
     function scheduleEstimate() {
@@ -3146,7 +3168,7 @@ const Video = (() => {
         try {
             const data = await bridgeCall("estimate_video_job", args);
             if (estimatePending !== token) return;
-            ve.costAmount.textContent = `$${formatDollars(data.dollars_usd)}`;
+            ve.costAmount.textContent = videoPriceLabel(data);
             ve.costDetail.textContent =
                 `${data.resolution} · ${data.duration_seconds}s · ${data.number_of_videos}×`;
             // Cache BOTH the estimate response AND the args it was
@@ -3168,7 +3190,17 @@ const Video = (() => {
         return n.toFixed(2);
     }
 
+    function videoPriceLabel(data) {
+        return data.pricing && data.pricing.pricing_source === "vertex-project-billing-unpriced"
+            ? "Billed to your Google Cloud project — price unavailable"
+            : `$${formatDollars(data.dollars_usd)}`;
+    }
+
     function onGenerateClicked() {
+        if (submitPending) return;
+        const priorUnknown = [...queue.values()].some(job => job.entry.error &&
+            job.entry.error.message && job.entry.error.message.includes("submission outcome is unknown"));
+        if (priorUnknown && !window.confirm("An earlier Google submission outcome is unknown; a new request may create another billed generation. Submit a deliberately new job?")) return;
         if (!isFormReady()) {
             showVideoStatus("Fill in the required fields first.", "error");
             return;
@@ -3193,14 +3225,14 @@ const Video = (() => {
             return;
         }
         const data = JSON.parse(raw);
-        ve.costModalAmount.textContent = `$${formatDollars(data.dollars_usd)}`;
+        ve.costModalAmount.textContent = videoPriceLabel(data);
         ve.costModalModel.textContent = data.model || "—";
         ve.costModalResolution.textContent = data.resolution || "—";
         ve.costModalDuration.textContent =
             data.duration_seconds ? `${data.duration_seconds} s` : "—";
         ve.costModalSource.textContent =
             (data.pricing && data.pricing.pricing_source) || "—";
-        ve.costBreakdownBody.innerHTML = (data.breakdown || []).map(row => `
+        ve.costBreakdownBody.innerHTML = data.pricing && data.pricing.pricing_source === "vertex-project-billing-unpriced" ? "" : (data.breakdown || []).map(row => `
             <tr>
                 <td>${escapeHtml(row.label || "")}</td>
                 <td class="video-cost-breakdown-amount">$${formatDollars(row.dollars_usd)}</td>
@@ -3213,6 +3245,7 @@ const Video = (() => {
     }
 
     async function submitJob() {
+        if (submitPending) return;
         const args = buildSubmitArgs();
         if (!args) return;
         // Defense-in-depth: even though openCostModalIfHaveEstimate gates
@@ -3227,6 +3260,8 @@ const Video = (() => {
             scheduleEstimate();
             return;
         }
+        submitPending = true;
+        updateGenerateEnablement();
         ve.costConfirmBtn.disabled = true;
         ve.costConfirmBtn.textContent = "Submitting…";
         try {
@@ -3259,6 +3294,8 @@ const Video = (() => {
             // "options.person_generation: ..." not just the bare message.
             showVideoStatus(`Submit failed: ${errorToText(e)}`, "error");
         } finally {
+            submitPending = false;
+            updateGenerateEnablement();
             ve.costConfirmBtn.disabled = false;
             ve.costConfirmBtn.textContent = "Confirm & generate";
         }
@@ -3338,9 +3375,13 @@ const Video = (() => {
     }
 
     async function cancelJob(jobId) {
-        if (!window.confirm("Cancel this job?")) return;
+        const entry = queue.get(jobId)?.entry;
+        const localStop = entry && entry.request_summary && entry.request_summary.model.startsWith("vertex_ai/");
+        if (!window.confirm(localStop ? "Stop local monitoring? The Google operation may continue and incur charges." : "Cancel this job?")) return;
         try {
-            await bridgeCall("cancel_video_job", { job_id: jobId });
+            const result = await bridgeCall("cancel_video_job", { job_id: jobId });
+            if (localStop && result.state === "interrupted")
+                showVideoStatus("Local monitoring stopped. The Google operation may continue and incur charges.", "info");
             // Server has flipped state; let the next poll surface it.
             // No optimistic write — the cancel race is handled domain-
             // side and we want to display the authoritative outcome.
@@ -3452,7 +3493,8 @@ const Video = (() => {
 
             const actions = [];
             if (inFlight) {
-                actions.push(`<button class="btn btn-secondary btn-cancel-job" data-id="${escapeAttr(j.job_id)}">Cancel</button>`);
+                const stopLabel = (summary.model || "").startsWith("vertex_ai/") ? "Stop monitoring" : "Cancel";
+                actions.push(`<button class="btn btn-secondary btn-cancel-job" data-id="${escapeAttr(j.job_id)}">${stopLabel}</button>`);
             }
             if (j.state === "complete" && j.result_artifact_id) {
                 actions.push(`<button class="btn btn-primary btn-open-job" data-id="${escapeAttr(j.result_artifact_id)}">Open</button>`);

@@ -7,6 +7,7 @@ using Rook.Services.Vision.Image.Replicate;
 using Rook.Services.Vision.Image.Vertex;
 using Rook.Services.Vision.Video;
 using Rook.Services.Vision.Video.Fal;
+using Rook.Services.Vision.Video.Vertex;
 
 namespace Rook.Services.Vision
 {
@@ -27,11 +28,13 @@ namespace Rook.Services.Vision
 
         public static IVideoProviderRegistration[] CreateVideoRegistrations(
             Func<string?> geminiKeyProvider,
-            Func<string?> falKeyProvider)
+            Func<string?> falKeyProvider,
+            IVertexAccessTokenSource? vertexAccessTokenSource = null)
             => new IVideoProviderRegistration[]
             {
                 new VeoProviderRegistration(new VeoProvider(geminiKeyProvider)),
                 new FalVideoProviderRegistration(new FalVideoProvider(falKeyProvider)),
+                new VertexVeoProviderRegistration(new VertexVeoProvider(vertexAccessTokenSource ?? UnavailableVertexAccessTokenSource.Instance)),
             };
 
         public static ProviderCredentialMetadataCatalog CreateCredentialMetadata()
