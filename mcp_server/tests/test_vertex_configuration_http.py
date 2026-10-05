@@ -56,6 +56,8 @@ async def test_overlapping_connect_and_cancellation_preserve_prior_bytes(tmp_pat
     first.cancel(); released.set()
     with pytest.raises(asyncio.CancelledError): await first
     assert store.path.read_bytes()==before
+    if service.worker is not None: await service.worker
+    await asyncio.sleep(0)
     assert service.worker is None
 
 @pytest.mark.asyncio
@@ -116,6 +118,8 @@ async def test_cancelled_disconnect_waiting_for_mutex_preserves_authorization(tm
     assert await asyncio.to_thread(entered.wait,2)
     pending.cancel(); await asyncio.sleep(0); released.set()
     with pytest.raises(asyncio.CancelledError): await pending
+    if service.worker is not None: await service.worker
+    await asyncio.sleep(0)
     assert store.path.read_bytes()==before and not revoked and service.worker is None
 
 @pytest.mark.asyncio
@@ -134,3 +138,109 @@ async def test_cancel_during_dispatched_revocation_preserves_local_record(tmp_pa
     pending.cancel(); await asyncio.sleep(0); released.set()
     with pytest.raises(asyncio.CancelledError): await pending
     assert store.path.read_bytes()==before and len(revoked)==1
+
+from .test_vertex_workforce_store import fixture as workforce_fixture, activate as activate_workforce
+
+@pytest.mark.asyncio
+async def test_pending_import_is_not_connected_and_never_refreshes(workforce_fixture, tmp_path):
+    import json
+    from dataclasses import asdict
+    _,store,settings,*_=workforce_fixture
+    prior=store.base.replace(_record(_auth()))
+    path=tmp_path/'synthetic-firm.json';path.write_text(json.dumps(asdict(settings)))
+    service=VertexConfigurationHttp(store=store.base,recycler=lambda _:pytest.fail('No retirement on import'),entra=object())
+    response=await service.execute({'operation':'import_firm','settings_path':str(path)},lambda:False)
+    data=json.loads(response.body)['data']
+    assert response.status==200 and data['active'] is None and data['pending']['label']==settings.label
+    assert data['state']=='sign_in_required' and data['legacy_mode']==prior.mode.value
+    assert store.snapshot_active()==prior
+    body=store.base.path.read_bytes()
+    await service.execute({'operation':'firm_status'},lambda:False)
+    assert store.base.path.read_bytes()==body
+
+@pytest.mark.asyncio
+async def test_disconnect_clears_pending_and_rejects_late_firm_callback(workforce_fixture, monkeypatch):
+    import time
+    from dataclasses import replace
+    from types import SimpleNamespace
+    from rook.providers import vertex_backend as backend
+    _,store,settings,_,candidate,exchange=workforce_fixture
+    ticket=store.import_pending(settings)
+    entered,released=threading.Event(),threading.Event()
+    def begin(*args,**kwargs):
+        entered.set();assert released.wait(3)
+        return replace(candidate,operation_deadline=time.monotonic()+30)
+    monkeypatch.setattr(backend,'exchange_assertion',lambda *args,**kwargs:pytest.fail('No exchange after disconnect'))
+    service=VertexConfigurationHttp(store=store.base,entra=SimpleNamespace(begin=begin),retire=lambda *args:pytest.fail('No late retirement'))
+    pending=asyncio.create_task(service.execute({'operation':'connect_firm','pending_revision':ticket.pending_revision,'authorization_epoch':ticket.authorization_epoch},lambda:False))
+    assert await asyncio.to_thread(entered.wait,2)
+    disconnected=await asyncio.wait_for(service.execute({'operation':'disconnect'},lambda:False),1)
+    assert disconnected.status==200 and store.snapshot_active() is None and store.read_pending() is None
+    assert service.worker is not None
+    released.set();response=await pending
+    assert response.status!=200
+    assert store.snapshot_active() is None
+
+@pytest.mark.asyncio
+async def test_timed_out_check_keeps_worker_slot_until_settled(workforce_fixture, monkeypatch):
+    import json
+    import time
+    from rook.providers.vertex_workforce_contract import FirmSignInCheckResult
+    from rook.agent.chat import vertex_configuration_http as route
+    _,store,*_=workforce_fixture
+    context=activate_workforce(workforce_fixture)
+    entered,released=threading.Event(),threading.Event()
+    checks=[]
+    def held(expected_generation,**kwargs):
+        checks.append(kwargs['cancel_check']);entered.set();assert released.wait(3)
+        return FirmSignInCheckResult('signed_in',None,expected_generation)
+    monkeypatch.setattr(route,'check_firm_sign_in',held)
+    service=VertexConfigurationHttp(store=store.base,check_timeout=.1)
+    pending=asyncio.create_task(service.execute({'operation':'check_firm_sign_in','authorization_generation':context.generation},lambda:False))
+    assert await asyncio.to_thread(entered.wait,2)
+    response=await asyncio.wait_for(pending,1)
+    data=json.loads(response.body)['data']
+    assert data['state']=='service_unavailable' and data['code']=='vertex_token_issuance_timeout'
+    assert service.worker is not None
+    with pytest.raises(_auth().VertexAuthError):checks[0]()
+    busy=await service.execute({'operation':'discard_firm'},lambda:False)
+    assert busy.status==409
+    disconnected=await service.execute({'operation':'disconnect'},lambda:False)
+    assert disconnected.status==200 and store.snapshot_active() is None
+    old=service.worker;released.set();await old;await asyncio.sleep(0)
+    assert service.worker is None
+
+@pytest.mark.asyncio
+async def test_idle_disconnect_clears_pending_firm_settings(workforce_fixture):
+    _,store,settings,*_=workforce_fixture
+    store.import_pending(settings)
+    service=VertexConfigurationHttp(store=store.base,recycler=lambda _:None)
+    response=await service.execute({'operation':'disconnect'},lambda:False)
+    assert response.status==200 and store.read_pending() is None
+
+@pytest.mark.asyncio
+async def test_prepare_reconnect_copies_active_to_pending_without_rotating(workforce_fixture):
+    import json
+    _,store,*_=workforce_fixture
+    context=activate_workforce(workforce_fixture)
+    service=VertexConfigurationHttp(store=store.base,recycler=lambda _:pytest.fail('No retirement while preparing reconnect'))
+    response=await service.execute({'operation':'prepare_firm_reconnect','authorization_generation':context.generation},lambda:False)
+    data=json.loads(response.body)['data']
+    assert response.status==200 and data['active_generation']==context.generation and data['pending']==data['active']
+    assert store.snapshot_active().generation==context.generation
+
+@pytest.mark.asyncio
+async def test_disconnect_during_legacy_browser_does_not_wait_for_provider(tmp_path):
+    store=_store(tmp_path);store.replace(_record(_auth()))
+    entered,released=threading.Event(),threading.Event()
+    def authorize(_):entered.set();assert released.wait(3);return _authorized_user()
+    config=tmp_path/'client.json';config.write_text('{"installed":{"client_id":"client","client_secret":"secret"}}')
+    service=VertexConfigurationHttp(store=store,recycler=lambda _:None,authorize=authorize)
+    pending=asyncio.create_task(service.execute({'operation':'connect','client_config_path':str(config),'project_id':'company-ai-project','video_location':'us-central1'},lambda:False))
+    assert await asyncio.to_thread(entered.wait,2)
+    try:
+        response=await asyncio.wait_for(service.execute({'operation':'disconnect'},lambda:False),.5)
+        assert response.status==200 and service.store.read() is None
+    finally:released.set()
+    response=await pending
+    assert response.status!=200 and service.store.read() is None

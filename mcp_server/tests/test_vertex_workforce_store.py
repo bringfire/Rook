@@ -257,3 +257,31 @@ def test_corrupt_envelope_is_refused_without_rewrite(fixture, mutation):
     with pytest.raises(VertexAuthError):
         store.disconnect_all()
     assert base.path.read_bytes() == raw
+
+
+@pytest.mark.parametrize("operation", ["import", "discard", "reconnect"])
+def test_pending_mutations_recheck_cancellation_after_flush(fixture, monkeypatch, operation):
+    import os
+    base, store, settings, *_ = fixture
+    context = activate(fixture)
+    store.import_pending(settings)
+    before = base.path.read_bytes()
+    cancelled = threading.Event()
+    fsync = os.fsync
+    def flush(fd):
+        fsync(fd)
+        cancelled.set()
+    def check():
+        if cancelled.is_set():
+            raise VertexAuthError("vertex_authorization_declined", "Cancelled.")
+    monkeypatch.setattr(os, "fsync", flush)
+    with pytest.raises(VertexAuthError):
+        kwargs = dict(deadline=time.monotonic() + 5, cancel_check=check)
+        if operation == "import":
+            store.import_pending(settings, **kwargs)
+        elif operation == "discard":
+            store.discard_pending(**kwargs)
+        else:
+            store.prepare_reconnect(context.generation, **kwargs)
+    assert base.path.read_bytes() == before
+    assert not list(base.path.parent.glob("*.tmp"))

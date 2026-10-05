@@ -184,20 +184,49 @@ class VertexWorkforceStore:
     def snapshot_active(self) -> ActiveVertexAuthorizationSnapshot | None:
         return self._parse_active(self._read_envelope()["active"])
 
-    def import_pending(self, settings: FirmSettings) -> ActivationTicket:
+    def import_pending(self, settings: FirmSettings, *, deadline=None, cancel_check=lambda: None) -> ActivationTicket:
         settings = parse_firm_settings(_encoded(asdict(settings)))
-        with self._locked() as deadline:
+        with self._locked(deadline=deadline, cancel_check=cancel_check) as deadline:
             value = self._read_envelope()
             revision = secrets.token_hex(16)
             value["pending"] = {"revision": revision, "settings": asdict(settings)}
-            self._write_envelope(value, deadline=deadline, cancel_check=lambda: None)
+            self._write_envelope(value, deadline=deadline, cancel_check=cancel_check)
             return ActivationTicket(revision, value["authorization_epoch"])
 
-    def discard_pending(self) -> None:
-        with self._locked() as deadline:
+    def discard_pending(self, *, deadline=None, cancel_check=lambda: None) -> None:
+        with self._locked(deadline=deadline, cancel_check=cancel_check) as deadline:
             value = self._read_envelope()
             value["pending"] = None
-            self._write_envelope(value, deadline=deadline, cancel_check=lambda: None)
+            self._write_envelope(value, deadline=deadline, cancel_check=cancel_check)
+
+    def prepare_reconnect(self, expected_generation: str, *, deadline=None, cancel_check=lambda: None) -> ActivationTicket:
+        with self._locked(deadline=deadline, cancel_check=cancel_check) as deadline:
+            value = self._read_envelope()
+            active = self._require_active(value, expected_generation)
+            revision = secrets.token_hex(16)
+            value["pending"] = {"revision": revision, "settings": asdict(active.settings)}
+            self._write_envelope(value, deadline=deadline, cancel_check=cancel_check)
+            return ActivationTicket(revision, value["authorization_epoch"])
+
+    def authorization_epoch(self) -> str | None:
+        return self._read_envelope()["authorization_epoch"] if self.base.path.exists() else None
+
+    def has_v2_envelope(self) -> bool:
+        if not self.base.path.exists():
+            return False
+        with self.base.path.open("rb") as stream:
+            value = json_object(stream.read(STORE_LIMIT + 1), STORE_LIMIT)
+        return value.get("schema_version") == 2
+
+    def activate_legacy(self, expected_epoch: str | None, record: VertexRecord, *, deadline: float, cancel_check: Callable[[], None]) -> VertexRecord:
+        with self._locked(deadline=deadline, cancel_check=cancel_check):
+            value = self._read_envelope()
+            if (expected_epoch is None and self.base.path.exists()) or (expected_epoch is not None and value["authorization_epoch"] != expected_epoch):
+                raise auth_error("vertex_authorization_changed")
+            committed = replace(record, generation=secrets.token_hex(16))
+            value.update(active=committed.to_json_object(), authorization_epoch=secrets.token_hex(16))
+            self._write_envelope(value, deadline=deadline, cancel_check=cancel_check)
+            return committed
 
     def disconnect_all(self) -> None:
         with self._locked() as deadline:

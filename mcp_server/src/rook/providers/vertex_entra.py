@@ -122,15 +122,18 @@ class _EntraCallbackHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             expected_host = f"localhost:{self.server.server_address[1]}"
-            if self.path != "/" or self.headers.get("Host") != expected_host or self.headers.get("Transfer-Encoding") or self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/x-www-form-urlencoded":
-                raise auth_error()
-            if self.headers.get("Origin") not in (None, "https://login.microsoftonline.com"):
-                raise auth_error()
             lengths = self.headers.get_all("Content-Length", [])
-            if len(lengths) != 1 or not lengths[0].isdigit() or not 0 < int(lengths[0]) <= 64 * 1024:
+            if self.headers.get("Transfer-Encoding") or len(lengths) != 1 or not lengths[0].isdigit() or not 0 < int(lengths[0]) <= 64 * 1024:
                 raise auth_error()
+            # Consume only a bounded, length-delimited body before rejecting its
+            # target. Closing with unread bytes can reset a Windows connection
+            # before the browser receives the fixed rejection response.
             raw = self.rfile.read(int(lengths[0]))
             if len(raw) != int(lengths[0]):
+                raise auth_error()
+            if self.path != "/" or self.headers.get("Host") != expected_host or self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/x-www-form-urlencoded":
+                raise auth_error()
+            if self.headers.get("Origin") not in (None, "https://login.microsoftonline.com"):
                 raise auth_error()
             fields = parse_qs(raw.decode("utf-8"), keep_blank_values=True, strict_parsing=True, max_num_fields=16)
             if set(fields) - {"code", "state", "session_state", "error", "error_description", "error_uri"} or any(len(values) != 1 or not values[0] for values in fields.values()) or "state" not in fields or (("code" in fields) == ("error" in fields)):

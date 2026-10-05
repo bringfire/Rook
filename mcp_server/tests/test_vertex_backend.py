@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import threading
+import time
 import uuid
 
 import pytest
@@ -467,7 +468,8 @@ def test_connect_failure_preserves_prior_record_and_never_recycles(tmp_path):
     assert recycled == []
 
 
-def test_connect_holds_the_cross_process_mutex_during_authorization(tmp_path):
+@pytest.mark.parametrize("change", [False, True])
+def test_connect_releases_browser_mutex_and_conditionally_commits(tmp_path, change):
     backend = _backend()
     oauth = importlib.import_module("rook.providers.vertex_oauth")
     auth = _auth()
@@ -480,6 +482,7 @@ def test_connect_holds_the_cross_process_mutex_during_authorization(tmp_path):
             try:
                 with auth._WindowsNamedMutex(store._mutex_name, 50):
                     contender_codes.append("acquired")
+                    if change: store.replace(_record(auth))
             except auth.VertexAuthError as exc:
                 contender_codes.append(exc.code)
 
@@ -498,8 +501,9 @@ def test_connect_holds_the_cross_process_mutex_during_authorization(tmp_path):
         authorize=authorize_while_contended,
     )
 
-    assert result.success is True
-    assert contender_codes == ["vertex_request_failed"]
+    assert result.success is not change
+    if change: assert result.code == "vertex_authorization_changed"
+    assert contender_codes == ["acquired"]
 
 
 def test_save_configuration_supports_adc_service_account_and_existing_oauth(tmp_path):
@@ -725,3 +729,66 @@ def test_disconnect_is_idempotent_when_store_is_absent(tmp_path):
     assert result.revocation == "not_applicable"
     assert result.local_deletion == "absent"
     assert side_effects == []
+
+from .test_vertex_workforce_store import fixture as workforce_fixture, activate as activate_workforce
+
+
+def test_sign_in_check_forces_actual_msal_and_sts_leaves_model_access_unverified(workforce_fixture, monkeypatch):
+    import time
+    import json
+    from types import SimpleNamespace
+    from .test_vertex_entra import EntraTransport, _begin
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from rook.providers.vertex_entra import EntraSessionAdapter
+    from rook.providers import vertex_backend as backend
+    from rook.providers.vertex_workforce_exchange import exchange_assertion
+    _, store, settings, _, _, exchange = workforce_fixture
+    transport = EntraTransport(settings, rsa.generate_private_key(public_exponent=65537, key_size=2048))
+    entra = EntraSessionAdapter(http_client_factory=lambda *args: transport)
+    candidate = _begin(entra, transport, settings)
+    context = store.activate(store.import_pending(settings), candidate, exchange, cancel_check=lambda: None)
+    model_calls, browser_calls, sts_calls, retire_calls = [], [], [], []
+    entra._browser_open = lambda *args: browser_calls.append(args) or pytest.fail('No browser during check')
+    def request(**kwargs):
+        sts_calls.append(kwargs)
+        return SimpleNamespace(status=200, data=json.dumps({'access_token':'synthetic-check-token','expires_in':3600,'token_type':'Bearer','issued_token_type':'urn:ietf:params:oauth:token-type:access_token'}).encode())
+    monkeypatch.setattr(backend, 'exchange_assertion', lambda *args, **kwargs: exchange_assertion(*args, **kwargs, request=request))
+    monkeypatch.setattr(backend, '_post_json', lambda *args: model_calls.append(args) or pytest.fail('No model probe'))
+    result = backend.check_firm_sign_in(context.generation, store=store, entra=entra, deadline=time.monotonic()+30, cancel_check=lambda:None, retire=lambda *args:retire_calls.append(args))
+    assert result.state == 'signed_in' and result.check_scope == 'identity_exchange' and result.generation == context.generation
+    assert (result.image_access,result.video_access,result.billing,result.quota)==('unverified',)*4
+    assert len(sts_calls)==1 and len(retire_calls)==1 and not model_calls and not browser_calls
+    grants=[call[2]['grant_type'] for call in transport.calls if call[0]=='POST']
+    assert grants == ['authorization_code','refresh_token']
+    assert store.load_active_session(context.generation)[3] == 1
+
+
+@pytest.mark.parametrize('change',['timeout','disconnect','replace'])
+def test_sign_in_check_never_reports_late_success(workforce_fixture, monkeypatch, change):
+    import time
+    from types import SimpleNamespace
+    from rook.providers import vertex_backend as backend
+    _,store,_,_,candidate,exchange=workforce_fixture
+    context=activate_workforce(workforce_fixture)
+    def retire(*args):
+        if change=='timeout': raise _auth().VertexAuthError('vertex_token_issuance_timeout','Timeout.')
+        if change=='disconnect': store.disconnect_all()
+        if change=='replace': activate_workforce(workforce_fixture)
+    monkeypatch.setattr(backend,'exchange_assertion',lambda *args,**kwargs:pytest.fail('Changed or expired check cannot exchange'))
+    result=backend.check_firm_sign_in(context.generation,store=store,entra=SimpleNamespace(refresh=lambda *args,**kwargs:candidate),deadline=time.monotonic()+30,cancel_check=lambda:None,retire=retire)
+    assert result.state!='signed_in' and result.generation in (None,context.generation)
+def test_disconnect_v2_legacy_retains_epoch_tombstone(tmp_path):
+    import json
+    from rook.providers import vertex_backend as backend
+    from rook.providers.vertex_workforce_store import VertexWorkforceStore
+    store = _store(tmp_path)
+    firm = VertexWorkforceStore(store)
+    prior = firm.activate_legacy(None, _record(_auth()), deadline=time.monotonic()+5, cancel_check=lambda: None)
+    epoch = firm.authorization_epoch()
+    result = backend.disconnect_vertex(store=store, recycler=lambda _: None)
+    assert result.success and store.read() is None
+    assert store.path.exists()
+    value = json.loads(store.path.read_bytes())
+    assert value['active'] is None and value['pending'] is None and value['authorization_epoch'] != epoch
+    with pytest.raises(_auth().VertexAuthError):
+        firm.activate_legacy(epoch, prior, deadline=time.monotonic()+5, cancel_check=lambda: None)

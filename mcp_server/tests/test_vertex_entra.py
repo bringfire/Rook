@@ -241,6 +241,26 @@ def test_loopback_rejects_wrong_target_duplicate_form_and_replay(problem):
         listener.close()
 
 
+def test_rejected_origin_consumes_bounded_body_before_closing():
+    from io import BytesIO
+    from email.message import Message
+    from types import SimpleNamespace
+    from rook.providers.vertex_entra import _EntraCallbackHandler
+    handler = object.__new__(_EntraCallbackHandler)
+    body = b'code=synthetic-code&state=synthetic-state'
+    handler.rfile = BytesIO(body)
+    handler.headers = Message()
+    for key, value in {'Host': 'localhost:45678', 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': str(len(body)), 'Origin': 'https://untrusted.invalid'}.items():
+        handler.headers[key] = value
+    handler.path = '/'
+    handler.server = SimpleNamespace(server_address=('127.0.0.1', 45678), callback=None, callback_error=False)
+    errors = []
+    handler.send_error = lambda status, *args: errors.append(status)
+    handler.do_POST()
+    assert errors == [400] and handler.server.callback is None and handler.server.callback_error
+    assert handler.rfile.tell() == len(body)
+
+
 def test_wrong_state_rejected_by_msal_before_token_post(adapter, settings):
     instance, transport = adapter
     class Listener:

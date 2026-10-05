@@ -2,6 +2,7 @@ using System;
 using System.Net;
 using System.Net.Http;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Rook.UI.Chat;
@@ -12,6 +13,69 @@ namespace Rook.Tests.UI.Chat
 {
     public sealed class VertexConfigurationClientTests
     {
+        [Fact]
+        public async Task PendingFirmSettings_AreDistinctFromConnectedAccount()
+        {
+            var summary = new { label = "Synthetic firm", project_id = "synthetic-firm-project", video_location = "us-central1", image_location = "global", workforce_pool_user_project = "synthetic-firm-project", quota_project_id = (string?)null };
+            var handler = new VertexTestHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) {
+                Content = new StringContent(JsonSerializer.Serialize(new { success = true, data = new {
+                    contract_version = 2, active = (object?)null, active_generation = (string?)null, retirement_pending = false,
+                    pending = summary, pending_revision = new string('a', 32), authorization_epoch = new string('b', 32), legacy_mode = "oauth", state = "sign_in_required",
+                }})) }));
+            var result = await AgentChatClient.ForTests(handler, new Uri("http://127.0.0.1:1")).ReadFirmConfigurationAsync(CancellationToken.None);
+            Assert.True(result.Success); Assert.Null(result.Status!.Active); Assert.NotNull(result.Status.Pending);
+            Assert.Equal("oauth", result.Status.LegacyMode); Assert.Equal("sign_in_required", result.Status.State);
+        }
+
+        [Theory]
+        [InlineData("generation_ready", "unverified", "identity_exchange", null)]
+        [InlineData("signed_in", "verified", "identity_exchange", null)]
+        [InlineData("signed_in", "unverified", "model_readiness", null)]
+        [InlineData("signed_in", "unverified", "identity_exchange", "vertex_request_failed")]
+        public async Task SignInCheck_RejectsReadyOrVerifiedClaims(string state, string imageAccess, string scope, string? code)
+        {
+            var handler = new VertexTestHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(new { success = true, data = new {
+                contract_version = 2, check_scope = scope, state, code, generation = new string('a', 32), image_access = imageAccess, video_access = "unverified", billing = "unverified", quota = "unverified",
+            }})) }));
+            var result = await AgentChatClient.ForTests(handler, new Uri("http://127.0.0.1:1")).CheckFirmSignInAsync(new string('a', 32), CancellationToken.None);
+            Assert.False(result.Success); Assert.Null(result.Check);
+        }
+
+        [Theory]
+        [InlineData("signed_in", null)]
+        [InlineData("sign_in_required", "vertex_firm_sign_in_required")]
+        [InlineData("exchange_denied", "vertex_workforce_exchange_denied")]
+        [InlineData("service_unavailable", "vertex_token_issuance_timeout")]
+        [InlineData("authorization_changed", "vertex_authorization_changed")]
+        [InlineData("restart_required", "vertex_restart_required")]
+        public async Task SignInCheck_MapsClosedFailureStates(string state, string? code)
+        {
+            var handler = new VertexTestHandler(async (request, _) => {
+                using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
+                Assert.Equal("check_firm_sign_in", body.RootElement.GetProperty("operation").GetString());
+                Assert.Equal(new string('a', 32), body.RootElement.GetProperty("authorization_generation").GetString());
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(new { success = true, data = new {
+                    contract_version = 2, check_scope = "identity_exchange", state, code, generation = new string('a', 32), image_access = "unverified", video_access = "unverified", billing = "unverified", quota = "unverified",
+                }})) };
+            });
+            var result = await AgentChatClient.ForTests(handler, new Uri("http://127.0.0.1:1")).CheckFirmSignInAsync(new string('a', 32), CancellationToken.None);
+            Assert.True(result.Success); Assert.Equal(state, result.Check!.State);
+            Assert.DoesNotContain("Generation ready", result.Message);
+        }
+
+        [Fact]
+        public async Task FirmConnect_UsesDisplayedRevision()
+        {
+            var handler = new VertexTestHandler(async (request, _) => {
+                using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
+                Assert.Equal("connect_firm", body.RootElement.GetProperty("operation").GetString());
+                Assert.Equal(new string('a', 32), body.RootElement.GetProperty("pending_revision").GetString());
+                Assert.Equal(new string('b', 32), body.RootElement.GetProperty("authorization_epoch").GetString());
+                return new HttpResponseMessage(HttpStatusCode.Conflict) { Content = new StringContent("{\"success\":false,\"error\":{\"code\":\"vertex_authorization_changed\",\"message\":\"private-sentinel\"}}") };
+            });
+            var result = await AgentChatClient.ForTests(handler, new Uri("http://127.0.0.1:1")).ConnectFirmAccountAsync(new string('a', 32), new string('b', 32), CancellationToken.None);
+            Assert.False(result.Success); Assert.DoesNotContain("private-sentinel", result.Message);
+        }
         [Fact]
         public async Task LocalStatusUsesOwnedVertexRouteAndPreservesUnsupportedRegion()
         {

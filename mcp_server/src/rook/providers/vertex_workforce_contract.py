@@ -256,3 +256,13 @@ class FirmSignInCheckResult:
     video_access: str = field(default="unverified", init=False)
     billing: str = field(default="unverified", init=False)
     quota: str = field(default="unverified", init=False)
+
+    def __post_init__(self):
+        states = {'signed_in': {None}, 'sign_in_required': {'vertex_firm_sign_in_required'},
+            'exchange_denied': {'vertex_workforce_exchange_denied'},
+            'service_unavailable': {'vertex_token_issuance_timeout', 'vertex_request_failed', 'vertex_refresh_stale'},
+            'authorization_changed': {'vertex_authorization_changed'}, 'restart_required': {'vertex_restart_required'}}
+        if self.state not in states or self.code not in states[self.state] or self.state == 'signed_in' and self.generation is None:
+            raise auth_error()
+        if self.generation is not None:
+            opaque(self.generation)
