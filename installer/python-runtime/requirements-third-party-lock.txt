@@ -4,6 +4,7 @@
 # Includes transitive dependencies; Rook and Chirp are built separately from source.
 # Change versions/hashes only through reviewed dependency maintenance and audits.
 # Scoped firm-sign-in exception: MSAL 1.39.0; existing transitive pins retained.
+# Deliberate audit remediation: LiteLLM 1.89.7 and PyJWT 2.15.0; reviewed hashes.
 # uv is the installer's own tool (bringfire/Rook#595): extracted at install time from
 # this wheel, never installed into a venv. Hash = PyPI's published win_amd64 digest.
 agent-client-protocol==0.12.1 --hash=sha256:aaf3cc301ed87d9e2c4ccb91adfe1cd58784355f6ce7e513f50e7ca2391862ef
@@ -54,7 +55,7 @@ jsonschema==4.26.0 --hash=sha256:d489f15263b8d200f8387e64b4c3a75f06629559fb73deb
 jsonschema-specifications==2025.9.1 --hash=sha256:98802fee3a11ee76ecaca44429fda8a41bff98b00a0f2838151b113f210cc6fe
 kiwisolver==1.5.1 --hash=sha256:1a7587dc335f2c0f5bd577fd0540bd16c66006bdb60f759a1059f025e6c4f071
 lazy-loader==0.5 --hash=sha256:ab0ea149e9c554d4ffeeb21105ac60bed7f3b4fd69b1d2360a4add51b170b005
-litellm==1.89.4 --hash=sha256:c3a19961b9e3576d4aafb6d27a0a8e1d06c370784b2d88631a9ba0d027cfd757
+litellm==1.89.7 --hash=sha256:4a11bdeaec66b3bd64f7606bf59e238875867678f320e70dd38d8767fddde11b
 mabwiser==2.7.4 --hash=sha256:4ac5a5d2d959b55685248645675d5f84f7c620eba270925bf86edce8c5712b49
 markupsafe==3.0.3 --hash=sha256:de8a88e63464af587c950061a5e6a67d3632e36df62b986892331d4620a35c01
 matplotlib==3.11.2 --hash=sha256:a24d5fd36e4f0e742c3851dcd20810e56a95633a342e4bf6cb591c678e8fe61f
@@ -77,7 +78,7 @@ pycparser==3.0 --hash=sha256:b727414169a36b7d524c1c3e31839a521725078d7b2ff038656
 pydantic==2.13.5 --hash=sha256:346a034f080da3755d8e9cb5e00e8b07de1d39e4f6e2c87d8ab7cafa0b269a73
 pydantic-core==2.46.5 --hash=sha256:40375c2d05acec10323e45dfe2077ac44bc74659008614af5069034e2cfc781c
 pydantic-settings==2.15.0 --hash=sha256:0ba092c291c94baceb5eff768aa0d56400a457585bc0175925a5a5510303da42
-pyjwt==2.14.0 --hash=sha256:ad0cef71c756a56e74863c2919cf0985f72decbcfcb550ee2f422e7c62b5eedc
+pyjwt==2.15.0 --hash=sha256:7a3742debf6b879e912dbb9819ceec1594be812452b78c5f2e2dfc56564954f8
 pyparsing==3.3.2 --hash=sha256:850ba148bd908d7e2411587e247a1e4f0327839c40e2e5e6d05a007ecc69911d
 python-dateutil==2.9.0.post0 --hash=sha256:a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427
 python-dotenv==1.2.3 --hash=sha256:904552145e8bfed22162c09dab1c2b9b54fefa7b23ba780f4f26ca0316b0f0d9

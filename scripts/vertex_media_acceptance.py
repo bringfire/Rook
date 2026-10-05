@@ -156,7 +156,7 @@ def _workforce_proof(proof, evidence):
     projects = proof['project_labels']
     if not _closed(projects, 'resource workforce_user quota') or not all(_label(projects[k], 'project') for k in ('resource', 'workforce_user')) or projects['quota'] is not None and not _label(projects['quota'], 'project'):
         return 'failed'
-    pins = {'python': '3.11.9', 'msal': '1.39.0', 'google-auth': '2.56.3', 'requests': '2.34.2', 'pyjwt': '2.14.0', 'cryptography': '50.0.1'}
+    pins = {'python': '3.11.9', 'msal': '1.39.0', 'google-auth': '2.56.3', 'requests': '2.34.2', 'pyjwt': '2.15.0', 'cryptography': '50.0.1'}
     if proof['runtime_pins'] != pins or not _sha(proof['runtime_manifest_sha256']):
         return 'failed'
     prerequisites = proof['prerequisites']

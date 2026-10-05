@@ -126,7 +126,7 @@ def workforce_evidence():
         'contract_version': 2, 'adapter': 'msal_public_desktop', 'exchange': 'google_auth_sts_id_token',
         'principal_labels': ['employee-01', 'employee-02'],
         'project_labels': {'resource': 'project-01', 'workforce_user': 'project-02', 'quota': 'project-03'},
-        'runtime_pins': {'python': '3.11.9', 'msal': '1.39.0', 'google-auth': '2.56.3', 'requests': '2.34.2', 'pyjwt': '2.14.0', 'cryptography': '50.0.1'},
+        'runtime_pins': {'python': '3.11.9', 'msal': '1.39.0', 'google-auth': '2.56.3', 'requests': '2.34.2', 'pyjwt': '2.15.0', 'cryptography': '50.0.1'},
         'runtime_manifest_sha256': '1'*64, 'authentication_review': 'passed',
         'prerequisites': {'administrator_setup': True, 'two_permitted_identities': True, 'spend_approved': True, 'installed_payload_verified': True},
         'lifecycle': {key: 'passed' for key in ('pending_active', 'failed_login_preserved', 'cancel_preserved', 'retirement', 'disconnect', 'identity_continuity', 'switch_old_binding_rejected', 'denied_identity_observed')},

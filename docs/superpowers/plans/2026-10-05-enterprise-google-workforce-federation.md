@@ -20,6 +20,7 @@
 - Required effective Entra scopes: exactly `openid profile offline_access`. MSAL reserves/adds these: resource scopes `[]`, no `exclude_scopes`, no Graph scopes.
 - Python retains credential ownership and DPAPI persistence. No MSAL broker extras, MSAL Extensions, `pymsalruntime`, shared service-account keys or employee CLI requirement.
 - Preserve development pins `requests==2.34.2`, `PyJWT==2.13.0`, `cryptography==50.0.0`; packaged pins `requests==2.34.2`, `PyJWT==2.14.0`, `cryptography==50.0.1`. Add only reviewed MSAL requirements; do not incidentally synchronize existing profiles.
+- Task 9 audit correction: deliberate, reviewed security maintenance changes existing LiteLLM to 1.89.7 and PyJWT to 2.15.0 in both profiles. Review the exact two-package resolver/hash diff before admission, preserve all other pins/extras, and require the full package gate; see the linked spec and runtime maintenance evidence.
 - Imports are pending, never active. Activation requires validated Entra identity plus successful STS exchange and atomic revision/authorization-epoch checks. Disconnect invalidates both slots and late candidates.
 - Activation includes text/Chirp refusal and stop-only retirement in Task 4. Persist pending retirement until confirmed; failure keeps committed authorization, reports restart required and blocks workforce leases.
 - Refresh writes require generation, verified principal and expected cache revision, plus cancellation/deadline checks under the mutation lock. Set the thread-safe cancellation event before releasing the async lock on timeout.

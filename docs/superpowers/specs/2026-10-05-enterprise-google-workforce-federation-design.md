@@ -54,6 +54,8 @@ Use Python `msal==1.39.0` for Entra public-client sign-in and refresh. The user 
 
 Preserve existing dependency pins: development lock `requests==2.34.2`, `PyJWT==2.13.0`, `cryptography==50.0.0`; packaged third-party lock `requests==2.34.2`, `PyJWT==2.14.0`, `cryptography==50.0.1`. These existing profile differences are not permission to upgrade either profile incidentally. MSAL's required ranges accept them. Add the MSAL wheel to both locked dependency graphs and the packaged-runtime hash lock; review any further resolver change before admitting it. Google SDK remains `google-auth==2.56.3`.
 
+Task 9's required authority audit found advisories in existing LiteLLM 1.89.4 and PyJWT 2.14.0 (development 2.13.0 is also affected). Deliberate dependency maintenance within that verification task changes only LiteLLM to 1.89.7 and PyJWT to 2.15.0 in both profiles, after reviewing maintainer advisories, universal-wheel hashes and a targeted audit. This is a concrete audit correction, not incidental profile synchronization. Other pins/extras remain unchanged; the full offline install, audit and final-source package gates still apply. Evidence and scope are in the [runtime security-pin maintenance plan](../plans/2026-10-05-enterprise-google-workforce-runtime-pin-remediation.md).
+
 ### Selected Google exchange and migration decision
 
 Pin the first adapter to `POST https://sts.googleapis.com/v1/token` through `google.auth.identity_pool.Credentials` and a Rook-owned `SubjectTokenSupplier`. Use the following SDK-generated form contract; the assertion is a validated Entra ID token, never an Entra API access token:

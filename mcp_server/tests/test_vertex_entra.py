@@ -92,6 +92,17 @@ def test_missing_oid_or_tid_stops_before_exchange(adapter, settings, key, missin
     assert all("googleapis.com" not in url for _, url, _ in transport.calls)
 
 
+def test_deeply_nested_untrusted_assertion_is_a_sanitized_auth_failure(adapter, settings):
+    instance, transport = adapter
+    def encode(value): return base64.urlsafe_b64encode(value).decode().rstrip('=')
+    raw = encode(b'{"alg":"RS256","kid":"test-key"}') + '.' + encode(b'['*6000+b'0'+b']'*6000) + '.AA'
+    with pytest.raises(VertexAuthError) as error:
+        instance.verify_assertion(raw,settings,expected_nonce=None,expected_principal=None,deadline=time.monotonic()+10,cancel_check=lambda:None)
+    assert error.value.code == 'vertex_firm_sign_in_required'
+    assert 'Recursion' not in str(error.value) and raw not in str(error.value)
+    assert all('googleapis.com' not in url for _,url,_ in transport.calls)
+
+
 @pytest.mark.parametrize("change", ["issuer", "audience", "tenant", "identity", "expiry", "future", "nonce", "signature", "algorithm", "missing-key"])
 def test_assertion_verifies_signature_claims_nonce_and_identity(adapter, settings, key, change):
     instance, transport = adapter
