@@ -35,3 +35,7 @@ Automated implementation acceptance: not run. Memory acceptance: not run. Instal
 ## Token checkpoint
 
 Recovered only token-specific code and the owned connection helper. Fresh checks: 216 Python tests passed (11 existing warnings), 39 managed tests passed. Tests cover nonce/origin/method/body admission, authorization rotation before/during refresh, original binding mismatch, location-specific cached reuse, caller/deadline cancellation, and publication interface. Existing managed Chirp retirement/same-port relaunch tests passed. Explicit shared-region save regression verifies protected OAuth preservation, fresh generation, changed text kwargs and exact regional readiness URL. Inspected startup refactor and bounded adapter before advancing.
+
+## Publication and race checkpoint
+
+Fresh managed media/handler suite passed 1,547 tests before repetition. Nine deterministic guarded-manager cases passed 25 repeated runs. Final rebuild also includes original-binding copy and restart-preservation assertions. Per-running-job transition gates re-read the durable terminal state; no network or sidecar call runs under the gate. Local stop persists Interrupted before cancellation, retains accepted original handles returned after stop, and performs no remote cancel. Guards run before creation and completion; failed final guards and cancellation remove only the new artifact. Completed jobs remain completed. Existing remote cancellation behavior passed. A null-valued existing Replicate metadata test caught a cloning regression; cloning now preserves null values.

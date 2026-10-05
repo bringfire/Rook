@@ -17,6 +17,15 @@ namespace Rook.Services.Vision.Generation
         private protected ProviderCancelOutcome() { }
     }
 
+    /// <summary>Provider has no confirmed remote cancellation contract. Stop local monitoring only.</summary>
+    public sealed class LocalStopOnlyOutcome : ProviderCancelOutcome
+    {
+        public const string Message = "Local monitoring stopped. The Google operation may continue and incur charges.";
+    }
+
+    /// <summary>Opt-in local-stop policy, including the interval before a remote handle exists.</summary>
+    public interface ILocalMonitoringProvider { }
+
     /// <summary>Provider acknowledged cancellation.</summary>
     public sealed class CanceledOutcome : ProviderCancelOutcome
     {

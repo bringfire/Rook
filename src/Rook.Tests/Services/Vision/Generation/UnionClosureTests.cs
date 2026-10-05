@@ -102,6 +102,7 @@ namespace Rook.Tests.Services.Vision.Generation
                 nameof(AlreadyTerminalOutcome),
                 nameof(CanceledOutcome),
                 nameof(FailedCancelOutcome),
+                nameof(LocalStopOnlyOutcome),
             };
             Assert.Equal(expected, actual);
         }

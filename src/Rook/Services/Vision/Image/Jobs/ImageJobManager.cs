@@ -589,7 +589,7 @@ namespace Rook.Services.Vision.Image.Jobs
             {
                 var errored = TransitionOrMarkAppendFailure(
                     current,
-                    ImageJobState.Error,
+                    failed.Error.Code == GenerationErrorCode.Interrupted ? ImageJobState.Interrupted : ImageJobState.Error,
                     failed.Error);
                 running.LatestRecord = errored;
                 return;
@@ -674,6 +674,13 @@ namespace Rook.Services.Vision.Image.Jobs
                 return;
             }
 
+            if (running.Model.Provider is IGenerationPublicationGuard beforeGuard)
+            {
+                var error = await beforeGuard.ValidatePublicationAsync(success.Envelope.EnvelopeMetadata, ct).ConfigureAwait(false);
+                if (error is not null)
+                { running.LatestRecord = TransitionOrMarkAppendFailure(current, ImageJobState.Interrupted, error); return; }
+                ct.ThrowIfCancellationRequested();
+            }
             var mimeType = materialized.MimeType ?? "image/png";
             var artifact = _artifactStore.Create(
                 kind: VisionHandler.ArtifactKindGeneratedImage,
@@ -697,6 +704,19 @@ namespace Rook.Services.Vision.Image.Jobs
 
             BeforeCompleteTransitionForTests?.Invoke(current.JobId);
 
+            if (running.Model.Provider is IGenerationPublicationGuard finalGuard)
+            {
+                GenerationError? error;
+                try { error = await finalGuard.ValidatePublicationAsync(success.Envelope.EnvelopeMetadata, ct).ConfigureAwait(false); }
+                catch { await DeleteArtifactQuietlyAsync(artifact.Id).ConfigureAwait(false); throw; }
+                if (error is not null || ct.IsCancellationRequested)
+                {
+                    await DeleteArtifactQuietlyAsync(artifact.Id).ConfigureAwait(false);
+                    if (error is not null) running.LatestRecord = TransitionOrMarkAppendFailure(current, ImageJobState.Interrupted, error);
+                    ct.ThrowIfCancellationRequested();
+                    return;
+                }
+            }
             var transitionWon = TryTransitionWithLedger(
                 current,
                 ImageJobState.Complete,
@@ -830,6 +850,7 @@ namespace Rook.Services.Vision.Image.Jobs
             ProviderJobHandle? providerHandle = null,
             Guid? resultArtifactId = null)
         {
+            if (error.Code == GenerationErrorCode.Interrupted) state = ImageJobState.Interrupted;
             _ = TryTransitionWithLedger(
                 prior,
                 state,
@@ -1041,6 +1062,9 @@ namespace Rook.Services.Vision.Image.Jobs
 
                 case AlreadyTerminalOutcome:
                     return RemoteCancelResult.Terminal();
+
+                case LocalStopOnlyOutcome:
+                    return RemoteCancelResult.Failed(new GenerationError(GenerationErrorCode.Interrupted, LocalStopOnlyOutcome.Message, false));
 
                 case CanceledOutcome:
                     return RemoteCancelResult.Cancelled();

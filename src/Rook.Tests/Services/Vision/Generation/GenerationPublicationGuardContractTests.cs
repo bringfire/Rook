@@ -21,5 +21,16 @@ namespace Rook.Tests.Services.Vision.Generation
             Assert.Null(await guard.ValidatePublicationAsync(new Dictionary<string, JsonNode>(), CancellationToken.None));
             await Assert.ThrowsAnyAsync<System.OperationCanceledException>(() => guard.ValidatePublicationAsync(new Dictionary<string, JsonNode>(), new CancellationToken(true)));
         }
+        [Fact]
+        public void OriginalBinding_IsCopiedIntoHandleAndEnvelope()
+        {
+            var binding = new JsonObject { ["authorization_generation"] = "original" };
+            var metadata = new Dictionary<string,JsonNode> { ["vertex_binding"] = binding };
+            var handle = new ProviderJobHandle("original-operation",providerMetadata:metadata);
+            var envelope = new ProviderResultEnvelope(new[] {new ResultArtifact("video",new InlineArtifactBody(new byte[]{1}),"video/mp4",metadata)},metadata);
+            binding["authorization_generation"] = "replacement";
+            Assert.Equal("original",handle.ProviderMetadata!["vertex_binding"]["authorization_generation"]!.GetValue<string>());
+            Assert.Equal("original",envelope.EnvelopeMetadata["vertex_binding"]["authorization_generation"]!.GetValue<string>());
+        }
     }
 }

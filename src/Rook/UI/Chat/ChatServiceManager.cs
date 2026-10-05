@@ -275,7 +275,7 @@ namespace Rook.UI.Chat
                 sessionNoncePresent: !string.IsNullOrEmpty(SessionNonce));
             if (startDecision == ChatServiceStartDecision.ReuseHealthyService)
             {
-                // Session nonce is still valid — reuse the running service.
+                // Session nonce is still valid â€” reuse the running service.
                 return existing;
             }
 
@@ -285,7 +285,7 @@ namespace Rook.UI.Chat
                 // panel recreation, etc.).  The Python process still enforces
                 // the old nonce, so every non-health request would 403.  Stop
                 // it and let the normal start path generate a fresh nonce.
-                RhinoApp.WriteLine("Rook: restarting chat service — session nonce lost after companion reload");
+                RhinoApp.WriteLine("Rook: restarting chat service â€” session nonce lost after companion reload");
                 StopOwnedProcess();
                 StopDiscoveredOwnedService();
             }
