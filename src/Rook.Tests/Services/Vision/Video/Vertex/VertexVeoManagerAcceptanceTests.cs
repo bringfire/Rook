@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Rook.Artifacts;
 using Rook.Services.Vision.Video;
 using Rook.Services.Vision.Video.Vertex;
+using Rook.Services.Vision.Image.Vertex;
 using Rook.Tests.Services.Vision.Generation;
 using Xunit;
 
@@ -15,6 +16,75 @@ namespace Rook.Tests.Services.Vision.Video.Vertex
 {
     public sealed class VertexVeoManagerAcceptanceTests
     {
+        private sealed class BlockingTokens : IVertexAccessTokenSource
+        {
+            internal readonly VertexTestTokenSource Source=new();
+            internal Func<CancellationToken,Task>? BeforeAcquire;
+            public async Task<VertexAccessTokenResult> AcquireAsync(string model,string location,VertexAuthorizationBinding? expected,CancellationToken ct)
+            { if(BeforeAcquire is not null) await BeforeAcquire(ct); return await Source.AcquireAsync(model,location,expected,ct); }
+            public Task<VertexAccessTokenFailure?> ValidateBindingAsync(VertexAuthorizationBinding binding,CancellationToken ct) => Source.ValidateBindingAsync(binding,ct);
+        }
+        [Theory]
+        [InlineData(false)] [InlineData(true)]
+        public async Task StopClassifiesUnknownOnlyAfterSubmissionDispatch(bool dispatched)
+        {
+            var root=Path.Combine(Path.GetTempPath(),"rook-vertex-submit-stop-"+Guid.NewGuid().ToString("N"));
+            try
+            {
+                var store=new ArtifactStore(root); var ledger=new FakeVideoJobLedger(); var tokens=new BlockingTokens();
+                var entered=new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                async Task Block(CancellationToken ct) {entered.TrySetResult(true); await Task.Delay(Timeout.Infinite,ct);}
+                if(!dispatched) tokens.BeforeAcquire=Block;
+                var http=new VertexTestHandler(async (_,ct)=>{await Block(ct); return new HttpResponseMessage(HttpStatusCode.OK);});
+                var provider=new VertexVeoProvider(tokens,new VertexVeoClient(new HttpClient(http)));
+                var registry=new DefaultVideoProviderRegistry(new[]{new VertexVeoProviderRegistration(provider)});
+                var finished=new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                using var manager=new VideoJobManager(registry,new FakeVideoMediaResolver(),ledger,new VideoCostEstimator(),store);
+                manager.AfterRunForTests=_=>finished.TrySetResult(true);
+                var submitted=await manager.SubmitAsync(VertexVeoTests.Request(),CancellationToken.None);
+                Assert.Same(entered.Task,await Task.WhenAny(entered.Task,Task.Delay(5000)));
+                Assert.Equal(VideoJobState.Interrupted,(await manager.CancelAsync(submitted.JobId!.Value,CancellationToken.None)).State);
+                Assert.Same(finished.Task,await Task.WhenAny(finished.Task,Task.Delay(5000)));
+                var latest=ledger.ReadAll().Records.Single();
+                Assert.True(latest.State==VideoJobState.Interrupted,latest.Error?.Message);
+                Assert.Equal(dispatched ? "vertex_submission_unknown" : null,latest.Error!.ProviderErrorCode);
+                Assert.Equal(dispatched ? 1 : 0,http.Calls); Assert.Empty(store.List());
+                manager.ReconcileInterruptedJobs(); Assert.Equal(dispatched ? 1 : 0,http.Calls);
+            }
+            finally {if(Directory.Exists(root))Directory.Delete(root,true);}
+        }
+        [Theory]
+        [InlineData(false)] [InlineData(true)]
+        public async Task ReadDeadlineInterruptsOriginalOperationWithoutPublication(bool duringFetch)
+        {
+            var root=Path.Combine(Path.GetTempPath(),"rook-vertex-timeout-"+Guid.NewGuid().ToString("N"));
+            try
+            {
+                var store=new ArtifactStore(root); var ledger=new FakeVideoJobLedger(); var reads=0;
+                var http=new VertexTestHandler(async (request,ct) =>
+                {
+                    if(request.RequestUri!.AbsoluteUri.EndsWith(":predictLongRunning"))
+                        return new HttpResponseMessage(HttpStatusCode.OK) {Content=new StringContent("{\"name\":\""+VertexVeoTests.Operation+"\"}")};
+                    if(!duringFetch || ++reads==2) await Task.Delay(Timeout.Infinite,ct);
+                    return new HttpResponseMessage(HttpStatusCode.OK) {Content=new StringContent("{\"done\":true,\"response\":{\"videos\":[{\"mimeType\":\"video/mp4\",\"bytesBase64Encoded\":\"AAAAGGZ0eXA=\"}]}}")};
+                });
+                var provider=new VertexVeoProvider(new VertexTestTokenSource(),new VertexVeoClient(new HttpClient(http)),operationTimeout:TimeSpan.FromMilliseconds(100));
+                var registry=new DefaultVideoProviderRegistry(new[]{new VertexVeoProviderRegistration(provider)});
+                var finished=new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                using var manager=new VideoJobManager(registry,new FakeVideoMediaResolver(),ledger,new VideoCostEstimator(),store);
+                manager.AfterRunForTests=_=>finished.TrySetResult(true);
+                await manager.SubmitAsync(VertexVeoTests.Request(),CancellationToken.None);
+                Assert.Same(finished.Task,await Task.WhenAny(finished.Task,Task.Delay(5000)));
+                var latest=ledger.ReadAll().Records.Single();
+                Assert.True(latest.State==VideoJobState.Interrupted,latest.Error?.Message);
+                Assert.Equal(VertexVeoTests.Operation,latest.ProviderHandle!.ProviderJobId);
+                Assert.Contains("vertex_binding",latest.ProviderHandle.ProviderMetadata!.Keys);
+                Assert.False(latest.Error!.Retryable); Assert.Equal("vertex_monitoring_timeout",latest.Error.ProviderErrorCode);
+                Assert.Contains("may continue and incur charges",latest.Error.Message);
+                Assert.Empty(store.List()); Assert.Equal(duringFetch ? 3 : 2,http.Calls);
+            }
+            finally {if(Directory.Exists(root))Directory.Delete(root,true);}
+        }
         [Theory]
         [InlineData(false)] [InlineData(true)]
         public async Task ExplicitVertexProviderUsesExistingLedgerAndArtifacts(bool disconnect)

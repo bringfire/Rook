@@ -31,7 +31,7 @@ vm.createContext(context);vm.runInContext(module+'\nthis.testVideo=Video;',conte
     const first=video.submitJob();await video.submitJob();assert.equal(calls,1);
     reject(new Error('Google submission outcome is unknown'));await first;assert.equal(calls,1);
     assert.match(video.status(),/unknown/);
-    video.addJob({job_id:'unknown',state:'error',error:{message:'Google submission outcome is unknown'},request_summary:{model:'vertex_ai/model'}});
+    video.addJob({job_id:'unknown',state:'interrupted',error:{message:'Stopped',submission_outcome_unknown:true},request_summary:{model:'vertex_ai/model'}});
     confirmed=false;video.onGenerateClicked();assert.match(confirmText,/another billed generation/);assert.equal(calls,1);
     assert.match(video.videoPriceLabel({dollars_usd:0,pricing:{pricing_source:'vertex-project-billing-unpriced'}}),/price unavailable/);
     video.addJob({job_id:'active',state:'polling',request_summary:{model:'vertex_ai/model'}});

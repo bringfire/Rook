@@ -40,7 +40,7 @@ namespace Rook.Services.Vision.Generation.Vertex
             $"https://{(binding.Location == "global" ? "aiplatform.googleapis.com" : binding.Location + "-aiplatform.googleapis.com")}/v1/{ModelPath(binding)}:{action}";
 
         internal async Task<VertexHttpResult> PostAsync(VertexAuthorizationBinding binding, string accessToken,
-            string action, string body, long responseLimit, bool submission, CancellationToken ct)
+            string action, string body, long responseLimit, bool submission, CancellationToken ct, Action? beforeDispatch = null)
         {
             if (!ValidBinding(binding)) return new(null, Interrupted());
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -50,6 +50,8 @@ namespace Rook.Services.Vision.Generation.Vertex
                 using var request = new HttpRequestMessage(HttpMethod.Post, Endpoint(binding, action))
                 { Content = new StringContent(body, Encoding.UTF8, "application/json") };
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                deadline.Token.ThrowIfCancellationRequested();
+                beforeDispatch?.Invoke();
                 using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token).ConfigureAwait(false);
                 var status = (int)response.StatusCode;
                 var limit = response.IsSuccessStatusCode ? responseLimit : SmallResponseLimit;
@@ -65,6 +67,8 @@ namespace Rook.Services.Vision.Generation.Vertex
                     ProviderErrorCode: status == 401 || status == 403 ? "vertex_authorization_required" : status == 429 ? "vertex_quota_unavailable" : "vertex_request_refused"), status == 429 || status >= 500);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (OperationCanceledException) when (deadline.IsCancellationRequested)
+            { return new(null, submission ? UnknownSubmission() : MonitoringTimeout()); }
             catch
             {
                 return new(null, submission ? UnknownSubmission() : new GenerationError(GenerationErrorCode.DependencyUnavailable, "Google media operation could not be read.", true), !submission);
@@ -73,6 +77,8 @@ namespace Rook.Services.Vision.Generation.Vertex
 
         internal static GenerationError UnknownSubmission() => new(GenerationErrorCode.ExecutionFailed,
             "Google submission outcome is unknown. Do not retry automatically; a new request may create another billed generation.", false, ProviderErrorCode: "vertex_submission_unknown");
+        internal static GenerationError MonitoringTimeout() => new(GenerationErrorCode.Interrupted,
+            "Local monitoring timed out. The Google operation's status is unknown; it may continue and incur charges.", false, ProviderErrorCode: "vertex_monitoring_timeout");
         internal static GenerationError InvalidOutput() => new(GenerationErrorCode.ExecutionFailed, "Google media output is invalid or exceeds the allowed size.", false, ProviderErrorCode: "vertex_output_invalid");
         internal static GenerationError Interrupted() => new(GenerationErrorCode.Interrupted, "The original Google authorization or project is no longer available. This job will not resume.", false, ProviderErrorCode: "vertex_authorization_changed");
         internal static GenerationError TokenFailure(VertexAccessTokenFailure? failure, bool bound) =>

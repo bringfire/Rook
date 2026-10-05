@@ -3199,7 +3199,7 @@ const Video = (() => {
     function onGenerateClicked() {
         if (submitPending) return;
         const priorUnknown = [...queue.values()].some(job => job.entry.error &&
-            job.entry.error.message && job.entry.error.message.includes("submission outcome is unknown"));
+            job.entry.error.submission_outcome_unknown === true);
         if (priorUnknown && !window.confirm("An earlier Google submission outcome is unknown; a new request may create another billed generation. Submit a deliberately new job?")) return;
         if (!isFormReady()) {
             showVideoStatus("Fill in the required fields first.", "error");

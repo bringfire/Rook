@@ -29,7 +29,7 @@ namespace Rook.Services.Vision.Video.Vertex
                 && Regex.IsMatch(operation.Substring(prefix.Length), "^[A-Za-z0-9_-]{1,128}$");
         }
         internal async Task<VertexVeoResponse> SubmitAsync(VertexAuthorizationBinding binding, string token,
-            VideoGenerationRequest request, IReadOnlyDictionary<MediaRef, ResolvedMedia> resolved, CancellationToken ct)
+            VideoGenerationRequest request, IReadOnlyDictionary<MediaRef, ResolvedMedia> resolved, CancellationToken ct, Action? beforeDispatch = null)
         {
             var options = (VertexVeoOptions)request.Options;
             var parameters = new Dictionary<string, object>
@@ -41,7 +41,7 @@ namespace Rook.Services.Vision.Video.Vertex
             if (request.Seed.HasValue) parameters["seed"] = request.Seed.Value;
             var body = JsonSerializer.Serialize(new { instances = new[] { VeoInputCodec.BuildInstance(request, resolved) }, parameters });
             var response = await _transport.PostAsync(binding, token, "predictLongRunning", body,
-                VertexMediaTransport.SmallResponseLimit, true, ct).ConfigureAwait(false);
+                VertexMediaTransport.SmallResponseLimit, true, ct, beforeDispatch).ConfigureAwait(false);
             if (response.Error is not null) return new(Error: response.Error);
             try
             {

@@ -10,21 +10,29 @@ using Rook.Services.Vision.Image.Vertex;
 
 namespace Rook.Services.Vision.Video.Vertex
 {
-    internal sealed class VertexVeoProvider : IModelAwareVideoProvider, IGenerationPublicationGuard, ILocalMonitoringProvider
+    internal sealed class VertexVeoProvider : IModelAwareVideoProvider, IGenerationPublicationGuard, ILocalMonitoringProvider, ISubmissionDispatchAwareVideoProvider
     {
         internal const string ModelKey = "vertex_ai/veo-3.1-fast-generate-001";
         internal const string Location = "us-central1";
         private readonly IVertexAccessTokenSource _tokens;
         private readonly VertexVeoClient _client;
         private readonly Func<TimeSpan, CancellationToken, Task> _delay;
+        private readonly TimeSpan _operationTimeout;
         internal VertexVeoProvider(IVertexAccessTokenSource tokens, VertexVeoClient? client = null,
-            Func<TimeSpan, CancellationToken, Task>? delay = null)
-        { _tokens = tokens; _client = client ?? new VertexVeoClient(); _delay = delay ?? Task.Delay; }
+            Func<TimeSpan, CancellationToken, Task>? delay = null, TimeSpan? operationTimeout = null)
+        { _tokens = tokens; _client = client ?? new VertexVeoClient(); _delay = delay ?? Task.Delay;
+            _operationTimeout = operationTimeout ?? VertexMediaTransport.OperationTimeout; }
         public string ProviderName => "vertex_ai";
         public Task<GenerationError?> ValidatePublicationAsync(IReadOnlyDictionary<string, JsonNode> metadata, CancellationToken ct)
             => VertexMediaTransport.ValidatePublicationAsync(_tokens, metadata, ct);
-        public async Task<ProviderSubmitOutcome> SubmitAsync(VideoGenerationRequest request,
-            IReadOnlyDictionary<MediaRef, ResolvedMedia> resolvedMedia, CancellationToken ct)
+        public GenerationError SubmissionInterruptedError => VertexMediaTransport.UnknownSubmission() with
+        { Code = GenerationErrorCode.Interrupted, Message = LocalStopOnlyOutcome.Message + " " + VertexMediaTransport.UnknownSubmission().Message };
+        public Task<ProviderSubmitOutcome> SubmitAsync(VideoGenerationRequest request,
+            IReadOnlyDictionary<MediaRef, ResolvedMedia> resolvedMedia, CancellationToken ct) => SubmitCoreAsync(request,resolvedMedia,null,ct);
+        public Task<ProviderSubmitOutcome> SubmitWithDispatchAsync(VideoGenerationRequest request,
+            IReadOnlyDictionary<MediaRef, ResolvedMedia> resolvedMedia, Action beforeDispatch, CancellationToken ct) => SubmitCoreAsync(request,resolvedMedia,beforeDispatch,ct);
+        private async Task<ProviderSubmitOutcome> SubmitCoreAsync(VideoGenerationRequest request,
+            IReadOnlyDictionary<MediaRef, ResolvedMedia> resolvedMedia, Action? beforeDispatch, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
             var cap = VertexVeoProviderRegistration.Capability;
@@ -43,8 +51,8 @@ namespace Rook.Services.Vision.Video.Vertex
                 var acquired = await _tokens.AcquireAsync(ModelKey, Location, null, deadline.Token).ConfigureAwait(false);
                 if (acquired.Lease is not { } lease || !VertexMediaTransport.ValidLease(lease, ModelKey, Location))
                     return new FailedSubmitOutcome(VertexMediaTransport.TokenFailure(acquired.Failure, false));
-                dispatched = true;
-                var response = await _client.SubmitAsync(lease.Binding, lease.AccessToken, request, resolvedMedia, deadline.Token).ConfigureAwait(false);
+                var response = await _client.SubmitAsync(lease.Binding, lease.AccessToken, request, resolvedMedia, deadline.Token,
+                    () => { beforeDispatch?.Invoke(); dispatched = true; }).ConfigureAwait(false);
                 if (response.Error is not null) return new FailedSubmitOutcome(response.Error);
                 // Retain the original accepted handle even when disconnect races submission; the manager fences publication.
                 return new QueuedSubmitOutcome(new ProviderJobHandle(response.Operation!, providerMetadata: lease.Binding.ToMetadata()));
@@ -58,7 +66,7 @@ namespace Rook.Services.Vision.Video.Vertex
             if (model != ModelKey || binding is null || binding.ModelId != model || !VertexVeoClient.ValidOperation(binding, handle.ProviderJobId))
                 return new(Error: VertexMediaTransport.Interrupted());
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            deadline.CancelAfter(VertexMediaTransport.OperationTimeout);
+            deadline.CancelAfter(_operationTimeout);
             try
             {
                 for (var attempt = 0; attempt < 3; attempt++)
@@ -74,6 +82,8 @@ namespace Rook.Services.Vision.Video.Vertex
                 }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (OperationCanceledException) when (deadline.IsCancellationRequested)
+            { return new(Error: VertexMediaTransport.MonitoringTimeout()); }
             catch { }
             return new(Error: new GenerationError(GenerationErrorCode.DependencyUnavailable, "Google video operation could not be read.", false));
         }

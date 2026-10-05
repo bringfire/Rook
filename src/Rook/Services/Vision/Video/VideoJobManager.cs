@@ -286,11 +286,14 @@ namespace Rook.Services.Vision.Video
 
                 if (running.Model.Provider is ILocalMonitoringProvider)
                 {
-                    var stopped = AppendTransition(inFlightRecord ?? running.LatestRecord, VideoJobState.Interrupted,
-                        error: new GenerationError(GenerationErrorCode.Interrupted, LocalStopOnlyOutcome.Message, false));
-                    running.LatestRecord = stopped;
-                    if (stopped.State == VideoJobState.Interrupted) try { running.Cts.Cancel(); } catch { }
-                    return JobCancelResult.Ok(stopped.State);
+                    lock(running.TransitionGate)
+                    {
+                        var stopped = AppendTransition(inFlightRecord ?? running.LatestRecord, VideoJobState.Interrupted,
+                            error: LocalStopError(running));
+                        running.LatestRecord = stopped;
+                        if (stopped.State == VideoJobState.Interrupted) try { running.Cts.Cancel(); } catch { }
+                        return JobCancelResult.Ok(stopped.State);
+                    }
                 }
 
                 var inFlightProviderHandle = inFlightRecord?.ProviderHandle;
@@ -821,10 +824,19 @@ namespace Rook.Services.Vision.Video
                     running.LatestRecord = current;
                     ct.ThrowIfCancellationRequested();
 
-                    var submitOutcome = await provider.SubmitAsync(
-                        request,
-                        resolvedMedia,
-                        ct).ConfigureAwait(false);
+                    var submitOutcome = provider is ISubmissionDispatchAwareVideoProvider dispatchAware
+                        ? await dispatchAware.SubmitWithDispatchAsync(request,resolvedMedia,() =>
+                        {
+                            lock(running.TransitionGate)
+                            {
+                                ct.ThrowIfCancellationRequested();
+                                if(FindLedgerRecord(jobId) is { } durable && IsTerminal(durable.State))
+                                    throw new OperationCanceledException(ct);
+                                running.SubmissionDispatched = true;
+                            }
+                        },ct).ConfigureAwait(false)
+                        : await provider.SubmitAsync(request,resolvedMedia,ct).ConfigureAwait(false);
+                    lock(running.TransitionGate) running.SubmissionSettled = true;
 
                     ProviderJobHandle handle;
                     switch (submitOutcome)
@@ -988,7 +1000,7 @@ namespace Rook.Services.Vision.Video
                 {
                     var cancelled = AppendTransition(
                         current, provider is ILocalMonitoringProvider ? VideoJobState.Interrupted : VideoJobState.Cancelled,
-                        error: new VideoJobError(
+                        error: provider is ILocalMonitoringProvider ? LocalStopError(running) : new VideoJobError(
                             Code: provider is ILocalMonitoringProvider ? VideoErrorCode.Interrupted : VideoErrorCode.Cancelled,
                             Message: provider is ILocalMonitoringProvider ? LocalStopOnlyOutcome.Message : "Job cancelled.",
                             Retryable: false));
@@ -1047,6 +1059,15 @@ namespace Rook.Services.Vision.Video
                 _ledger.Append(next);
                 return next;
             }
+        }
+
+        private static GenerationError LocalStopError(RunningJob running)
+        {
+            lock(running.TransitionGate)
+                return running.SubmissionDispatched && !running.SubmissionSettled
+                    && running.Model.Provider is ISubmissionDispatchAwareVideoProvider aware
+                    ? aware.SubmissionInterruptedError
+                    : new GenerationError(GenerationErrorCode.Interrupted,LocalStopOnlyOutcome.Message,false);
         }
 
         private async Task<bool> CanPublishAsync(VideoJobRecord current, RunningJob running, IReadOnlyDictionary<string, JsonNode> metadata)
@@ -1478,6 +1499,7 @@ namespace Rook.Services.Vision.Video
         private sealed class RunningJob
         {
             public readonly object TransitionGate = new();
+            public bool SubmissionDispatched, SubmissionSettled;
             public VideoJobRecord LatestRecord;
             public readonly CancellationTokenSource Cts;
             public readonly ResolvedVideoModel Model;
