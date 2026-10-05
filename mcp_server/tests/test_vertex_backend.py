@@ -55,6 +55,31 @@ def _authorized_user():
     }
 
 
+@pytest.mark.asyncio
+async def test_explicit_shared_region_save_rotates_once_and_updates_text_readiness(tmp_path):
+    from dataclasses import replace
+    from .test_vertex_token_lease import _Clock, _Refresher, _service, MODEL
+    backend = _backend(); auth = _auth(); store = _store(tmp_path)
+    ciphertext = store.protect_authorized_user(_authorized_user())
+    store.replace(replace(_record(auth, mode=auth.VertexMode.OAUTH, ciphertext=ciphertext), region="global"))
+    before = store.read(); bytes_before = store.path.read_bytes()
+    clock = _Clock(); refresher = _Refresher(clock); service = _service(store, clock, refresher)
+    image = await service.acquire(MODEL, "global")
+    assert store.path.read_bytes() == bytes_before
+    assert auth.apply_vertex_litellm_arguments("vertex_ai/gemini-2.5-pro", {}, store=store)["vertex_location"] == "global"
+    recycled = []
+    result = backend.save_vertex_configuration(auth.VertexMode.OAUTH, before.project_id, "us-central1", store=store, recycler=recycled.append)
+    current = store.read()
+    assert result.success and recycled == [current.generation]
+    assert current.generation != before.generation and current.oauth_ciphertext == ciphertext
+    text = auth.apply_vertex_litellm_arguments("vertex_ai/gemini-2.5-pro", {}, store=store)
+    assert text["vertex_location"] == "us-central1" and text["vertex_project"] == before.project_id
+    with pytest.raises(auth.VertexAuthError): service.validate_binding(image.binding)
+    requests = []
+    backend.probe_vertex_readiness("vertex_ai/gemini-2.5-pro", store=store, token_loader=lambda _: "token", post_json=lambda url, *args: (requests.append(url) or 200, {"totalTokens":1}))
+    assert requests == ["https://us-central1-aiplatform.googleapis.com/v1/projects/company-ai-project/locations/us-central1/publishers/google/models/gemini-2.5-pro:countTokens"]
+
+
 class _RuntimeStore:
     def __init__(self, runtime=None, error=None):
         self.runtime = runtime

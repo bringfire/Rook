@@ -31,3 +31,7 @@ Full baseline logs are retained in the execution scratch workspace. Infrastructu
 ## Acceptance status
 
 Automated implementation acceptance: not run. Memory acceptance: not run. Installed live acceptance: not run; requires desktop OAuth client configuration, billed project, approved identity, and one-image/three-video budget. No live jobs have been submitted.
+
+## Token checkpoint
+
+Recovered only token-specific code and the owned connection helper. Fresh checks: 216 Python tests passed (11 existing warnings), 39 managed tests passed. Tests cover nonce/origin/method/body admission, authorization rotation before/during refresh, original binding mismatch, location-specific cached reuse, caller/deadline cancellation, and publication interface. Existing managed Chirp retirement/same-port relaunch tests passed. Explicit shared-region save regression verifies protected OAuth preservation, fresh generation, changed text kwargs and exact regional readiness URL. Inspected startup refactor and bounded adapter before advancing.

@@ -37,6 +37,8 @@ from .acp_storage import AcpStorageError, RookBinding
 from .prime_runtime import PrimeLaunchError, RuntimeUnavailable, SUPPORTED_REASONING
 from .configuration_http import CONFIGURATION_KEY, ConfigurationHttp, register_configuration_routes
 from .configuration_storage import ConfigurationStorageRefused
+from ...providers.vertex_token_lease import VertexTokenLeaseService
+from .vertex_media_http import register_vertex_media_routes
 
 
 logger = logging.getLogger(__name__)
@@ -153,6 +155,20 @@ def _with_cors(response: web.StreamResponse) -> web.StreamResponse:
 
 @web.middleware
 async def cors_and_session_middleware(request: web.Request, handler):
+    if request.path.startswith("/internal/providers/vertex/"):
+        def internal_finish(response):
+            response.headers["Cache-Control"] = "no-store"
+            return response
+        nonce = request.app.get(_SESSION_NONCE_KEY, "")
+        if "Origin" in request.headers or not nonce or request.headers.get(SESSION_HEADER) != nonce:
+            return internal_finish(web.json_response({"success": False, "error": {"code": "vertex_internal_access_denied", "message": "The internal Vertex token route is unavailable to this caller."}}, status=403))
+        if request.method != "POST":
+            return internal_finish(web.json_response({"success": False, "error": {"code": "vertex_internal_method_not_allowed", "message": "The internal Vertex token route accepts POST requests only."}}, status=405))
+        try:
+            response = await handler(request)
+        except web.HTTPException as exc:
+            response = web.json_response({"success": False, "error": {"code": "vertex_internal_request_invalid", "message": "The internal Vertex token request is invalid."}}, status=exc.status)
+        return internal_finish(response)
     configuration = request.path.startswith("/agent/chat/configuration")
     def finish(response):
         if configuration:
@@ -620,6 +636,7 @@ def create_chat_app(
     rhino_process_id: int = 0,
     runtime_available: bool = True,
     configuration: ConfigurationHttp | None = None,
+    vertex_token_service: VertexTokenLeaseService | None = None,
 ) -> web.Application:
     app = web.Application(
         middlewares=[cors_and_session_middleware], client_max_size=MAX_HTTP_BODY_BYTES
@@ -632,6 +649,7 @@ def create_chat_app(
     nonce = expected_nonce if expected_nonce is not None else os.environ.get(NONCE_ENV_VAR, "")
     if nonce:
         app[_SESSION_NONCE_KEY] = nonce
+    register_vertex_media_routes(app, vertex_token_service or VertexTokenLeaseService())
     register_chat_routes(app)
     register_configuration_routes(app, configuration)
     register_knowledge_routes(app)
