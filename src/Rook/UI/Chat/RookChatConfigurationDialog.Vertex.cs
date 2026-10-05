@@ -135,6 +135,12 @@ namespace Rook.UI.Chat
                 }
             }
             catch (OperationCanceledException) {
+                // Cancellation may arrive after the atomic activation. Reconcile
+                // local state without retrying sign-in or publishing late success.
+                if (operation == "connect_firm") {
+                    var current = await _client.ReadFirmConfigurationAsync(CancellationToken.None).ConfigureAwait(false);
+                    await PresentAsync(() => { if (epoch == _vertexViewEpoch && current.Status is not null) ShowFirmStatus(current.Status); }).ConfigureAwait(false);
+                }
                 await PresentAsync(() => { if (epoch == _vertexViewEpoch) VertexStatus.Text = disconnect ? "Disconnect cancelled. Read local settings to confirm local deletion and process retirement." : "Google action cancelled. Read local settings after the owned worker settles. Image/video access, billing and quota remain unverified."; }).ConfigureAwait(false);
             }
             catch { await PresentAsync(() => { if (epoch == _vertexViewEpoch) VertexStatus.Text = "Google configuration is unavailable. Read local settings."; }).ConfigureAwait(false); }

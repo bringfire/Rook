@@ -132,21 +132,6 @@ def _mutation_lock(store: VertexStore) -> _WindowsNamedMutex:
     return _WindowsNamedMutex(store._mutex_name, store._mutex_timeout_ms)
 
 
-def _replace_and_recycle(
-    store: VertexStore,
-    record: VertexRecord,
-    recycler: Callable[[str | None], None],
-    *,
-    message: str,
-) -> VertexOperationResult:
-    committed = store.replace(record)
-    try:
-        recycler(committed.generation)
-    except Exception:
-        return _restart_required(committed.generation)
-    return _success(committed.generation, message)
-
-
 def _managed_chirp_recycler(generation: str | None) -> None:
     from ..chirp_manager import recycle_after_vertex_commit
 
@@ -482,12 +467,14 @@ def save_vertex_configuration(
                 raise
             if cancel_check is not None:
                 cancel_check()
-            return _replace_and_recycle(
-                selected_store,
-                requested,
-                selected_recycler,
-                message="Vertex AI configuration was saved.",
-            )
+            committed = selected_store.replace(requested)
+        # Chirp replacement takes its own lock before the credential mutex.
+        # Never wait for it while holding the opposite lock order.
+        try:
+            selected_recycler(committed.generation)
+        except Exception:
+            return _restart_required(committed.generation)
+        return _success(committed.generation, "Vertex AI configuration was saved.")
     except VertexAuthError as exc:
         return _result_from_error(exc)
     except Exception:
@@ -522,10 +509,11 @@ def disconnect_vertex(
             if record is None:
                 from .vertex_workforce_store import VertexWorkforceStore
                 firm = VertexWorkforceStore(selected_store)
-                if firm.read_pending() is not None:
-                    if cancel_check is not None:
-                        cancel_check()
-                    firm.disconnect_all()
+                if cancel_check is not None:
+                    cancel_check()
+                # Even an empty profile may have a first browser flow in another
+                # service. Persist a new epoch so it cannot restore authorization.
+                firm.disconnect_all()
                 return VertexOperationResult(
                     success=True,
                     code=None,
@@ -558,10 +546,7 @@ def disconnect_vertex(
                 cancel_check()
             try:
                 from .vertex_workforce_store import VertexWorkforceStore
-                if record.mode is VertexMode.WORKFORCE or VertexWorkforceStore(selected_store).has_v2_envelope():
-                    VertexWorkforceStore(selected_store).disconnect_all()
-                else:
-                    selected_store.path.unlink()
+                VertexWorkforceStore(selected_store).disconnect_all()
             except FileNotFoundError:
                 local_deletion = "absent"
             except OSError:
@@ -575,22 +560,12 @@ def disconnect_vertex(
                 )
             else:
                 local_deletion = "deleted"
-            try:
-                selected_recycler(None)
-            except Exception:
-                return _restart_required(
-                    None,
-                    revocation=revocation,
-                    local_deletion=local_deletion,
-                )
-            return VertexOperationResult(
-                success=True,
-                code=None,
-                message="Vertex AI was disconnected locally.",
-                generation=None,
-                revocation=revocation,
-                local_deletion=local_deletion,
-            )
+        try:
+            selected_recycler(None)
+        except Exception:
+            return _restart_required(None, revocation=revocation, local_deletion=local_deletion)
+        return VertexOperationResult(success=True, code=None, message="Vertex AI was disconnected locally.",
+            generation=None, revocation=revocation, local_deletion=local_deletion)
     except VertexAuthError as exc:
         return _result_from_error(exc)
     except Exception:
@@ -623,14 +598,15 @@ def finish_workforce_retirement(*, store, expected_generation, deadline, cancel_
         raise auth_error('vertex_restart_required') from None
 
 
-def connect_vertex_workforce(ticket, *, store, entra, cancel_check, retire):
+def connect_vertex_workforce(ticket, *, store, entra, cancel_check, retire, deadline_changed=None, activation_committed=None):
     generation = None
     try:
         pending = store.read_pending()
         if pending is None or pending[1] != ticket:
             raise auth_error('vertex_authorization_changed')
         settings, _ = pending
-        candidate = entra.begin(settings, ticket, cancel_check=cancel_check)
+        options = {} if deadline_changed is None else {'deadline_changed': deadline_changed}
+        candidate = entra.begin(settings, ticket, cancel_check=cancel_check, **options)
         if candidate.operation_deadline is None:
             raise auth_error()
         deadline = candidate.operation_deadline
@@ -639,11 +615,15 @@ def connect_vertex_workforce(ticket, *, store, entra, cancel_check, retire):
         _check_workforce(deadline, cancel_check, store._monotonic)
         context = store.activate(ticket, candidate, exchange, cancel_check=cancel_check)
         generation = context.generation
+        if activation_committed is not None:
+            activation_committed(generation)
         finish_workforce_retirement(store=store, expected_generation=generation, deadline=deadline, cancel_check=cancel_check, retire=retire)
         return _success(generation, 'Firm sign-in was saved for Google images and videos. Model access, billing and quota remain unverified.')
     except VertexAuthError as error:
-        if generation is not None and error.code not in ('vertex_authorization_changed', 'vertex_authorization_declined'):
-            return _restart_required(generation)
+        if generation is not None:
+            active = store.snapshot_active()
+            if isinstance(active, WorkforceActiveRecord) and active.generation == generation:
+                return _restart_required(generation)
         return _result_from_error(error)
     except Exception:
         return _restart_required(generation) if generation is not None else _generic_failure()

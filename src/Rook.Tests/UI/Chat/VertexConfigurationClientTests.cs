@@ -13,6 +13,26 @@ namespace Rook.Tests.UI.Chat
 {
     public sealed class VertexConfigurationClientTests
     {
+        internal static object RetirementStatus(bool committed) => new {
+            contract_version = 2,
+            active = committed ? SyntheticSummary : null, active_generation = committed ? new string('c', 32) : null,
+            retirement_pending = committed, pending = committed ? null : SyntheticSummary,
+            pending_revision = committed ? null : new string('a', 32), authorization_epoch = committed ? null : new string('b', 32),
+            legacy_mode = committed ? null : "adc", state = committed ? "restart_required" : "sign_in_required",
+        };
+        private static readonly object SyntheticSummary = new { label = "Synthetic firm", project_id = "synthetic-firm-project", video_location = "us-central1", image_location = "global", workforce_pool_user_project = "synthetic-firm-project", quota_project_id = (string?)null };
+
+        [Fact]
+        public async Task FailedCommittedActivationRetainsClosedStatusAndNewGeneration()
+        {
+            var handler = new VertexTestHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.Conflict) {
+                Content = new StringContent(JsonSerializer.Serialize(new { success = false, error = new { code = "vertex_restart_required", message = "private-sentinel" }, data = RetirementStatus(true) })) }));
+            var result = await AgentChatClient.ForTests(handler, new Uri("http://127.0.0.1:1")).ConnectFirmAccountAsync(new string('a',32), new string('b',32), CancellationToken.None);
+            Assert.False(result.Success); Assert.NotNull(result.Status); Assert.Equal(new string('c',32),result.Status!.ActiveGeneration);
+            Assert.Null(result.Status.Pending); Assert.Null(result.Status.LegacyMode); Assert.True(result.Status.RetirementPending);
+            Assert.Equal("vertex_restart_required",result.Code); Assert.DoesNotContain("private-sentinel",result.Message);
+        }
+
         [Fact]
         public async Task PendingFirmSettings_AreDistinctFromConnectedAccount()
         {

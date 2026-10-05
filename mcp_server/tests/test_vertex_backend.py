@@ -679,7 +679,9 @@ def test_disconnect_deletes_oauth_even_when_best_effort_revocation_fails(
     assert result.local_deletion == "deleted"
     assert revoked == ["refresh-token-sentinel"]
     assert recycled == [None]
-    assert not store.path.exists()
+    assert store.read() is None
+    from rook.providers.vertex_workforce_store import VertexWorkforceStore
+    assert VertexWorkforceStore(store).authorization_epoch() is not None
     assert sibling.read_bytes() == b"gemini-unchanged"
 
 

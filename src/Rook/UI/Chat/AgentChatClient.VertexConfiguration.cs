@@ -126,17 +126,31 @@ namespace Rook.UI.Chat
             if (bytes is null) throw new InvalidOperationException();
             using var document = JsonDocument.Parse(bytes);
             var root = document.RootElement;
-            ConfigurationJson.Shape(root, response.IsSuccessStatusCode ? "success data" : "success error");
+            var committedFailure = !response.IsSuccessStatusCode && root.TryGetProperty("data", out _);
+            ConfigurationJson.Shape(root, response.IsSuccessStatusCode ? "success data" : committedFailure ? "success error data" : "success error");
             if (!response.IsSuccessStatusCode) {
                 ConfigurationJson.Need(root.GetProperty("success").ValueKind == JsonValueKind.False);
                 ConfigurationJson.Shape(root.GetProperty("error"), "code message");
                 var code = ConfigurationJson.Text(root.GetProperty("error").GetProperty("code"));
-                throw new FirmOperationException(code);
+                FirmConfigurationStatus? committed = null;
+                if (committedFailure) {
+                    ConfigurationJson.Need(code == "vertex_restart_required");
+                    committed = ParseFirmStatus(root.GetProperty("data"));
+                    ConfigurationJson.Need(committed.Active is not null && committed.RetirementPending && committed.State == "restart_required");
+                }
+                throw new FirmOperationException(code, committed);
             }
             ConfigurationJson.Need(root.GetProperty("success").ValueKind == JsonValueKind.True);
             return root.GetProperty("data").Clone();
         }
-        private sealed class FirmOperationException : Exception { internal string Code { get; } internal FirmOperationException(string code) { Code = code is "vertex_configuration_busy" or "vertex_authorization_changed" or "vertex_restart_required" or "vertex_firm_sign_in_required" or "vertex_workforce_exchange_denied" or "vertex_firm_settings_reimport_required" or "vertex_auth_dependency_missing" or "vertex_token_issuance_timeout" or "vertex_authorization_declined" ? code : "vertex_configuration_failed"; } }
+        private sealed class FirmOperationException : Exception {
+            internal string Code { get; }
+            internal FirmConfigurationStatus? CommittedStatus { get; }
+            internal FirmOperationException(string code, FirmConfigurationStatus? committed = null) {
+                Code = code is "vertex_configuration_busy" or "vertex_authorization_changed" or "vertex_restart_required" or "vertex_firm_sign_in_required" or "vertex_workforce_exchange_denied" or "vertex_firm_settings_reimport_required" or "vertex_auth_dependency_missing" or "vertex_token_issuance_timeout" or "vertex_authorization_declined" ? code : "vertex_configuration_failed";
+                CommittedStatus = committed;
+            }
+        }
         private static string FirmFailureMessage(string code) => code switch {
             "vertex_configuration_busy" => "An earlier configuration operation is still settling. Read local settings or disconnect from Rook.",
             "vertex_authorization_changed" => "Authorization or pending settings changed. Read local settings before signing in again.",
@@ -153,7 +167,7 @@ namespace Rook.UI.Chat
         {
             try { var data = await SendFirmRequestAsync(body, interaction, ct).ConfigureAwait(false); return new(true, ParseFirmStatus(data), "Local firm settings updated. Image/video access, billing and quota remain unverified."); }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
-            catch (FirmOperationException error) { return new(false, null, FirmFailureMessage(error.Code), error.Code); }
+            catch (FirmOperationException error) { return new(false, error.CommittedStatus, FirmFailureMessage(error.Code), error.Code); }
             catch { return new(false, null, "Firm configuration could not be read. Read local settings before retrying."); }
         }
         internal async Task<FirmSignInResult> CheckFirmSignInAsync(string expectedGeneration, CancellationToken ct)

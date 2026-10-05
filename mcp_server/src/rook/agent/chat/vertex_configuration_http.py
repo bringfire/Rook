@@ -58,7 +58,7 @@ class VertexConfigurationHttp:
             'legacy_mode':active.mode.value if active is not None and firm is None else None,
             'state':'restart_required' if firm and firm.chirp_retirement_pending else 'signed_in' if firm else 'sign_in_required' if pending else 'unconfigured'}
 
-    def mutate(self, body, stopped, deadline):
+    def mutate(self, body, stopped, deadline, deadline_changed=None, activation_committed=None):
         def check():
             if stopped.is_set():
                 raise VertexAuthError('vertex_authorization_declined','Google configuration was cancelled.')
@@ -78,7 +78,7 @@ class VertexConfigurationHttp:
         if operation == 'discard_firm':
             self.firm_store.discard_pending(deadline=deadline,cancel_check=check); return self.firm_status()
         if operation == 'connect_firm':
-            return connect_vertex_workforce(ActivationTicket(body['pending_revision'],body['authorization_epoch']),store=self.firm_store,entra=self.entra,cancel_check=check,retire=self.retire)
+            return connect_vertex_workforce(ActivationTicket(body['pending_revision'],body['authorization_epoch']),store=self.firm_store,entra=self.entra,cancel_check=check,retire=self.retire,deadline_changed=deadline_changed,activation_committed=activation_committed)
         if operation == 'check_firm_sign_in':
             return check_firm_sign_in(body['authorization_generation'],store=self.firm_store,entra=self.entra,deadline=deadline,cancel_check=check,retire=self.retire)
         if operation == 'connect':
@@ -109,6 +109,13 @@ class VertexConfigurationHttp:
         current=self.firm_store.snapshot_active()
         return asdict(FirmSignInCheckResult('service_unavailable',code,expected if current is not None else None))
 
+    def _committed_failure(self, generation):
+        if generation is None: return None
+        status = self.firm_status()
+        if status['active_generation'] != generation or not status['retirement_pending']: return None
+        return web.json_response({'success':False,'error':{'code':'vertex_restart_required',
+            'message':'Firm authorization was saved. Restart required before media authorization can be used.'},'data':status},status=409)
+
     async def execute(self, body, disconnected):
         fields={'status':{'operation'},'disconnect':{'operation'},'save':{'operation','project_id','video_location'},
             'connect':{'operation','project_id','video_location','client_config_path'},'firm_status':{'operation'},
@@ -135,19 +142,28 @@ class VertexConfigurationHttp:
                 return web.json_response({'success':True,'data':self.status()})
             stopped=threading.Event()
             deadline=time.monotonic()+(self.check_timeout if operation=='check_firm_sign_in' else 210)
-            worker=asyncio.create_task(asyncio.to_thread(self.mutate,body,stopped,deadline))
+            phase_deadline=[deadline]
+            committed=[None]
+            def deadline_changed(value): phase_deadline[0]=min(deadline,value)
+            def activation_committed(value): committed[0]=value
+            worker=asyncio.create_task(asyncio.to_thread(self.mutate,body,stopped,deadline,deadline_changed,activation_committed))
             self.worker,self.cancel=worker,stopped
             worker.add_done_callback(self._settled)
             try:
                 while not worker.done():
                     if disconnected(): raise asyncio.CancelledError
-                    if time.monotonic()>=deadline:
+                    if time.monotonic()>=phase_deadline[0]:
                         stopped.set()
                         if operation=='check_firm_sign_in':
                             return web.json_response({'success':True,'data':self._check_result(body['authorization_generation'],'vertex_token_issuance_timeout')})
+                        recovery=self._committed_failure(committed[0])
+                        if recovery is not None: return recovery
                         return failure('vertex_token_issuance_timeout','Google configuration timed out. Read local settings before retrying.',504)
-                    await asyncio.sleep(min(.05,max(0,deadline-time.monotonic())))
+                    await asyncio.sleep(min(.05,max(0,phase_deadline[0]-time.monotonic())))
                 result=await asyncio.shield(worker)
+                if operation=='connect_firm':
+                    recovery=self._committed_failure(committed[0])
+                    if recovery is not None: return recovery
                 if stopped.is_set():
                     return failure('vertex_authorization_changed','Google configuration was cancelled or changed. Read local settings.',409)
                 if isinstance(result,FirmSignInCheckResult):

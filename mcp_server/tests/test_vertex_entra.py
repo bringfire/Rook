@@ -311,8 +311,8 @@ def test_bounded_http_refuses_unsafe_or_late_response(settings, failure):
         headers = {}
         def getcode(self):
             return 302 if failure == 'redirect' else 200
-        def read(self, limit):
-            chunk = super().read(limit)
+        def read1(self, limit):
+            chunk = super().read1(limit)
             if failure in ('request-deadline', 'aggregate-deadline'):
                 clock[0] += 21
             if failure == 'cancel-after-response':

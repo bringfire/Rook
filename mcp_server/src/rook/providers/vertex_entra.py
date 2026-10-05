@@ -98,7 +98,9 @@ class BoundedEntraHttpClient:
                 payload = bytearray()
                 while True:
                     _check(deadline, self.cancel_check, self.monotonic)
-                    chunk = response.read(min(65536, TOKEN_LIMIT + 1 - len(payload)))
+                    # read() buffers until its requested length and can hide a
+                    # continuously dripping peer from the aggregate checks.
+                    chunk = response.read1(min(65536, TOKEN_LIMIT + 1 - len(payload)))
                     if not chunk:
                         break
                     payload.extend(chunk)
@@ -287,11 +289,13 @@ class EntraSessionAdapter:
         _check(deadline, cancel_check, self._monotonic)
         return EntraSessionCandidate(verified.principal, serialized, verified, deadline)
 
-    def begin(self, settings: FirmSettings, ticket: ActivationTicket, *, cancel_check: Callable[[], None]) -> EntraSessionCandidate:
+    def begin(self, settings: FirmSettings, ticket: ActivationTicket, *, cancel_check: Callable[[], None], deadline_changed=None) -> EntraSessionCandidate:
         listener = None
         try:
             browser_deadline = self._monotonic() + 180
-            app, cache, http = self._application(settings, None, min(browser_deadline, self._monotonic() + 30), cancel_check)
+            initial_deadline = min(browser_deadline, self._monotonic() + 30)
+            if deadline_changed is not None: deadline_changed(initial_deadline)
+            app, cache, http = self._application(settings, None, initial_deadline, cancel_check)
             listener = self._listener_factory()
             flow = app.initiate_auth_code_flow([], response_mode="form_post", redirect_uri=listener.redirect_uri)
             _allowed_url(flow["auth_uri"], settings, authorize=True)
@@ -299,12 +303,14 @@ class EntraSessionAdapter:
             if len(query.get("nonce", [])) != 1 or not query["nonce"][0] or query.get("code_challenge_method") != ["S256"] or set(query.get("scope", [""])[0].split()) != {"openid", "profile", "offline_access"}:
                 raise auth_error()
             _check(browser_deadline, cancel_check, self._monotonic)
+            if deadline_changed is not None: deadline_changed(browser_deadline)
             if not self._browser_open(flow["auth_uri"]):
                 raise auth_error()
             callback = listener.wait_for_callback(browser_deadline, cancel_check, self._monotonic)
             if "error" in callback:
                 raise VertexAuthError("vertex_authorization_declined", "Firm sign-in was declined.")
             deadline = min(browser_deadline + 30, self._monotonic() + 30)
+            if deadline_changed is not None: deadline_changed(deadline)
             # Rebind MSAL's bounded transport after the user may have spent minutes in the browser.
             http.deadline = deadline
             result = app.acquire_token_by_auth_code_flow(flow, callback)

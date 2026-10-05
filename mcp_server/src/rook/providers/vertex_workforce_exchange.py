@@ -40,7 +40,9 @@ class _StsRequest:
                 if 300 <= response.status_code < 400:
                     raise auth_error()
                 payload = bytearray()
-                for chunk in response.iter_bytes(65536):
+                # Do not aggregate multiple socket reads into a 64KiB chunk:
+                # a slow peer must yield control to deadline/cancellation checks.
+                for chunk in response.iter_bytes():
                     _check(deadline, self.cancel_check, time.monotonic)
                     payload.extend(chunk)
                     if len(payload) > TOKEN_LIMIT:

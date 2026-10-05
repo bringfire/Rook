@@ -18,6 +18,66 @@ namespace Rook.Tests.UI.Chat
         private readonly AgentChatProgressTests.PanelThread _ui;
         public VertexConfigurationDialogTests(AgentChatProgressTests.PanelThread ui) => _ui = ui;
         [Fact]
+        public async Task FailedCommittedActivationReplacesDisplayedLegacyAndPendingState()
+        {
+            var http = new VertexTestHandler(async (request, _) => {
+                var operation = JsonDocument.Parse(await request.Content!.ReadAsStringAsync()).RootElement.GetProperty("operation").GetString();
+                var committed = operation == "connect_firm";
+                if (operation == "check_firm_sign_in") {
+                    var body = JsonDocument.Parse(await request.Content.ReadAsStringAsync()).RootElement;
+                    Assert.Equal(new string('c',32),body.GetProperty("authorization_generation").GetString());
+                    return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(new { success = true, data = new { contract_version = 2, check_scope = "identity_exchange", state = "restart_required", code = "vertex_restart_required", generation = new string('c',32), image_access = "unverified", video_access = "unverified", billing = "unverified", quota = "unverified" } })) };
+                }
+                return new HttpResponseMessage(committed ? HttpStatusCode.Conflict : HttpStatusCode.OK) { Content = new StringContent(committed
+                    ? JsonSerializer.Serialize(new { success = false, error = new { code = "vertex_restart_required", message = "private-sentinel" }, data = VertexConfigurationClientTests.RetirementStatus(true) })
+                    : JsonSerializer.Serialize(new { success = true, data = VertexConfigurationClientTests.RetirementStatus(false) })) };
+            });
+            using var client = AgentChatClient.ForTests(http,new Uri("http://127.0.0.1:1"));
+            var queue = new ConcurrentQueue<Action>(); RookChatConfigurationDialog dialog = null!;
+            _ui.Run(() => { Rook.Tests.UI.EtoTestPlatform.Ensure(); SynchronizationContext.SetSynchronizationContext(null); dialog = new(client,queue.Enqueue); dialog.VertexConnectionChoice.SelectedIndex = 1; });
+            async Task Run(string operation) {
+                Task pending = null!; _ui.Run(() => pending = dialog.RunVertexActionAsync(operation));
+                while (!pending.IsCompleted) { _ui.Run(() => { while(queue.TryDequeue(out var next))next(); }); await Task.Delay(1); }
+                _ui.Run(() => { while(queue.TryDequeue(out var next))next(); }); await pending;
+            }
+            try {
+                await Run("firm_status"); await Run("connect_firm");
+                _ui.Run(() => { Assert.Contains("Active local firm session",dialog.FirmActiveStatus.Text); Assert.Contains("Restart required",dialog.FirmActiveStatus.Text); Assert.DoesNotContain("remains active",dialog.FirmActiveStatus.Text); Assert.Equal("No pending firm settings.",dialog.FirmPendingStatus.Text); });
+                await Run("check_firm_sign_in");
+            }
+            finally { _ui.Run(() => dialog.Dispose()); }
+        }
+
+        [Fact]
+        public async Task CancelledFirmActivationReadsCommittedStateBeforeDisplayingCancellation()
+        {
+            var queue = new ConcurrentQueue<Action>(); RookChatConfigurationDialog dialog = null!;
+            var committed = false;
+            var http = new VertexTestHandler(async (request, ct) => {
+                var operation = JsonDocument.Parse(await request.Content!.ReadAsStringAsync()).RootElement.GetProperty("operation").GetString();
+                if (operation == "connect_firm") {
+                    committed = true; queue.Enqueue(() => dialog.CancelCurrent());
+                    await Task.Delay(Timeout.Infinite,ct);
+                }
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(new { success = true, data = VertexConfigurationClientTests.RetirementStatus(committed) })) };
+            });
+            using var client = AgentChatClient.ForTests(http,new Uri("http://127.0.0.1:1"));
+            _ui.Run(() => { Rook.Tests.UI.EtoTestPlatform.Ensure(); SynchronizationContext.SetSynchronizationContext(null); dialog = new(client,queue.Enqueue); dialog.VertexConnectionChoice.SelectedIndex = 1; });
+            async Task Run(string operation) {
+                Task pending = null!; _ui.Run(() => pending = dialog.RunVertexActionAsync(operation));
+                while (!pending.IsCompleted) { _ui.Run(() => { while(queue.TryDequeue(out var next))next(); }); await Task.Delay(1); }
+                _ui.Run(() => { while(queue.TryDequeue(out var next))next(); }); await pending;
+            }
+            try {
+                await Run("firm_status");
+                await Run("connect_firm");
+                _ui.Run(() => { Assert.Contains("Restart required",dialog.FirmActiveStatus.Text); Assert.Equal("No pending firm settings.",dialog.FirmPendingStatus.Text); Assert.DoesNotContain("remains active",dialog.FirmActiveStatus.Text); });
+                Assert.Equal(3,http.Calls);
+            }
+            finally { _ui.Run(() => dialog.Dispose()); }
+        }
+
+        [Fact]
         public async Task FirmViewHidesGoogleClientAndUsesDisplayedPendingRevision()
         {
             var active = false; var pendingSettings = true;
