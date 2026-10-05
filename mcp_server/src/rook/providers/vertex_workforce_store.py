@@ -206,7 +206,9 @@ class VertexWorkforceStore:
             self._write_envelope(value, deadline=deadline, cancel_check=lambda: None)
 
     def activate(self, ticket: ActivationTicket, candidate: EntraSessionCandidate, exchange: WorkforceExchangeResult, *, cancel_check: Callable[[], None]) -> WorkforceCredentialContext:
-        with self._locked(cancel_check=cancel_check) as deadline:
+        if not isinstance(candidate, EntraSessionCandidate):
+            raise auth_error()
+        with self._locked(deadline=candidate.operation_deadline, cancel_check=cancel_check) as deadline:
             value = self._read_envelope()
             pending = value["pending"]
             if pending is None or ActivationTicket(pending["revision"], value["authorization_epoch"]) != ticket:

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, fields
 import json
+import math
 import re
 from typing import Any
 from uuid import UUID
@@ -166,10 +167,13 @@ class EntraSessionCandidate:
     principal: PrivatePrincipal
     serialized_cache: str
     assertion: VerifiedEntraAssertion
+    operation_deadline: float | None = None
 
     def __post_init__(self):
         json_object(bounded_text(self.serialized_cache, CACHE_LIMIT).encode(), CACHE_LIMIT)
         if not isinstance(self.assertion, VerifiedEntraAssertion) or self.principal != self.assertion.principal:
+            raise auth_error()
+        if self.operation_deadline is not None and (type(self.operation_deadline) not in (float, int) or not math.isfinite(self.operation_deadline)):
             raise auth_error()
 
 

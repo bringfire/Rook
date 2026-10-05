@@ -231,3 +231,5 @@ The user authorized incorporating this review and writing a plan. These decision
 6. Confirm the image/video-only workforce boundary and explicit Vertex text/Chirp refusal; the audited JSON bootstrap cannot carry a live SDK supplier. Existing legacy and non-Vertex flows retain their behavior.
 
 The user authorized preparing the accompanying `docs/superpowers/plans/2026-10-05-enterprise-google-workforce-federation.md` after these revisions. Review the revised spec and plan before implementation: contracts/consumers precede providers, commits remain buildable, identity/configuration/publication checkpoints inspect fresh evidence, and independent authentication review precedes installed live acceptance. These documents create no new OAuth application, permission grant, dependency installation or billed generation.
+
+Implementation contract: the private Entra candidate carries the absolute post-browser operation deadline into Google exchange, activation and stop-only retirement. Consumers share this deadline rather than granting each phase a new 30-second window.
