@@ -1,6 +1,7 @@
 using System;
 using Rook.Artifacts;
 using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Image.Vertex;
 
 namespace Rook.Services.Vision.Video
 {
@@ -45,7 +46,8 @@ namespace Rook.Services.Vision.Video
             IGenerationSecretStore generationSecrets,
             ArtifactStore artifactStore,
             IVideoJobLedger? ledger = null,
-            IVideoSidecarBackfillService? sidecarBackfill = null)
+            IVideoSidecarBackfillService? sidecarBackfill = null,
+            IVertexAccessTokenSource? vertexAccessTokenSource = null)
         {
             if (generationSecrets is null)
                 throw new ArgumentNullException(nameof(generationSecrets));

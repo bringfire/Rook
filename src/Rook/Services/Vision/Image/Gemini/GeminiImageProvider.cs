@@ -112,7 +112,7 @@ namespace Rook.Services.Vision.Image.Gemini
             ProviderJobHandle handle, CancellationToken ct) =>
             throw new InvalidOperationException("Gemini image provider has no fetch step.");
 
-        private static string BuildRequestJson(
+        internal static string BuildRequestJson(
             ImageGenerationRequest request,
             IReadOnlyDictionary<MediaRef, ResolvedMedia> resolvedMedia)
         {

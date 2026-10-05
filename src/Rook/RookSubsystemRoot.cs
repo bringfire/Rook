@@ -13,6 +13,7 @@ using Rook.Services.Vision.Fal;
 using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Image;
 using Rook.Services.Vision.Image.Jobs;
+using Rook.Services.Vision.Image.Vertex;
 using Rook.Services.Vision.Image.Replicate;
 using Rook.Services.Vision.MediaImport;
 using Rook.Services.Vision.Video;
@@ -90,6 +91,10 @@ namespace Rook
 
         public VisionSecretStore SharedSecretStore { get; }
 
+        private readonly object _vertexTokenSourceSync = new();
+        private IVertexAccessTokenSource _vertexAccessTokenSource;
+        private bool _vertexTokenSourceConfigured;
+
         private readonly Lazy<VideoSubsystemBundle> _video;
         private readonly Lazy<ImageJobSubsystemBundle> _imageJobs;
         private readonly Lazy<MediaImportJobManager> _mediaImports;
@@ -114,7 +119,11 @@ namespace Rook
                     throw new ObjectDisposedException(
                         nameof(RookSubsystemRoot),
                         "Video subsystem accessed after shutdown.");
-                return _video.Value;
+                lock (_vertexTokenSourceSync)
+                {
+                    if (Volatile.Read(ref _disposed) != 0) throw new ObjectDisposedException(nameof(RookSubsystemRoot));
+                    return _video.Value;
+                }
             }
         }
 
@@ -126,7 +135,11 @@ namespace Rook
                     throw new ObjectDisposedException(
                         nameof(RookSubsystemRoot),
                         "Image job subsystem accessed after shutdown.");
-                return _imageJobs.Value;
+                lock (_vertexTokenSourceSync)
+                {
+                    if (Volatile.Read(ref _disposed) != 0) throw new ObjectDisposedException(nameof(RookSubsystemRoot));
+                    return _imageJobs.Value;
+                }
             }
         }
 
@@ -179,8 +192,11 @@ namespace Rook
             IVideoJobLedger? ledger,
             IImageJobLedger? imageLedger,
             IVideoSidecarBackfillService? sidecarBackfill = null,
-            IVideoSidecarBackfillTaskScheduler? backfillScheduler = null)
+            IVideoSidecarBackfillTaskScheduler? backfillScheduler = null,
+            IVertexAccessTokenSource? vertexAccessTokenSource = null)
         {
+            _vertexAccessTokenSource = vertexAccessTokenSource ?? UnavailableVertexAccessTokenSource.Instance;
+            _vertexTokenSourceConfigured = vertexAccessTokenSource is not null;
             SharedArtifactStore = artifactStore ?? new ArtifactStore();
             SharedGenerationSecretStore = generationSecretStore
                 ?? new DpapiGenerationSecretStore();
@@ -190,7 +206,8 @@ namespace Rook
                     SharedGenerationSecretStore,
                     SharedArtifactStore,
                     ledger,
-                    sidecarBackfill),
+                    sidecarBackfill,
+                    _vertexAccessTokenSource),
                 LazyThreadSafetyMode.ExecutionAndPublication);
             _backfillScheduler = backfillScheduler
                 ?? new ThreadPoolVideoSidecarBackfillTaskScheduler();
@@ -210,7 +227,8 @@ namespace Rook
                             () => SharedGenerationSecretStore.GetSecret(
                                 GenerationSecretKeys.FalApiKey),
                             () => SharedGenerationSecretStore.GetSecret(
-                                GenerationSecretKeys.ReplicateApiToken)));
+                                GenerationSecretKeys.ReplicateApiToken),
+                            _vertexAccessTokenSource));
                     var selector = new ReplicateImageArtifactRequestFactorySelector(
                         () => SharedGenerationSecretStore.GetSecret(
                             GenerationSecretKeys.ReplicateApiToken));
@@ -227,6 +245,39 @@ namespace Rook
                     return new ImageJobSubsystemBundle(manager, registry);
                 },
                 LazyThreadSafetyMode.ExecutionAndPublication);
+        }
+
+        internal void ConfigureVertexAccessTokenSource(
+            IVertexAccessTokenSource vertexAccessTokenSource)
+        {
+            if (vertexAccessTokenSource is null)
+                throw new ArgumentNullException(nameof(vertexAccessTokenSource));
+
+            lock (_vertexTokenSourceSync)
+            {
+                if (Volatile.Read(ref _disposed) != 0) throw new ObjectDisposedException(nameof(RookSubsystemRoot));
+                if (_vertexTokenSourceConfigured)
+                {
+                    if (ReferenceEquals(
+                        _vertexAccessTokenSource,
+                        vertexAccessTokenSource))
+                    {
+                        return;
+                    }
+
+                    throw new InvalidOperationException(
+                        "The Vertex access-token source is already configured.");
+                }
+
+                if (_imageJobs.IsValueCreated || _video.IsValueCreated)
+                {
+                    throw new InvalidOperationException(
+                        "The Vertex access-token source must be configured before the media registries are created.");
+                }
+
+                _vertexAccessTokenSource = vertexAccessTokenSource;
+                _vertexTokenSourceConfigured = true;
+            }
         }
 
         private ReconstructionOpHandler CreateReconstruction()

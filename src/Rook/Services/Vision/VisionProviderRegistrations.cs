@@ -4,6 +4,7 @@ using Rook.Services.Vision.Image;
 using Rook.Services.Vision.Image.Fal;
 using Rook.Services.Vision.Image.Gemini;
 using Rook.Services.Vision.Image.Replicate;
+using Rook.Services.Vision.Image.Vertex;
 using Rook.Services.Vision.Video;
 using Rook.Services.Vision.Video.Fal;
 
@@ -14,12 +15,14 @@ namespace Rook.Services.Vision
         public static IImageProviderRegistration[] CreateImageRegistrations(
             Func<string?> geminiKeyProvider,
             Func<string?> falKeyProvider,
-            Func<string?> replicateTokenProvider)
+            Func<string?> replicateTokenProvider,
+            IVertexAccessTokenSource? vertexAccessTokenSource = null)
             => new IImageProviderRegistration[]
             {
                 new GeminiImageProviderRegistration(new GeminiImageProvider(geminiKeyProvider)),
                 new FalImageProviderRegistration(new FalImageProvider(falKeyProvider)),
                 new ReplicateImageProviderRegistration(new ReplicateImageProvider(replicateTokenProvider)),
+                new VertexImageProviderRegistration(new VertexImageProvider(vertexAccessTokenSource ?? UnavailableVertexAccessTokenSource.Instance)),
             };
 
         public static IVideoProviderRegistration[] CreateVideoRegistrations(

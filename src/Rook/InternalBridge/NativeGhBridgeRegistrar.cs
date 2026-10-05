@@ -50,7 +50,8 @@ namespace Rook.InternalBridge
                 artifactStore: RookSubsystemRoot.Instance.SharedArtifactStore,
                 generationSecrets: RookSubsystemRoot.Instance.SharedGenerationSecretStore,
                 enhancer: new PromptEnhancer(),
-                viewportHandler: new ViewportHandler());
+                viewportHandler: new ViewportHandler(),
+                imageProviderRegistry: RookSubsystemRoot.Instance.ImageJobs.Registry);
         }
 
         // V2 video. Lazy so processes that never touch video (image-only,
