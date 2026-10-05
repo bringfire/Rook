@@ -11,6 +11,8 @@ namespace Rook.Services.Vision.Video
         string? ProviderMessage = null,
         string? Field = null)
     {
+        /// <summary>Closed Rook marker for a dispatched Google submit whose outcome was lost.</summary>
+        public bool SubmissionOutcomeUnknown { get; init; }
         public static implicit operator GenerationError(VideoJobError error)
         {
             var providerDetail = string.IsNullOrEmpty(error.ProviderMessage)
@@ -26,7 +28,7 @@ namespace Rook.Services.Vision.Video
                 error.Message,
                 error.Retryable,
                 error.Field,
-                ProviderErrorCode: null,
+                ProviderErrorCode: error.SubmissionOutcomeUnknown ? "vertex_submission_unknown" : null,
                 ProviderDetail: providerDetail);
         }
 

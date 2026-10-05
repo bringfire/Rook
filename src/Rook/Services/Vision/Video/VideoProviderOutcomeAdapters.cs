@@ -24,7 +24,7 @@ namespace Rook.Services.Vision.Video
                 error.Message,
                 error.Retryable,
                 error.Field,
-                ProviderErrorCode: null,
+                ProviderErrorCode: error.SubmissionOutcomeUnknown ? "vertex_submission_unknown" : null,
                 ProviderDetail: providerDetail);
         }
 
@@ -38,7 +38,7 @@ namespace Rook.Services.Vision.Video
                 Message: error.Message,
                 Retryable: error.Retryable,
                 ProviderMessage: providerMessage,
-                Field: error.Field);
+                Field: error.Field) { SubmissionOutcomeUnknown = error.ProviderErrorCode == "vertex_submission_unknown" };
         }
 
         private static GenerationErrorCode ToGenerationErrorCode(VideoErrorCode code) =>

@@ -48,6 +48,8 @@ namespace Rook.Tests.Services.Vision.Video.Vertex
                 var latest=ledger.ReadAll().Records.Single();
                 Assert.True(latest.State==VideoJobState.Interrupted,latest.Error?.Message);
                 Assert.Equal(dispatched ? "vertex_submission_unknown" : null,latest.Error!.ProviderErrorCode);
+                Assert.Equal(dispatched,(await manager.GetStatusAsync(submitted.JobId!.Value,CancellationToken.None)).Error!.SubmissionOutcomeUnknown);
+                Assert.Equal(dispatched,(await manager.ListJobsAsync(10,CancellationToken.None)).Jobs.Single().Error!.SubmissionOutcomeUnknown);
                 Assert.Equal(dispatched ? 1 : 0,http.Calls); Assert.Empty(store.List());
                 manager.ReconcileInterruptedJobs(); Assert.Equal(dispatched ? 1 : 0,http.Calls);
             }
