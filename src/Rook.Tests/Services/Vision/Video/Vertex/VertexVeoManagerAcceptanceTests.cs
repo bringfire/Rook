@@ -16,6 +16,35 @@ namespace Rook.Tests.Services.Vision.Video.Vertex
 {
     public sealed class VertexVeoManagerAcceptanceTests
     {
+        [Fact]
+        public async Task StopAfterUnknownSubmitReturnsRetainsClassification()
+        {
+            var root=Path.Combine(Path.GetTempPath(),"rook-vertex-return-stop-"+Guid.NewGuid().ToString("N"));
+            try
+            {
+                var store=new ArtifactStore(root); var ledger=new FakeVideoJobLedger();
+                var http=new VertexTestHandler((_,_)=>Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) {Content=new StringContent("{}") }));
+                var provider=new VertexVeoProvider(new VertexTestTokenSource(),new VertexVeoClient(new HttpClient(http)));
+                var registry=new DefaultVideoProviderRegistry(new[]{new VertexVeoProviderRegistration(provider)});
+                var entered=new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var release=new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var finished=new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                using var manager=new VideoJobManager(registry,new FakeVideoMediaResolver(),ledger,new VideoCostEstimator(),store);
+                manager.AfterSubmitForTests=async _=>{entered.TrySetResult(true);await release.Task;};
+                manager.AfterRunForTests=_=>finished.TrySetResult(true);
+                var job=await manager.SubmitAsync(VertexVeoTests.Request(),CancellationToken.None);
+                Assert.Same(entered.Task,await Task.WhenAny(entered.Task,Task.Delay(5000)));
+                Assert.Equal(VideoJobState.Interrupted,(await manager.CancelAsync(job.JobId!.Value,CancellationToken.None)).State);
+                release.TrySetResult(true);
+                Assert.Same(finished.Task,await Task.WhenAny(finished.Task,Task.Delay(5000)));
+                var latest=ledger.ReadAll().Records.Single();
+                Assert.Equal(VideoJobState.Interrupted,latest.State);
+                Assert.Equal("vertex_submission_unknown",latest.Error!.ProviderErrorCode);
+                Assert.True((await manager.GetStatusAsync(job.JobId!.Value,CancellationToken.None)).Error!.SubmissionOutcomeUnknown);
+                Assert.Equal(1,http.Calls); Assert.Empty(store.List());
+            }
+            finally {if(Directory.Exists(root))Directory.Delete(root,true);}
+        }
         private sealed class BlockingTokens : IVertexAccessTokenSource
         {
             internal readonly VertexTestTokenSource Source=new();

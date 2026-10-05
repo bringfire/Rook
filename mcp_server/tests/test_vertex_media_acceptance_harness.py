@@ -64,7 +64,7 @@ def complete_evidence():
             'request_counts':{'submit':1,'poll':2,'fetch':int(state=='complete'),'refresh':int(n==2),'remote_cancel':0},
             'ledger_transitions':['queued','submitting','polling',state]}
     image=row(1,'complete'); image.pop('operation_label'); image['request_counts'].update(poll=0,fetch=0)
-    image['ledger_transitions']=['queued','submitting','complete']
+    image['ledger_transitions']=['queued','submitting','complete']; image['execution_path']='image_job_manager'; image['request_label']='request-01'
     image['artifact']={'sha256':'f'*64,'byte_count':2000,'width':1024,'height':1024,'requested_width':1024,'requested_height':1024}
     completion=row(2,'complete')
     completion['artifact']={'sha256':'f'*64,'byte_count':3000,'width':1280,'height':720,'resolution':'720p','aspect_ratio':'16:9',
@@ -86,6 +86,13 @@ def test_closed_measured_evidence_retains_proof_and_matches_gates():
     assert report['status']=='passed'
     assert report['cases']['completion_refresh']['evidence']==evidence['cases']['completion_refresh']
     assert report['provenance']==evidence['provenance']
+
+def test_normal_synchronous_panel_image_requires_no_invented_job_ledger():
+    evidence=complete_evidence(); image=evidence['cases']['image']
+    image.update(execution_path='synchronous_vision',job_label=None,ledger_transitions=None)
+    assert harness().live_acceptance(evidence)['status']=='passed'
+    image['ledger_transitions']=['queued','submitting','complete']
+    assert harness().live_acceptance(evidence)['status']!='passed'
 
 @pytest.mark.parametrize('mutation',[
     lambda e:e['cases']['completion_refresh']['refresh_evidence'].pop('lease_invalidated_utc'),

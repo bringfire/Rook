@@ -41,17 +41,20 @@ def _label(value, prefix):
 def _common(row,name):
     start,end=_utc(row['started_utc']),_utc(row['ended_utc'])
     counts=row['request_counts']; states=row['ledger_transitions']
+    sync_image=name=='image' and row['execution_path']=='synchronous_vision'
+    ledger_ok=states is None if sync_image else (type(states) is list and 3<=len(states)<=64 and states[:2]==['queued','submitting']
+        and all(s in ('queued','submitting','polling','downloading','saving','complete','interrupted') for s in states)
+        and states[-1]==('complete' if name in ('image','completion_refresh') else 'interrupted')
+        and (name=='image' or 'polling' in states))
     return (start<end and _number(row['elapsed_seconds']) and row['elapsed_seconds']>0
         and abs((end-start).total_seconds()-row['elapsed_seconds'])<=1
-        and _label(row['job_label'],'job') and _label(row['binding_label'],'authorization')
+        and (row['job_label'] is None if sync_image else _label(row['job_label'],'job')) and _label(row['binding_label'],'authorization')
+        and (name!='image' or row['execution_path'] in ('synchronous_vision','image_job_manager') and _label(row['request_label'],'request'))
         and (name=='image' or _label(row['operation_label'],'operation'))
         and _closed(counts,'submit poll fetch refresh remote_cancel')
         and all(type(v) is int and v>=0 for v in counts.values()) and counts['submit']==1 and counts['remote_cancel']==0
         and (name=='image' and counts['poll']==counts['fetch']==0 or name!='image' and counts['poll']>=1)
-        and type(states) is list and 3<=len(states)<=64 and states[:2]==['queued','submitting']
-        and all(s in ('queued','submitting','polling','downloading','saving','complete','interrupted') for s in states)
-        and states[-1]==('complete' if name in ('image','completion_refresh') else 'interrupted')
-        and (name=='image' or 'polling' in states))
+        and ledger_ok)
 
 def _media(artifact,video):
     fields='sha256 byte_count width height '+('resolution aspect_ratio duration_seconds requested_duration_seconds decoded_frames playback' if video else 'requested_width requested_height')
@@ -82,7 +85,7 @@ def _refresh(row):
 
 def _case(row,name):
     common='status started_utc ended_utc elapsed_seconds job_label binding_label request_counts ledger_transitions'
-    extra={'image':'artifact','completion_refresh':'operation_label artifact refresh_evidence',
+    extra={'image':'artifact execution_path request_label','completion_refresh':'operation_label artifact refresh_evidence',
         'disconnect':'operation_label first_inflight_poll_utc intervention_utc later_google_calls published reconnect_resumed new_binding_calls_for_old_job',
         'restart':'operation_label first_inflight_poll_utc intervention_utc automatic_google_calls binding_preserved old_artifacts_accessible'}[name]
     if row.get('completed_before_intervention') is True:

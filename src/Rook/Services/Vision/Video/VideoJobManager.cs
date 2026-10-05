@@ -42,6 +42,7 @@ namespace Rook.Services.Vision.Video
         public const int DefaultMaxConcurrentJobs = 2;
 
         internal Action<Guid>? AfterRunForTests { get; set; }
+        internal Func<Guid,Task>? AfterSubmitForTests { get; set; }
 
         private readonly IVideoProviderRegistry _registry;
         private readonly IMediaResolver _mediaResolver;
@@ -836,7 +837,13 @@ namespace Rook.Services.Vision.Video
                             }
                         },ct).ConfigureAwait(false)
                         : await provider.SubmitAsync(request,resolvedMedia,ct).ConfigureAwait(false);
-                    lock(running.TransitionGate) running.SubmissionSettled = true;
+                    lock(running.TransitionGate)
+                    {
+                        running.SubmissionOutcomeUnknown = submitOutcome is FailedSubmitOutcome failedSubmit
+                            && failedSubmit.Error.ProviderErrorCode == "vertex_submission_unknown";
+                        running.SubmissionSettled = true;
+                    }
+                    if(AfterSubmitForTests is { } afterSubmit) await afterSubmit(jobId).ConfigureAwait(false);
 
                     ProviderJobHandle handle;
                     switch (submitOutcome)
@@ -1064,7 +1071,7 @@ namespace Rook.Services.Vision.Video
         private static GenerationError LocalStopError(RunningJob running)
         {
             lock(running.TransitionGate)
-                return running.SubmissionDispatched && !running.SubmissionSettled
+                return (running.SubmissionDispatched && !running.SubmissionSettled || running.SubmissionOutcomeUnknown)
                     && running.Model.Provider is ISubmissionDispatchAwareVideoProvider aware
                     ? aware.SubmissionInterruptedError
                     : new GenerationError(GenerationErrorCode.Interrupted,LocalStopOnlyOutcome.Message,false);
@@ -1499,7 +1506,7 @@ namespace Rook.Services.Vision.Video
         private sealed class RunningJob
         {
             public readonly object TransitionGate = new();
-            public bool SubmissionDispatched, SubmissionSettled;
+            public bool SubmissionDispatched, SubmissionSettled, SubmissionOutcomeUnknown;
             public VideoJobRecord LatestRecord;
             public readonly CancellationTokenSource Cts;
             public readonly ResolvedVideoModel Model;
