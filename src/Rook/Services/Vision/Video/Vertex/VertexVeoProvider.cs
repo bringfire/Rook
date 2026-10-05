@@ -51,7 +51,7 @@ namespace Rook.Services.Vision.Video.Vertex
                 var acquired = await _tokens.AcquireAsync(ModelKey, Location, null, deadline.Token).ConfigureAwait(false);
                 if (acquired.Lease is not { } lease || !VertexMediaTransport.ValidLease(lease, ModelKey, Location))
                     return new FailedSubmitOutcome(VertexMediaTransport.TokenFailure(acquired.Failure, false));
-                var response = await _client.SubmitAsync(lease.Binding, lease.AccessToken, request, resolvedMedia, deadline.Token,
+                var response = await _client.SubmitAsync(lease, request, resolvedMedia, deadline.Token,
                     () => { beforeDispatch?.Invoke(); dispatched = true; }).ConfigureAwait(false);
                 if (response.Error is not null) return new FailedSubmitOutcome(response.Error);
                 // Retain the original accepted handle even when disconnect races submission; the manager fences publication.
@@ -74,7 +74,7 @@ namespace Rook.Services.Vision.Video.Vertex
                     var acquired = await _tokens.AcquireAsync(model, Location, binding, deadline.Token).ConfigureAwait(false);
                     if (acquired.Lease is not { } lease || !VertexMediaTransport.ValidLease(lease, model, Location, binding))
                         return new(Error: VertexMediaTransport.TokenFailure(acquired.Failure, true));
-                    var response = await _client.FetchOperationAsync(binding, lease.AccessToken, handle.ProviderJobId, decode, deadline.Token).ConfigureAwait(false);
+                    var response = await _client.FetchOperationAsync(lease, handle.ProviderJobId, decode, deadline.Token).ConfigureAwait(false);
                     if (await _tokens.ValidateBindingAsync(binding, deadline.Token).ConfigureAwait(false) is not null)
                         return new(Error: VertexMediaTransport.Interrupted());
                     if (!response.RetryableRead || attempt == 2) return response;

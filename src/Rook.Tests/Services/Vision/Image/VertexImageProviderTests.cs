@@ -33,6 +33,7 @@ namespace Rook.Tests.Services.Vision.Image
                 Assert.Equal("https://aiplatform.googleapis.com/v1/projects/company-project/locations/global/publishers/google/models/gemini-3.1-flash-image:generateContent",request.RequestUri!.AbsoluteUri);
                 Assert.Equal("Bearer",request.Headers.Authorization!.Scheme);
                 Assert.False(request.Headers.Contains("x-goog-api-key"));
+                Assert.False(request.Headers.Contains("x-goog-user-project"));
                 var json=await request.Content!.ReadAsStringAsync();
                 Assert.Contains("\"responseModalities\":[\"IMAGE\"]",json);
                 Assert.Contains("\"imageSize\":\"1K\"",json);
@@ -45,6 +46,22 @@ namespace Rook.Tests.Services.Vision.Image
             Assert.Equal(tokens.Generation,VertexAuthorizationBinding.FromMetadata(envelope.EnvelopeMetadata)!.AuthorizationGeneration);
             Assert.DoesNotContain("secret-bearer-sentinel",envelope.EnvelopeMetadata["vertex_binding"].ToJsonString());
             Assert.Equal(1,handler.Calls);
+        }
+        [Theory]
+        [InlineData(null)]
+        [InlineData("synthetic-firm-project")]
+        public async Task FirmImageQuotaIsOptionalAndBound(string? quota)
+        {
+            var tokens = new VertexTestTokenSource { Workforce = true, QuotaProject = quota };
+            var handler = new VertexTestHandler((request, _) => {
+                Assert.Equal(quota is not null, request.Headers.Contains("x-goog-user-project"));
+                if (quota is not null) Assert.Equal(quota, Assert.Single(request.Headers.GetValues("x-goog-user-project")));
+                return Task.FromResult(Response(HttpStatusCode.OK, Success));
+            });
+            var result = Assert.IsType<SyncSubmitOutcome>(await new VertexImageProvider(tokens, new HttpClient(handler)).SubmitAsync(Request(), new Dictionary<MediaRef, ResolvedMedia>(), CancellationToken.None));
+            var metadata = Assert.IsType<SuccessResultOutcome>(result.Result).Envelope.EnvelopeMetadata;
+            Assert.Equal(2, VertexAuthorizationBinding.FromMetadata(metadata)!.BindingVersion);
+            Assert.Equal(1, handler.Calls);
         }
         [Theory]
         [InlineData(401)] [InlineData(429)] [InlineData(500)] [InlineData(302)]

@@ -9,6 +9,7 @@ using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Rook.Services.Vision.Image.Vertex;
+using Rook.Services.Vision.Generation.Vertex;
 using Rook.UI.Chat;
 using Xunit;
 
@@ -68,6 +69,23 @@ namespace Rook.Tests.Services.Vision.Generation
             using var document = JsonDocument.Parse(body!);
             Assert.Equal(2, document.RootElement.GetProperty("contract_version").GetInt32());
             Assert.Equal(9, document.RootElement.GetProperty("expected_binding").EnumerateObject().Count());
+        }
+
+        [Theory]
+        [InlineData("quota")]
+        [InlineData("contract")]
+        [InlineData("project")]
+        public async Task MismatchedLeaseMakesZeroGoogleCalls(string mismatch)
+        {
+            var binding = FirmBinding();
+            var calls = 0;
+            var http = new HttpClient(new Handler((_, _) => { calls++; throw new InvalidOperationException("No request allowed."); }));
+            var lease = new VertexAccessTokenLease("synthetic-token", DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 60,
+                mismatch == "project" ? "other-project" : binding.ProjectId, binding.Location,
+                binding.AuthorizationGeneration, binding, mismatch == "contract" ? 1 : 2,
+                mismatch == "quota" ? "other-quota-project" : binding.QuotaProjectId);
+            var result = await new VertexMediaTransport(http).PostAsync(lease, "generateContent", "{}", 1024, true, CancellationToken.None);
+            Assert.NotNull(result.Error); Assert.Equal(0, calls);
         }
 
         private static ChatServiceVertexAccessTokenSource Source(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send) => new(

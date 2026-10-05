@@ -27,9 +27,7 @@ namespace Rook.Services.Vision.Generation.Vertex
         }
 
         internal static bool ValidBinding(VertexAuthorizationBinding binding) =>
-            binding.BindingVersion == 1
-            && Regex.IsMatch(binding.AuthorizationGeneration ?? "", "^[a-f0-9]{32}$")
-            && Regex.IsMatch(binding.ProjectId ?? "", "^[a-z][a-z0-9-]{4,61}[a-z0-9]$")
+            binding.IsValid()
             && ((binding.ModelId == "vertex_ai/gemini-3.1-flash-image" && binding.Location == "global")
                 || (binding.ModelId == "vertex_ai/veo-3.1-fast-generate-001" && binding.Location == "us-central1"));
 
@@ -39,17 +37,20 @@ namespace Rook.Services.Vision.Generation.Vertex
         internal static string Endpoint(VertexAuthorizationBinding binding, string action) =>
             $"https://{(binding.Location == "global" ? "aiplatform.googleapis.com" : binding.Location + "-aiplatform.googleapis.com")}/v1/{ModelPath(binding)}:{action}";
 
-        internal async Task<VertexHttpResult> PostAsync(VertexAuthorizationBinding binding, string accessToken,
+        internal async Task<VertexHttpResult> PostAsync(VertexAccessTokenLease lease,
             string action, string body, long responseLimit, bool submission, CancellationToken ct, Action? beforeDispatch = null)
         {
-            if (!ValidBinding(binding)) return new(null, Interrupted());
+            var binding = lease.Binding;
+            if (!ValidLease(lease, binding.ModelId, binding.Location)) return new(null, Interrupted());
+            if (binding.ModelId == "vertex_ai/gemini-3.1-flash-image" ? action != "generateContent" : action is not ("predictLongRunning" or "fetchPredictOperation")) return new(null, Interrupted());
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
             deadline.CancelAfter(OperationTimeout);
             try
             {
                 using var request = new HttpRequestMessage(HttpMethod.Post, Endpoint(binding, action))
                 { Content = new StringContent(body, Encoding.UTF8, "application/json") };
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", lease.AccessToken);
+                if (lease.QuotaProjectId is not null) request.Headers.Add("x-goog-user-project", lease.QuotaProjectId);
                 deadline.Token.ThrowIfCancellationRequested();
                 beforeDispatch?.Invoke();
                 using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token).ConfigureAwait(false);
@@ -85,7 +86,9 @@ namespace Rook.Services.Vision.Generation.Vertex
             bound || failure?.Code == "vertex_authorization_changed" ? Interrupted() : new(GenerationErrorCode.DependencyUnavailable, "Google media authorization is unavailable. Check the Google account configuration.", false, ProviderErrorCode: "vertex_authorization_required");
 
         internal static bool ValidLease(VertexAccessTokenLease lease, string model, string location, VertexAuthorizationBinding? expected = null) =>
-            ValidBinding(lease.Binding) && lease.Binding.ModelId == model && lease.Binding.Location == location
+            (lease.ContractVersion == 1 || lease.ContractVersion == 2) && (lease.Binding.BindingVersion != 2 || lease.ContractVersion == 2)
+            && lease.QuotaProjectId == lease.Binding.QuotaProjectId
+            && ValidBinding(lease.Binding) && lease.Binding.ModelId == model && lease.Binding.Location == location
             && lease.Binding.AuthorizationGeneration == lease.Generation && lease.Binding.ProjectId == lease.ProjectId
             && lease.Binding.Location == lease.Location && lease.ExpiresAtUnixSeconds > DateTimeOffset.UtcNow.ToUnixTimeSeconds()
             && !string.IsNullOrEmpty(lease.AccessToken) && (expected is null || expected == lease.Binding);

@@ -28,9 +28,10 @@ namespace Rook.Services.Vision.Video.Vertex
             return operation.StartsWith(prefix, StringComparison.Ordinal)
                 && Regex.IsMatch(operation.Substring(prefix.Length), "^[A-Za-z0-9_-]{1,128}$");
         }
-        internal async Task<VertexVeoResponse> SubmitAsync(VertexAuthorizationBinding binding, string token,
+        internal async Task<VertexVeoResponse> SubmitAsync(VertexAccessTokenLease lease,
             VideoGenerationRequest request, IReadOnlyDictionary<MediaRef, ResolvedMedia> resolved, CancellationToken ct, Action? beforeDispatch = null)
         {
+            var binding = lease.Binding;
             var options = (VertexVeoOptions)request.Options;
             var parameters = new Dictionary<string, object>
             {
@@ -40,7 +41,7 @@ namespace Rook.Services.Vision.Video.Vertex
             };
             if (request.Seed.HasValue) parameters["seed"] = request.Seed.Value;
             var body = JsonSerializer.Serialize(new { instances = new[] { VeoInputCodec.BuildInstance(request, resolved) }, parameters });
-            var response = await _transport.PostAsync(binding, token, "predictLongRunning", body,
+            var response = await _transport.PostAsync(lease, "predictLongRunning", body,
                 VertexMediaTransport.SmallResponseLimit, true, ct, beforeDispatch).ConfigureAwait(false);
             if (response.Error is not null) return new(Error: response.Error);
             try
@@ -52,11 +53,12 @@ namespace Rook.Services.Vision.Video.Vertex
             catch { }
             return new(Error: VertexMediaTransport.UnknownSubmission());
         }
-        internal async Task<VertexVeoResponse> FetchOperationAsync(VertexAuthorizationBinding binding, string token,
+        internal async Task<VertexVeoResponse> FetchOperationAsync(VertexAccessTokenLease lease,
             string operation, bool decodeVideo, CancellationToken ct)
         {
+            var binding = lease.Binding;
             if (!ValidOperation(binding, operation)) return new(Error: VertexMediaTransport.Interrupted());
-            var response = await _transport.PostAsync(binding, token, "fetchPredictOperation",
+            var response = await _transport.PostAsync(lease, "fetchPredictOperation",
                 JsonSerializer.Serialize(new { operationName = operation }), WireLimit, false, ct).ConfigureAwait(false);
             if (response.Error is not null) return new(Error: response.Error, RetryableRead: response.RetryableRead);
             return ParseOperation(response.Body!, operation, decodeVideo);

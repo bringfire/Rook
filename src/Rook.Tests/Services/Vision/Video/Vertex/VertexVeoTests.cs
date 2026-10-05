@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Net;
+using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
@@ -29,6 +30,7 @@ namespace Rook.Tests.Services.Vision.Video.Vertex
             {
                 Assert.Equal("Bearer",request.Headers.Authorization!.Scheme);
                 Assert.False(request.Headers.Contains("x-goog-api-key"));
+                Assert.False(request.Headers.Contains("x-goog-user-project"));
                 var json = await request.Content!.ReadAsStringAsync();
                 if(request.RequestUri!.AbsoluteUri.EndsWith(":predictLongRunning"))
                 {
@@ -52,6 +54,25 @@ namespace Rook.Tests.Services.Vision.Video.Vertex
             Assert.Equal(new byte[]{1,2,3,4},Assert.IsType<InlineArtifactBody>(Assert.Single(success.Envelope.Artifacts).Body).Bytes);
             Assert.IsType<LocalStopOnlyOutcome>(await provider.CancelAsync(handle,CancellationToken.None));
             Assert.Equal(3,handler.Calls);
+        }
+        [Fact]
+        public async Task FirmQuotaHeader_IsBoundOnSubmitAndEveryPoll()
+        {
+            var tokens = new VertexTestTokenSource { Workforce = true };
+            var handler = new VertexTestHandler((request, _) => {
+                Assert.Equal("synthetic-firm-project", request.Headers.GetValues("x-goog-user-project").Single());
+                Assert.Contains("projects/company-project/locations/us-central1/", request.RequestUri!.AbsoluteUri);
+                Assert.False(request.Headers.Contains("x-goog-api-key"));
+                return Task.FromResult(Response(200, request.RequestUri.AbsoluteUri.EndsWith(":predictLongRunning") ? "{\"name\":\"" + Operation + "\"}" : "{\"done\":true,\"response\":{\"videos\":[{\"bytesBase64Encoded\":\"AQIDBA==\",\"mimeType\":\"video/mp4\"}]}}"));
+            });
+            var provider = new VertexVeoProvider(tokens, new VertexVeoClient(new HttpClient(handler)));
+            var handle = Assert.IsType<QueuedSubmitOutcome>(await provider.SubmitAsync(Request(), new Dictionary<MediaRef, ResolvedMedia>(), CancellationToken.None)).Handle;
+            Assert.IsType<ProviderCompleteStatusOutcome>(await provider.GetStatusAsync(handle, CancellationToken.None));
+            Assert.IsType<SuccessResultOutcome>(await provider.FetchResultAsync(handle, CancellationToken.None));
+            Assert.Equal(3, handler.Calls);
+            tokens.Generation = new string('d', 32); // Same employee reconnects deliberately.
+            Assert.IsType<FailedStatusOutcome>(await provider.GetStatusAsync(handle, CancellationToken.None));
+            Assert.Equal(3, handler.Calls);
         }
         [Theory]
         [InlineData(401)] [InlineData(429)] [InlineData(500)] [InlineData(302)] [InlineData(200)]
