@@ -12,8 +12,11 @@ import tempfile
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 from ctypes import wintypes
+
+if TYPE_CHECKING:
+    from .vertex_workforce_contract import WorkforceActiveRecord
 
 
 _VERTEX_PREFIX = "vertex_ai/"
@@ -66,6 +69,7 @@ class VertexMode(str, Enum):
     OAUTH = "oauth"
     ADC = "adc"
     SERVICE_ACCOUNT = "service_account"
+    WORKFORCE = "workforce"
 
 
 @dataclass(frozen=True)
@@ -178,6 +182,8 @@ class VertexRecord:
         except (TypeError, ValueError) as exc:
             raise _invalid_record() from exc
         object.__setattr__(self, "mode", mode)
+        if mode is VertexMode.WORKFORCE:
+            raise _invalid_record()
         if not isinstance(self.project_id, str) or not _PROJECT_ID.fullmatch(self.project_id):
             raise _invalid_record()
         if not isinstance(self.region, str) or not _REGION.fullmatch(self.region):
@@ -315,7 +321,7 @@ class VertexStore:
             )
         return cls(Path(local_appdata) / "Rook" / "data" / "provider_auth" / "vertex.json")
 
-    def read(self) -> VertexRecord | None:
+    def read(self) -> VertexRecord | WorkforceActiveRecord | None:
         return self._read_unlocked()
 
     def protect_authorized_user(self, credentials: object) -> str:
@@ -341,6 +347,9 @@ class VertexStore:
                 "Vertex AI is not configured for this Windows user.",
             )
         credentials: dict[str, str] | str | None
+        if record.mode is VertexMode.WORKFORCE:
+            from .vertex_workforce_contract import auth_error
+            raise auth_error("vertex_text_federation_unsupported")
         if record.mode is VertexMode.OAUTH:
             try:
                 protected = base64.b64decode(record.oauth_ciphertext, validate=True)
@@ -364,11 +373,19 @@ class VertexStore:
             vertex_credentials=credentials,
         )
 
-    def _read_unlocked(self) -> VertexRecord | None:
+    def _read_unlocked(self) -> VertexRecord | WorkforceActiveRecord | None:
         if not self.path.exists():
             return None
         try:
-            payload = json.loads(self.path.read_text(encoding="utf-8"))
+            from .vertex_workforce_contract import json_object, STORE_LIMIT
+            with self.path.open("rb") as stream:
+                raw = stream.read(STORE_LIMIT + 1)
+            payload = json_object(raw, STORE_LIMIT)
+            if payload.get("schema_version") == 2:
+                from .vertex_workforce_store import VertexWorkforceStore
+                return VertexWorkforceStore(self).snapshot_active()
+            if len(raw) > 64 * 1024:
+                raise _invalid_record()
             return VertexRecord.from_json_object(payload)
         except VertexAuthError:
             raise
@@ -396,6 +413,13 @@ class VertexStore:
                 committed = VertexRecord.from_json_object(
                     {**record.to_json_object(), "generation": secrets.token_hex(16)}
                 )
+                from .vertex_workforce_contract import json_object, STORE_LIMIT
+                if self.path.exists():
+                    with self.path.open("rb") as existing:
+                        envelope = json_object(existing.read(STORE_LIMIT + 1), STORE_LIMIT)
+                    if envelope.get("schema_version") == 2:
+                        from .vertex_workforce_store import VertexWorkforceStore
+                        return VertexWorkforceStore(self)._replace_legacy_unlocked(committed, fail_before_replace=fail_before_replace)
                 self.path.parent.mkdir(parents=True, exist_ok=True)
                 descriptor, temp_name = tempfile.mkstemp(
                     prefix=f"{self.path.name}.",

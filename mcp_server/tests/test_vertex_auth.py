@@ -499,6 +499,13 @@ def test_real_current_user_dpapi_round_trip_and_corruption_failure():
         protector.unprotect(bytes(corrupted))
 
 
+def test_legacy_record_cannot_activate_workforce_mode():
+    vertex_auth = _vertex_auth()
+    with pytest.raises(vertex_auth.VertexAuthError):
+        _oauth_record(vertex_auth, mode=vertex_auth.VertexMode.WORKFORCE,
+                      oauth_ciphertext=None, service_account_path=None)
+
+
 @pytest.mark.skipif(os.name != "nt", reason="named mutex is a Windows-only contract")
 def test_cross_process_mutex_timeout_preserves_prior_bytes(tmp_path):
     vertex_auth = _vertex_auth()
