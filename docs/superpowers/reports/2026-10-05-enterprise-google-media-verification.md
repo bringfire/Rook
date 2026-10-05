@@ -64,3 +64,23 @@ Memory probes ran five fresh x64 testhosts after rebuilding the affected test so
 This host has approximately 63.6 GiB visible RAM; no additional memory limit was imposed by the probe. No OOM occurred. Maximum concurrency remains two and the decoded cap remains 250 MiB. All weak references to encoded/decoded payload arrays were dead after cleanup/full GC; assertions enforce that condition. Earlier smaller-case retained process memory prompted this diagnostic, rather than being silently accepted. The memory result is host-specific and uses synthetic bytes, so it does not prove MP4 playback or a universal system minimum.
 
 Sanitized raw memory measurements and tested-assembly provenance are stored next to this report. Installed live acceptance remains separate: one image and three videos, including actual refresh, disconnect and restart. Local stop/race coverage is automated within the agreed budget. The source harness runs automated/memory gates and validates an operator's sanitized installed-session evidence; it does not create billed jobs or implement a production invalidation endpoint.
+
+## Independent review and final source verification
+
+The independent whole-branch review found four important gaps: disconnect cancellation after mutex admission; read-deadline interruption; dispatched-submit stop classification; and insufficient live proof. Focused fixes were committed as `d56353b7`, `95ce2fce`, `5746d560`, `9026370e`, and `bc5ae8dd`. Follow-up review reproduced one additional stop interval after an unknown submission returned but before its failure was committed; a new deterministic barrier test failed against the prior source and passed after outcome classification and settlement were captured under the same transition gate. The closed unknown marker survives both status and queue adapters. No raw provider code/detail is exposed by that UI marker.
+
+Final independent follow-up on `bc5ae8dded237b9d33e87da0b868cf8babfea96c` closed all four original source findings with no new actionable finding. The reviewer independently ran 25 validator/Node checks and whitespace checks; they did not claim independent managed builds, memory probes, installed OAuth, or Google execution. Synchronous panel images now have an explicit evidence shape with null job/ledger fields and a request correlation label; manager-backed images require their real ledger transitions.
+
+The primary final source checks at that exact clean source commit rebuilt **net48, net7.0 and net8.0**, with 0 errors and 472 existing/target-platform warnings. Fresh broad managed checks excluding exactly the unavailable external Prime producer-fixture test passed **2,470 tests**. Python Vertex and media MCP suites passed **315 tests**, with 11 existing DSPy deprecation warnings. The full unexcluded managed gate remains prerequisite-incomplete because the previously documented external producer fixture is unavailable; no passing full-gate claim is made.
+
+The final five fresh-host memory probes passed after the final rebuild. Tested net48 assembly SHA-256: `b75fd35ac5ba29592eadcfac89a4bba9c3a8503be3270d0b6bf35b1e43a49289`; modification UTC `2026-10-05T16:47:20.781749+00:00`. The source patch was empty and there were no untracked source files. Updated raw measurements replace the adjacent memory JSON, with this exact source/assembly provenance.
+
+| Decoded MiB | Concurrent jobs | OS peak working MiB | Sampled peak private MiB | Live managed delta after cleanup MiB | Payload references retained |
+|---:|---:|---:|---:|---:|---|
+| 1 | 1 | 142.3 | 114.0 | 1.17 | none |
+| 16 | 1 | 242.3 | 232.4 | 0.17 | none |
+| 64 | 1 | 356.5 | 509.1 | 0.16 | none |
+| 250 | 1 | 1100.6 | 1754.0 | 0.17 | none |
+| 250 | 2 | 1961.6 | 3417.0 | 0.20 | none |
+
+Host and synthetic-media limitations above still apply. Live pilot preparation has reached Google's private sign-in page only. No deployment, OAuth consent, or live generation has occurred. The user selected a Workspace practice pilot and requires all Google account/project information, downloaded client files and private evidence to remain outside all repositories/worktrees. The live harness rejects repository input/output paths; examples use synthetic labels. This report contains only code/test provenance, without a Google account or project identifier. Installed/live acceptance remains **not run** and the agreed budget remains one image/three videos.
