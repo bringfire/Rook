@@ -54,7 +54,7 @@ class VertexConfigurationHttp:
             return save_vertex_configuration(prior.mode, body['project_id'], body['video_location'],
                 service_account_path=prior.service_account_path, store=self.store, recycler=self.recycler, cancel_check=check)
         check()
-        return disconnect_vertex(store=self.store, recycler=self.recycler)
+        return disconnect_vertex(store=self.store, recycler=self.recycler, cancel_check=check)
 
     async def execute(self, body, disconnected):
         fields = {'status': {'operation'}, 'disconnect': {'operation'},

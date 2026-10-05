@@ -517,6 +517,7 @@ def disconnect_vertex(
     recycler: Callable[[str | None], None] | None = None,
     store: VertexStore | None = None,
     revoke: Callable[[str], bool] | None = None,
+    cancel_check: Callable[[], None] | None = None,
 ) -> VertexOperationResult:
     """Best-effort revoke OAuth and exact-delete only the Vertex record."""
 
@@ -524,6 +525,8 @@ def disconnect_vertex(
     try:
         selected_recycler = _select_recycler(recycler)
         with _mutation_lock(selected_store):
+            if cancel_check is not None:
+                cancel_check()
             record = selected_store.read()
             if record is None:
                 return VertexOperationResult(
@@ -543,6 +546,8 @@ def disconnect_vertex(
                     if isinstance(credentials, dict):
                         refresh_token = credentials.get("refresh_token")
                         if isinstance(refresh_token, str) and refresh_token:
+                            if cancel_check is not None:
+                                cancel_check()
                             revocation = (
                                 "revoked"
                                 if (revoke or _revoke_token)(refresh_token)
@@ -550,6 +555,10 @@ def disconnect_vertex(
                             )
                 except Exception:
                     revocation = "failed"
+            # Revocation already dispatched cannot be recalled. Cancellation
+            # still prevents deletion of the local record; UI requires a status read.
+            if cancel_check is not None:
+                cancel_check()
             try:
                 selected_store.path.unlink()
             except FileNotFoundError:

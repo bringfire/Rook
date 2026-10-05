@@ -1,5 +1,6 @@
 import asyncio
 import threading
+from contextlib import contextmanager
 from dataclasses import replace
 from aiohttp.test_utils import TestClient, TestServer
 import pytest
@@ -99,3 +100,37 @@ async def test_bad_client_file_and_failed_settings_write_preserve_previous_bytes
     monkeypatch.setattr(store,'replace',fail)
     response=await service.execute({'operation':'save','project_id':'company-ai-project','video_location':'us-central1'},lambda:False)
     assert response.status==409 and store.path.read_bytes()==before
+
+@pytest.mark.asyncio
+async def test_cancelled_disconnect_waiting_for_mutex_preserves_authorization(tmp_path,monkeypatch):
+    from rook.providers import vertex_backend
+    store=_store(tmp_path); store.replace(_record(_auth())); before=store.path.read_bytes()
+    entered=threading.Event(); released=threading.Event(); revoked=[]
+    @contextmanager
+    def lock(_):
+        entered.set(); released.wait(3); yield
+    monkeypatch.setattr(vertex_backend,'_mutation_lock',lock)
+    monkeypatch.setattr(vertex_backend,'_revoke_token',lambda token: revoked.append(token) or True)
+    service=VertexConfigurationHttp(store=store,recycler=lambda _:None)
+    pending=asyncio.create_task(service.execute({'operation':'disconnect'},lambda:False))
+    assert await asyncio.to_thread(entered.wait,2)
+    pending.cancel(); await asyncio.sleep(0); released.set()
+    with pytest.raises(asyncio.CancelledError): await pending
+    assert store.path.read_bytes()==before and not revoked and service.worker is None
+
+@pytest.mark.asyncio
+async def test_cancel_during_dispatched_revocation_preserves_local_record(tmp_path,monkeypatch):
+    from rook.providers import vertex_backend
+    auth=_auth(); store=_store(tmp_path)
+    store.replace(_record(auth,mode=auth.VertexMode.OAUTH,ciphertext=store.protect_authorized_user(_authorized_user())))
+    before=store.path.read_bytes()
+    entered=threading.Event(); released=threading.Event(); revoked=[]
+    def revoke(token):
+        revoked.append(token); entered.set(); released.wait(3); return True
+    monkeypatch.setattr(vertex_backend,'_revoke_token',revoke)
+    service=VertexConfigurationHttp(store=store,recycler=lambda _:None)
+    pending=asyncio.create_task(service.execute({'operation':'disconnect'},lambda:False))
+    assert await asyncio.to_thread(entered.wait,2)
+    pending.cancel(); await asyncio.sleep(0); released.set()
+    with pytest.raises(asyncio.CancelledError): await pending
+    assert store.path.read_bytes()==before and len(revoked)==1

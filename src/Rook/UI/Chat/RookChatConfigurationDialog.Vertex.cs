@@ -73,7 +73,9 @@ namespace Rook.UI.Chat
             }
             catch (OperationCanceledException)
             {
-                await PresentAsync(() => VertexStatus.Text = "Google action cancelled. Refresh local settings after the owned service finishes cleanup.").ConfigureAwait(false);
+                await PresentAsync(() => VertexStatus.Text = operation == "disconnect"
+                    ? "Disconnect cancelled. A revocation already sent to Google may still take effect. Refresh local settings after cleanup; sign in again if required."
+                    : "Google action cancelled. Refresh local settings after the owned service finishes cleanup.").ConfigureAwait(false);
             }
             catch { await PresentAsync(() => VertexStatus.Text = "Google configuration is unavailable.").ConfigureAwait(false); }
             finally
