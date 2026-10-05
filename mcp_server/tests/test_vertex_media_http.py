@@ -49,3 +49,34 @@ async def test_token_route_oversized_body_and_rotated_followup_are_bounded():
         assert response.status==409
         assert len(refresher.calls)==1
         assert 'short-lived-token' not in await response.text()
+
+@pytest.mark.asyncio
+async def test_v2_route_returns_closed_versioned_legacy_lease_and_validation():
+    clock=_Clock(); store=_Store(_record()); refresher=_Refresher(clock)
+    client=TestClient(TestServer(create_chat_app(Manager(),expected_nonce='nonce',vertex_token_service=_service(store,clock,refresher))))
+    body={'operation':'acquire','model':MODEL,'location':'global','expected_binding':None,'contract_version':2}
+    async with client:
+        response=await client.post('/internal/providers/vertex/access-token',headers={'X-Rook-Session':'nonce'},json=body)
+        assert response.status==200
+        data=(await response.json())['data']
+        assert set(data)=={'access_token','expires_at_unix_seconds','project_id','location','generation','binding','contract_version','quota_project_id'}
+        assert data['contract_version']==2 and data['quota_project_id'] is None and len(data['binding'])==5
+        body.update(operation='validate',expected_binding=data['binding'])
+        response=await client.post('/internal/providers/vertex/access-token',headers={'X-Rook-Session':'nonce'},json=body)
+        assert (await response.json())['data']=={'contract_version':2,'validated':True}
+        assert len(refresher.calls)==1
+
+@pytest.mark.asyncio
+async def test_v1_workforce_request_refused_before_credentials(workforce_fixture):
+    from .test_vertex_workforce_store import activate
+    from rook.providers.vertex_token_lease import VertexTokenLeaseService
+    _, store, *_ = workforce_fixture
+    activate(workforce_fixture)
+    service=VertexTokenLeaseService(store=store.base,workforce_store=store,workforce_refresher=lambda **kwargs: pytest.fail('Old client must not resolve credentials'))
+    client=TestClient(TestServer(create_chat_app(Manager(),expected_nonce='nonce',vertex_token_service=service)))
+    async with client:
+        response=await client.post('/internal/providers/vertex/access-token',headers={'X-Rook-Session':'nonce'},json={'operation':'acquire','model':MODEL,'location':'global','expected_binding':None})
+        assert response.status==409
+        assert (await response.json())['error']['code']=='vertex_client_upgrade_required'
+
+from .test_vertex_workforce_store import fixture as workforce_fixture

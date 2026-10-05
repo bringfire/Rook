@@ -21,6 +21,11 @@ namespace Rook.UI.Chat
         private static readonly IReadOnlyDictionary<string, FailureDefinition>
             KnownFailures = new Dictionary<string, FailureDefinition>(StringComparer.Ordinal)
             {
+                ["vertex_client_upgrade_required"] = new(HttpStatusCode.Conflict, "Update Rook before using firm sign-in for Google media.", Retryable: false),
+                ["vertex_restart_required"] = new(HttpStatusCode.Conflict, "Restart required: a previous managed process could not be retired.", Retryable: false),
+                ["vertex_firm_sign_in_required"] = new(HttpStatusCode.Conflict, "Sign in with your firm to renew authorization.", Retryable: false),
+                ["vertex_workforce_exchange_denied"] = new(HttpStatusCode.Conflict, "Google denied the firm's identity exchange.", Retryable: false),
+                ["vertex_refresh_stale"] = new(HttpStatusCode.Conflict, "A stale firm refresh was refused.", Retryable: true),
                 ["vertex_internal_access_denied"] = new(
                     HttpStatusCode.Forbidden,
                     "The internal Vertex token route is unavailable to this caller.",
@@ -172,6 +177,7 @@ namespace Rook.UI.Chat
             request.Content = new StringContent(
                 JsonSerializer.Serialize(new Dictionary<string, object?>
                 {
+                    ["contract_version"] = 2,
                     ["operation"] = validateOnly ? "validate" : "acquire",
                     ["model"] = qualifiedModelKey,
                     ["location"] = location,
@@ -196,7 +202,7 @@ namespace Rook.UI.Chat
                 {
                     using var doc = JsonDocument.Parse(json);
                     var root = doc.RootElement;
-                    if (!HasExactProperties(root, "success", "data") || root.GetProperty("success").ValueKind != JsonValueKind.True || !HasExactProperties(root.GetProperty("data"), "validated") || root.GetProperty("data").GetProperty("validated").ValueKind != JsonValueKind.True) return InvalidResponse();
+                    if (!HasExactProperties(root, "success", "data") || root.GetProperty("success").ValueKind != JsonValueKind.True || !HasExactProperties(root.GetProperty("data"), "contract_version", "validated") || root.GetProperty("data").GetProperty("contract_version").GetInt32() != 2 || root.GetProperty("data").GetProperty("validated").ValueKind != JsonValueKind.True) return InvalidResponse();
                     return new(null, null);
                 }
                 var result = ParseResponse(response.StatusCode, json);
@@ -266,7 +272,8 @@ namespace Rook.UI.Chat
                     "project_id",
                     "location",
                     "generation",
-                    "binding")
+                    "binding", "contract_version", "quota_project_id")
+                || !data.GetProperty("contract_version").TryGetInt32(out var contractVersion) || contractVersion != 2
                 || !TryGetRequiredString(data, "access_token", out var accessToken)
                 || !data.TryGetProperty("expires_at_unix_seconds", out var expiryElement)
                 || !expiryElement.TryGetInt64(out var expiry)
@@ -279,9 +286,12 @@ namespace Rook.UI.Chat
                 return InvalidResponse();
             }
 
+            var quota = data.GetProperty("quota_project_id");
+            if (quota.ValueKind != JsonValueKind.Null && (quota.ValueKind != JsonValueKind.String || !VertexAuthorizationBinding.IsUserProject(quota.GetString()))) return InvalidResponse();
+            var quotaProjectId = quota.ValueKind == JsonValueKind.Null ? null : quota.GetString();
             var bindingMetadata = new Dictionary<string, System.Text.Json.Nodes.JsonNode> { ["vertex_binding"] = System.Text.Json.Nodes.JsonNode.Parse(data.GetProperty("binding").GetRawText())! };
             var binding = VertexAuthorizationBinding.FromMetadata(bindingMetadata);
-            if (binding is null || binding.AuthorizationGeneration != generation || binding.ProjectId != projectId || binding.Location != location) return InvalidResponse();
+            if (binding is null || binding.AuthorizationGeneration != generation || binding.ProjectId != projectId || binding.Location != location || binding.QuotaProjectId != quotaProjectId) return InvalidResponse();
 
             return new VertexAccessTokenResult(
                 new VertexAccessTokenLease(
@@ -289,7 +299,7 @@ namespace Rook.UI.Chat
                     expiry,
                     projectId,
                     location,
-                    generation, binding),
+                    generation, binding, contractVersion, quotaProjectId),
                 Failure: null);
         }
 
@@ -318,7 +328,7 @@ namespace Rook.UI.Chat
         {
             var seen = new HashSet<string>(StringComparer.Ordinal);
             foreach (var property in element.EnumerateObject())
-                seen.Add(property.Name);
+                if (!seen.Add(property.Name)) return false;
             return seen.SetEquals(expected);
         }
 

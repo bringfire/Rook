@@ -69,7 +69,7 @@ namespace Rook.Tests.UI.Chat
                 "one-snapshot-nonce",
                 Assert.Single(capturedRequest.Headers.GetValues("X-Rook-Session")));
             Assert.Equal(
-                "{\"operation\":\"acquire\",\"model\":\"vertex_ai/gemini-3.1-flash-image\",\"location\":\"global\",\"expected_binding\":null}",
+                "{\"contract_version\":2,\"operation\":\"acquire\",\"model\":\"vertex_ai/gemini-3.1-flash-image\",\"location\":\"global\",\"expected_binding\":null}",
                 capturedBody);
             Assert.Equal(TimeSpan.FromSeconds(30), ChatServiceVertexAccessTokenSource.RouteTimeout);
             Assert.Equal(Timeout.InfiniteTimeSpan, httpClient.Timeout);
@@ -329,7 +329,7 @@ namespace Rook.Tests.UI.Chat
             var source = CreateSource(new HttpClient(new DelegateHandler(async (request, _) =>
             {
                 body = await request.Content!.ReadAsStringAsync();
-                return JsonResponse(HttpStatusCode.OK, "{\"success\":true,\"data\":{\"validated\":true}}");
+                return JsonResponse(HttpStatusCode.OK, "{\"success\":true,\"data\":{\"contract_version\":2,\"validated\":true}}");
             })));
             var binding = new VertexAuthorizationBinding(1,"0123456789abcdef0123456789abcdef","company-project","global","vertex_ai/gemini-3.1-flash-image");
             Assert.Null(await source.ValidateBindingAsync(binding,CancellationToken.None));
@@ -380,7 +380,7 @@ namespace Rook.Tests.UI.Chat
             string project = "company-project",
             string location = "global",
             string generation = "0123456789abcdef0123456789abcdef") =>
-            "{\"success\":true,\"data\":{" +
+            "{\"success\":true,\"data\":{\"contract_version\":2,\"quota_project_id\":null," +
             $"\"access_token\":\"{token}\"," +
             $"\"expires_at_unix_seconds\":{expiry}," +
             $"\"project_id\":\"{project}\"," +

@@ -645,3 +645,87 @@ async def test_rotation_during_bound_refresh_returns_no_token():
         await _service(store,clock,refresh).acquire(MODEL,"global",binding)
     assert caught.value.code == "vertex_authorization_changed"
     assert "secret-discard" not in str(caught.value)
+
+from .test_vertex_workforce_store import fixture as workforce_fixture, activate as activate_workforce
+
+
+@pytest.mark.asyncio
+async def test_same_principal_refresh_preserves_v2_binding(workforce_fixture):
+    from dataclasses import asdict
+    from rook.providers.vertex_workforce_contract import WorkforceCredentialContext
+    _, store, _, _, _, exchange = workforce_fixture
+    context = activate_workforce(workforce_fixture)
+    store.mark_chirp_retired(context.generation, deadline=__import__('time').monotonic() + 30, cancel_check=lambda: None)
+    calls = []
+    def refresh(**kwargs):
+        calls.append(kwargs)
+        return WorkforceCredentialContext(**asdict(exchange), generation=context.generation, principal_id=context.principal_id, connection_fingerprint=context.connection_fingerprint)
+    service = _lease_module().VertexTokenLeaseService(store=store.base, workforce_store=store, workforce_refresher=refresh)
+    first = await service.acquire(MODEL, contract_version=2)
+    service._cached_lease = None
+    second = await service.acquire(MODEL, expected_binding=first.binding, contract_version=2)
+    assert first.binding == second.binding and first.generation == second.generation
+    assert len(first.binding.to_wire()) == 9 and first.contract_version == 2
+    count = len(calls)
+    service.validate_binding(first.binding)
+    assert len(calls) == count
+    with pytest.raises(_auth_module().VertexAuthError) as error:
+        await service.acquire(MODEL, expected_binding=first.binding, contract_version=1)
+    assert error.value.code == 'vertex_client_upgrade_required' and len(calls) == count
+    store.disconnect_all()
+    with pytest.raises(_auth_module().VertexAuthError):
+        service.validate_binding(first.binding)
+
+
+@pytest.mark.asyncio
+async def test_retirement_pending_blocks_cached_and_fresh_lease(workforce_fixture):
+    _, store, *_ = workforce_fixture
+    activate_workforce(workforce_fixture)
+    service = _lease_module().VertexTokenLeaseService(store=store.base, workforce_store=store, workforce_refresher=lambda **kwargs: pytest.fail('No refresh during retirement'))
+    with pytest.raises(_auth_module().VertexAuthError) as error:
+        await service.acquire(MODEL, contract_version=2)
+    assert error.value.code == 'vertex_restart_required' and service._cached_lease is None
+    active = store.snapshot_active()
+    service._cached_lease = _lease_module().VertexTokenLease('cached-sentinel', int(__import__('time').time()) + 3600, active.project_id, 'global', active.generation, service._binding(active, MODEL, 'global'), 2, active.settings.quota_project_id)
+    with pytest.raises(_auth_module().VertexAuthError) as error:
+        await service.acquire(MODEL, contract_version=2)
+    assert error.value.code == 'vertex_restart_required' and service._cached_lease is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('reason', ['timeout', 'caller-cancel', 'disconnect'])
+async def test_acquire_revokes_worker_before_unlock_and_newer_refresh(reason, workforce_fixture, monkeypatch):
+    from dataclasses import asdict
+    from rook.providers.vertex_workforce_contract import WorkforceCredentialContext
+    import time
+    _, store, _, _, _, exchange = workforce_fixture
+    context = activate_workforce(workforce_fixture)
+    store.mark_chirp_retired(context.generation, deadline=time.monotonic() + 30, cancel_check=lambda: None)
+    entered, release = threading.Event(), threading.Event()
+    observed = []
+    checks = []
+    def refresh(**kwargs):
+        if not checks:
+            checks.append(kwargs['cancel_check'])
+            entered.set()
+            assert release.wait(3)
+            try: kwargs['cancel_check']()
+            except _auth_module().VertexAuthError: observed.append('revoked'); raise
+        return WorkforceCredentialContext(**asdict(exchange), generation=context.generation, principal_id=context.principal_id, connection_fingerprint=context.connection_fingerprint)
+    service = _lease_module().VertexTokenLeaseService(store=store.base, workforce_store=store, workforce_refresher=refresh)
+    monkeypatch.setattr(_lease_module(), 'TOKEN_ISSUANCE_TIMEOUT_SECONDS', .1 if reason == 'timeout' else 30)
+    task = asyncio.create_task(service.acquire(MODEL, contract_version=2))
+    assert await asyncio.to_thread(entered.wait, 2)
+    if reason == 'caller-cancel': task.cancel()
+    if reason == 'disconnect': store.disconnect_all(); task.cancel()
+    with pytest.raises((asyncio.CancelledError, _auth_module().VertexAuthError)):
+        await task
+    assert not service._refresh_lock.locked()
+    with pytest.raises(_auth_module().VertexAuthError): checks[0]()
+    if reason != 'disconnect':
+        newer = await service.acquire(MODEL, contract_version=2)
+        assert newer.access_token == exchange.access_token
+    release.set()
+    await asyncio.gather(*list(service._workers), return_exceptions=True)
+    assert observed == ['revoked'] and not service._workers
+    if reason != 'disconnect': assert service._cached_lease == newer
