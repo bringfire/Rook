@@ -10,7 +10,7 @@ using Eto.Forms;
 
 namespace Rook.UI.Chat
 {
-    internal sealed class RookChatConfigurationDialog : Dialog
+    internal sealed partial class RookChatConfigurationDialog : Dialog
     {
         private readonly AgentChatClient _client;
         private readonly Action<Action> _post;
@@ -138,6 +138,7 @@ namespace Rook.UI.Chat
                 new TabPage { Text = "Account", Content = VerticalScroll(account) },
                 new TabPage { Text = "Defaults", Content = VerticalScroll(defaults) },
                 new TabPage { Text = "Local / custom endpoint", Content = VerticalScroll(endpoint) },
+                CreateVertexTab(),
             }
                 }
             };
@@ -539,7 +540,8 @@ namespace Rook.UI.Chat
         private void UpdateEnabled()
         {
             if (_disposed) return;
-            if (_editor != null) _editor.Enabled = _available && CanAttemptConfiguration;
+            if (_editor != null) _editor.Enabled = !Busy;
+            UpdateVertexEnabled();
             foreach (var pair in _actions)
             {
                 pair.Value.Enabled = CanAttemptConfiguration && (pair.Key == "status" || _available && Supports(pair.Key));

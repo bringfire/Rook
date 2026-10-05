@@ -39,6 +39,7 @@ from .configuration_http import CONFIGURATION_KEY, ConfigurationHttp, register_c
 from .configuration_storage import ConfigurationStorageRefused
 from ...providers.vertex_token_lease import VertexTokenLeaseService
 from .vertex_media_http import register_vertex_media_routes
+from .vertex_configuration_http import register_vertex_configuration_routes, VertexConfigurationHttp
 
 
 logger = logging.getLogger(__name__)
@@ -637,6 +638,7 @@ def create_chat_app(
     runtime_available: bool = True,
     configuration: ConfigurationHttp | None = None,
     vertex_token_service: VertexTokenLeaseService | None = None,
+    vertex_configuration: VertexConfigurationHttp | None = None,
 ) -> web.Application:
     app = web.Application(
         middlewares=[cors_and_session_middleware], client_max_size=MAX_HTTP_BODY_BYTES
@@ -650,6 +652,7 @@ def create_chat_app(
     if nonce:
         app[_SESSION_NONCE_KEY] = nonce
     register_vertex_media_routes(app, vertex_token_service or VertexTokenLeaseService())
+    register_vertex_configuration_routes(app, vertex_configuration)
     register_chat_routes(app)
     register_configuration_routes(app, configuration)
     register_knowledge_routes(app)

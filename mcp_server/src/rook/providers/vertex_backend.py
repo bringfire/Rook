@@ -395,6 +395,7 @@ def connect_vertex_oauth(
     store: VertexStore | None = None,
     authorize: Callable[[DesktopOAuthClient], dict[str, str]] | None = None,
     oauth_dependencies: _OAuthDependencies | None = None,
+    cancel_check: Callable[[], None] | None = None,
 ) -> VertexOperationResult:
     """Authorize and atomically commit one Rook-owned desktop OAuth record."""
 
@@ -407,8 +408,10 @@ def connect_vertex_oauth(
             credentials = (
                 authorize(client)
                 if authorize is not None
-                else authorize_desktop(client, dependencies=oauth_dependencies)
+                else authorize_desktop(client, dependencies=oauth_dependencies, cancel_check=cancel_check)
             )
+            if cancel_check is not None:
+                cancel_check()
             ciphertext = selected_store.protect_authorized_user(credentials)
             requested = VertexRecord(
                 schema_version=VERTEX_SCHEMA_VERSION,
@@ -419,6 +422,8 @@ def connect_vertex_oauth(
                 oauth_ciphertext=ciphertext,
                 service_account_path=None,
             )
+            if cancel_check is not None:
+                cancel_check()
             return _replace_and_recycle(
                 selected_store,
                 requested,
@@ -439,6 +444,7 @@ def save_vertex_configuration(
     recycler: Callable[[str | None], None] | None = None,
     service_account_path: str | None = None,
     store: VertexStore | None = None,
+    cancel_check: Callable[[], None] | None = None,
 ) -> VertexOperationResult:
     """Select one explicit Vertex mode without falling through to another."""
 
@@ -483,6 +489,8 @@ def save_vertex_configuration(
                         "The selected service-account file is unavailable.",
                     ) from exc
                 raise
+            if cancel_check is not None:
+                cancel_check()
             return _replace_and_recycle(
                 selected_store,
                 requested,

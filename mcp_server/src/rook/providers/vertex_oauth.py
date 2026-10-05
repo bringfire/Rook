@@ -266,6 +266,7 @@ def authorize_desktop(
     *,
     dependencies: _OAuthDependencies | None = None,
     timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
+    cancel_check: Callable[[], None] | None = None,
 ) -> dict[str, str]:
     """Complete one explicit desktop OAuth attempt and return refresh material."""
 
@@ -281,6 +282,8 @@ def authorize_desktop(
         deadline = runtime.monotonic() + timeout_seconds
 
         def remaining() -> float:
+            if cancel_check is not None:
+                cancel_check()
             value = deadline - runtime.monotonic()
             if value <= 0:
                 raise _failure(
@@ -322,7 +325,16 @@ def authorize_desktop(
                 "Google authorization was cancelled before completion.",
             )
         try:
-            callback = listener.wait_for_callback(remaining())
+            if cancel_check is None:
+                callback = listener.wait_for_callback(remaining())
+            else:
+                while True:
+                    wait = min(remaining(), 0.25)
+                    try:
+                        callback = listener.wait_for_callback(wait)
+                        break
+                    except TimeoutError:
+                        remaining()
         except TimeoutError as exc:
             raise _failure(
                 "vertex_authorization_declined",
@@ -365,6 +377,8 @@ def authorize_desktop(
             raise _request_failed()
         credentials = _authorized_user_from_token(payload, client)
         runtime.verify_authorized_user(credentials, remaining())
+        if cancel_check is not None:
+            cancel_check()
         return credentials
     except VertexAuthError:
         raise
