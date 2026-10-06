@@ -18,6 +18,44 @@ namespace Rook.Tests.UI.Chat
         private readonly AgentChatProgressTests.PanelThread _ui;
         public VertexConfigurationDialogTests(AgentChatProgressTests.PanelThread ui) => _ui = ui;
         [Theory]
+        [InlineData("disconnect")]
+        [InlineData("disconnect_firm")]
+        public async Task ConfirmedDeletionPreservesRestartWarningAndClearsPriorFirm(string operation)
+        {
+            var statusReads = 0;
+            var http = new VertexTestHandler(async (request, _) => {
+                var action = JsonDocument.Parse(await request.Content!.ReadAsStringAsync()).RootElement.GetProperty("operation").GetString();
+                if (action == "firm_status" && ++statusReads == 1)
+                    return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(new { success = true, data = VertexConfigurationClientTests.RetirementStatus(true) })) };
+                if (action == "disconnect")
+                    return new HttpResponseMessage(HttpStatusCode.Conflict) { Content = new StringContent(JsonSerializer.Serialize(new {
+                        success = false, error = new { code = "vertex_restart_required", message = "private-sentinel" },
+                        data = new { contract_version = 2, active = (object?)null, active_generation = (string?)null, retirement_pending = false,
+                            pending = (object?)null, pending_revision = (string?)null, authorization_epoch = (string?)null, legacy_mode = (string?)null, state = "unconfigured" }
+                    })) };
+                return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) { Content = new StringContent("{}") };
+            });
+            using var client = AgentChatClient.ForTests(http, new Uri("http://127.0.0.1:1"));
+            var queue = new ConcurrentQueue<Action>(); RookChatConfigurationDialog dialog = null!;
+            _ui.Run(() => { Rook.Tests.UI.EtoTestPlatform.Ensure(); SynchronizationContext.SetSynchronizationContext(null); dialog = new(client, queue.Enqueue); });
+            async Task Run(string action) {
+                Task pending = null!; _ui.Run(() => pending = dialog.RunVertexActionAsync(action));
+                while (!pending.IsCompleted) { _ui.Run(() => { while (queue.TryDequeue(out var next)) next(); }); await Task.Delay(1); }
+                _ui.Run(() => { while (queue.TryDequeue(out var next)) next(); }); await pending;
+            }
+            try {
+                await Run("firm_status");
+                _ui.Run(() => { Assert.Contains("Active local firm session", dialog.FirmActiveStatus.Text); dialog.VertexProject.Text = "stale-project"; dialog.VertexLocation.Text = "us-central1"; });
+                await Run(operation);
+                _ui.Run(() => {
+                    Assert.Contains("Disconnected locally", dialog.VertexStatus.Text); Assert.Contains("Restart required", dialog.VertexStatus.Text);
+                    Assert.Equal("No active firm session.", dialog.FirmActiveStatus.Text); Assert.Equal("No pending firm settings.", dialog.FirmPendingStatus.Text);
+                    if (operation == "disconnect") { Assert.Equal("", dialog.VertexProject.Text); Assert.Equal("", dialog.VertexLocation.Text); }
+                });
+            }
+            finally { _ui.Run(() => dialog.Dispose()); }
+        }
+        [Theory]
         [InlineData(false)]
         [InlineData(true)]
         public async Task RecoveryCheckReconcilesStatusWithoutOverwritingLaterDisconnect(bool superseded)

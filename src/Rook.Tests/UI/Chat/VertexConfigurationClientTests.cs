@@ -13,20 +13,30 @@ namespace Rook.Tests.UI.Chat
 {
     public sealed class VertexConfigurationClientTests
     {
-        [Fact]
-        public async Task FailedRetirementAfterDisconnectStillReturnsCommittedDeletion()
+        [Theory]
+        [InlineData("success")]
+        [InlineData("unavailable")]
+        [InlineData("malformed")]
+        [InlineData("cancelled")]
+        public async Task FailedRetirementAfterDisconnectStillReturnsCommittedDeletion(string reconciliation)
         {
+            using var cancellation = new CancellationTokenSource();
             var data = new { contract_version = 2, active = (object?)null, active_generation = (string?)null,
                 retirement_pending = false, pending = (object?)null, pending_revision = (string?)null,
                 authorization_epoch = (string?)null, legacy_mode = (string?)null, state = "unconfigured" };
             var handler = new VertexTestHandler(async (request, _) => {
                 var operation = JsonDocument.Parse(await request.Content!.ReadAsStringAsync()).RootElement.GetProperty("operation").GetString();
+                if (operation != "disconnect" && reconciliation == "cancelled") {
+                    cancellation.Cancel(); throw new OperationCanceledException(cancellation.Token);
+                }
+                if (operation != "disconnect" && reconciliation != "success")
+                    return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) { Content = new StringContent(reconciliation == "malformed" ? "invalid" : "{}") };
                 return new HttpResponseMessage(operation == "disconnect" ? HttpStatusCode.Conflict : HttpStatusCode.OK) {
                     Content = new StringContent(operation == "disconnect"
                         ? JsonSerializer.Serialize(new { success = false, error = new { code = "vertex_restart_required", message = "private-sentinel" }, data })
                         : JsonSerializer.Serialize(new { success = true, data })) };
             });
-            var result = await AgentChatClient.ForTests(handler, new Uri("http://127.0.0.1:1")).DisconnectFirmAccountAsync(CancellationToken.None);
+            var result = await AgentChatClient.ForTests(handler, new Uri("http://127.0.0.1:1")).DisconnectFirmAccountAsync(cancellation.Token);
             Assert.False(result.Success); Assert.NotNull(result.Status); Assert.Null(result.Status!.Active); Assert.Null(result.Status.Pending);
             Assert.Equal("vertex_restart_required", result.Code); Assert.DoesNotContain("private-sentinel", result.Message);
         }

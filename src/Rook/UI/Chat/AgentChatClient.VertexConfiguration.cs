@@ -11,7 +11,8 @@ namespace Rook.UI.Chat
 {
     internal sealed record VertexConfigurationStatus(bool Configured, string? Mode, string ProjectId,
         string VideoLocation, string ImageLocation, bool VideoAvailable);
-    internal sealed record VertexConfigurationResult(bool Success, VertexConfigurationStatus? Status, string Message, string? Code = null);
+    internal sealed record VertexConfigurationResult(bool Success, VertexConfigurationStatus? Status, string Message, string? Code = null,
+        FirmConfigurationStatus? ConfirmedFirmStatus = null);
 
     internal sealed record FirmSettingsSummary(string Label, string ProjectId, string VideoLocation, string ImageLocation, string WorkforcePoolUserProject, string? QuotaProjectId);
     internal sealed record FirmConfigurationStatus(FirmSettingsSummary? Active, FirmSettingsSummary? Pending, string? ActiveGeneration, string? PendingRevision, string? AuthorizationEpoch, string State, string? LegacyMode, bool RetirementPending);
@@ -58,7 +59,7 @@ namespace Rook.UI.Chat
                         var status = ParseFirmStatus(committed);
                         ConfigurationJson.Need(status.State == "unconfigured" && status.LegacyMode is null);
                         return new(false, new(false, null, "", "", "global", false),
-                            "Disconnected locally. Restart required: process retirement has not been confirmed.", "vertex_restart_required");
+                            "Disconnected locally. Restart required: process retirement has not been confirmed.", "vertex_restart_required", status);
                     }
                     return new(false, null, "Google configuration was not completed. Refresh local status; check the client file, administrator approval and project settings.");
                 }
@@ -89,8 +90,15 @@ namespace Rook.UI.Chat
             var result = await DisconnectVertexAccountAsync(ct).ConfigureAwait(false);
             if (result.Success) return await ReadFirmConfigurationAsync(ct).ConfigureAwait(false);
             if (result.Code == "vertex_restart_required" && result.Status?.Configured == false) {
-                var current = await ReadFirmConfigurationAsync(ct).ConfigureAwait(false);
-                return new(false, current.Status, result.Message, result.Code);
+                // The disconnect response already confirmed deletion. A failed
+                // or cancelled reconciliation cannot resurrect the old view.
+                try {
+                    var current = await ReadFirmConfigurationAsync(ct).ConfigureAwait(false);
+                    return new(false, current.Status ?? result.ConfirmedFirmStatus, result.Message, result.Code);
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested) {
+                    return new(false, result.ConfirmedFirmStatus, result.Message, result.Code);
+                }
             }
             return new(false, null, result.Message, result.Code);
         }

@@ -139,6 +139,8 @@ namespace Rook.UI.Chat
                         VertexStatus.Text = result.Message;
                         if (result.Status is not { } status) return;
                         VertexProject.Text = status.ProjectId; VertexLocation.Text = status.VideoLocation;
+                        if (result.ConfirmedFirmStatus is not null) ShowFirmStatus(result.ConfirmedFirmStatus);
+                        if (!result.Success) return;
                         VertexStatus.Text = status.Mode == "workforce" ? "A firm connection is active. Use Firm sign-in to read or change it. Model access, billing and quota remain unverified." : status.Configured ? "Configured using " + status.Mode + (status.VideoAvailable ? ". Video location is supported." : ". Video is unavailable in this location. Existing text location was preserved; choose us-central1 and save explicitly to enable video.") : "Google account is disconnected.";
                     }).ConfigureAwait(false);
                 }
