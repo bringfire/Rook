@@ -80,6 +80,43 @@ def test_native_localhost_resolution_preserves_addresses_without_blocking_getadd
     assert all(value[-1][0] in ('127.0.0.1', '::1') for value in values)
 
 
+def test_ipv6_socket_creation_failure_falls_back_to_real_ipv4_listener(monkeypatch):
+    from rook.providers import vertex_bounded_io as bounded
+    from rook.providers.vertex_dns import resolve_addresses
+    allocate = socket.socket
+    attempted = []
+    with allocate(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(('127.0.0.1', 0)); listener.listen(2); listener.settimeout(2)
+        port = listener.getsockname()[1]
+        with bounded.SocketDeadline(time.monotonic()+2, lambda: None, time.monotonic) as guard:
+            resolved = resolve_addresses('localhost', port, guard)
+        assert resolved[0][0] == socket.AF_INET6
+        assert any(value[0] == socket.AF_INET for value in resolved)
+        def ipv6_unavailable(family=socket.AF_INET, *args, **kwargs):
+            attempted.append(family)
+            if family == socket.AF_INET6:
+                raise OSError(10047, 'Synthetic unsupported address family')
+            return allocate(family, *args, **kwargs)
+        monkeypatch.setattr(socket, 'socket', ipv6_unavailable)
+        # Control: stdlib handles the same injected allocation failure.
+        with socket.create_connection(('localhost', port), timeout=2) as control:
+            control.sendall(b'control')
+            with listener.accept()[0] as accepted:
+                assert accepted.recv(7) == b'control'
+        assert attempted[0] == socket.AF_INET6 and attempted[-1] == socket.AF_INET
+        attempted.clear()
+        with bounded.SocketDeadline(time.monotonic()+2, lambda: None, time.monotonic) as guard:
+            connection = bounded._DeadlineHTTPConnection('localhost', port, timeout=1, guard=guard)
+            try:
+                connection.connect()
+                connection.sock.sendall(b'fallback')
+                with listener.accept()[0] as accepted:
+                    assert accepted.recv(8) == b'fallback'
+                assert attempted[0] == socket.AF_INET6 and attempted[-1] == socket.AF_INET
+            finally:
+                connection.close()
+
+
 def test_per_address_timeout_allows_next_address_before_absolute_cutoff(monkeypatch):
     import errno
     from rook.providers import vertex_bounded_io as bounded

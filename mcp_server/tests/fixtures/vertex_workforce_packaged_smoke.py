@@ -155,4 +155,25 @@ with tempfile.TemporaryDirectory(prefix='rook-packaged-tls-smoke-') as directory
         assert calls==[1]
     finally:
         server.shutdown(); server.server_close(); thread.join(2)
-print('Packaged auth smoke passed: CPython 3.11.9, exact pinned SDKs, real MSAL/signed ID tokens, SDK STS wire, forced refresh, missing-oid cache preservation, Windows DPAPI/tombstone lifecycle and actual local TLS certificate verification; no external traffic or real identities.')
+# Socket allocation can fail before connect; retain IPv4 fallback in the actual
+# packaged interpreter with Windows localhost resolution and a real listener.
+import socket
+from unittest.mock import patch
+from rook.providers.vertex_bounded_io import _DeadlineHTTPConnection
+allocate=socket.socket
+attempted=[]
+def ipv6_unavailable(family=socket.AF_INET,*args,**kwargs):
+    attempted.append(family)
+    if family==socket.AF_INET6: raise OSError(10047,'Synthetic unsupported address family')
+    return allocate(family,*args,**kwargs)
+with allocate(socket.AF_INET,socket.SOCK_STREAM) as listener:
+    listener.bind(('127.0.0.1',0)); listener.listen(1); listener.settimeout(2)
+    with SocketDeadline(time.monotonic()+3,lambda:None,time.monotonic) as guard:
+        connection=_DeadlineHTTPConnection('localhost',listener.getsockname()[1],timeout=2,guard=guard)
+        try:
+            with patch('socket.socket',ipv6_unavailable): connection.connect()
+            assert attempted[0]==socket.AF_INET6 and attempted[-1]==socket.AF_INET
+            connection.sock.sendall(b'fallback')
+            with listener.accept()[0] as accepted: assert accepted.recv(8)==b'fallback'
+        finally: connection.close()
+print('Packaged auth smoke passed: CPython 3.11.9, exact pinned SDKs, real MSAL/signed ID tokens, SDK STS wire, forced refresh, missing-oid cache preservation, Windows DPAPI/tombstone lifecycle, actual local TLS certificate verification and IPv6-allocation/IPv4 fallback; no external traffic or real identities.')

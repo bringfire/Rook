@@ -64,9 +64,10 @@ def _track_connection(connection, guard):
         addresses = resolve_addresses(*address, guard)
         for family, kind, protocol, endpoint in addresses:
             guard.check()
-            peer = socket.socket(family, kind, protocol)
-            guard.register(peer)  # Before bind/connect, proxy headers or TLS.
+            peer = None
             try:
+                peer = socket.socket(family, kind, protocol)
+                guard.register(peer)  # Before bind/connect, proxy headers or TLS.
                 if source_address: peer.bind(source_address)
                 peer.setblocking(False)
                 attempt_deadline = min(guard.deadline, guard.monotonic()+timeout) if isinstance(timeout, (float, int)) else guard.deadline
@@ -88,10 +89,10 @@ def _track_connection(connection, guard):
                 peer.settimeout(min(timeout, remaining) if isinstance(timeout, (float, int)) else remaining)
                 return peer
             except OSError:
-                guard._abort(peer)
+                if peer is not None: guard._abort(peer)
                 guard.check()
             except BaseException:
-                guard._abort(peer)
+                if peer is not None: guard._abort(peer)
                 raise
         raise OSError('Connection failed')
     connection._create_connection = connect
