@@ -1,4 +1,4 @@
-"""Isolated packaged SDK + real DPAPI smoke; synthetic identities, zero network."""
+"""Isolated packaged SDK/DPAPI/TLS smoke; synthetic identities, no external traffic."""
 import base64
 import hashlib
 import importlib
@@ -24,7 +24,7 @@ from rook.providers import vertex_backend as backend
 expected={'msal':'1.39.0','google-auth':'2.56.3','PyJWT':'2.15.0','litellm':'1.89.7','requests':'2.34.2','cryptography':'50.0.1'}
 assert sys.version_info[:3]==(3,11,9) and all(version(key)==value for key,value in expected.items())
 repo=Path(__file__).resolve().parents[3]
-for name in ('vertex_backend','vertex_entra','vertex_workforce_exchange','vertex_workforce_store','vertex_token_lease'):
+for name in ('vertex_backend','vertex_entra','vertex_workforce_exchange','vertex_workforce_store','vertex_token_lease','vertex_bounded_io'):
     module=importlib.import_module('rook.providers.'+name)
     installed=Path(module.__file__).resolve()
     assert installed.is_relative_to(Path(sys.prefix).resolve())
@@ -91,4 +91,50 @@ with tempfile.TemporaryDirectory(prefix='rook-packaged-auth-smoke-') as director
     assert base.path.read_bytes()==before and wire['sts']==2
     store.disconnect_all()
     assert store.snapshot_active() is None and store.authorization_epoch()!=ticket.authorization_epoch
-print('Packaged auth smoke passed: CPython 3.11.9, exact pinned SDKs, real MSAL/signed ID tokens, SDK STS wire, forced refresh, missing-oid cache preservation and Windows DPAPI/tombstone lifecycle; no network or real identities.')
+
+# Exercise the packaged CPython HTTPS handler, including the version-specific
+# constructor signature, with a local synthetic certificate and no cloud calls.
+import ssl
+import threading
+from datetime import datetime, timedelta, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.request import Request, build_opener
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from rook.providers.vertex_bounded_io import SocketDeadline, _HttpsHandler
+with tempfile.TemporaryDirectory(prefix='rook-packaged-tls-smoke-') as directory:
+    tls_key=rsa.generate_private_key(public_exponent=65537,key_size=2048)
+    name=x509.Name([x509.NameAttribute(x509.NameOID.COMMON_NAME,'localhost')])
+    now=datetime.now(timezone.utc)
+    certificate=(x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(tls_key.public_key())
+        .serial_number(1).not_valid_before(now-timedelta(minutes=1)).not_valid_after(now+timedelta(minutes=5))
+        .add_extension(x509.SubjectAlternativeName([x509.DNSName('localhost')]),critical=False).sign(tls_key,hashes.SHA256()))
+    cert=Path(directory)/'synthetic-cert.pem'; private=Path(directory)/'synthetic-key.pem'
+    cert.write_bytes(certificate.public_bytes(serialization.Encoding.PEM))
+    private.write_bytes(tls_key.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()))
+    calls=[]
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self,*args): pass
+        def do_GET(self):
+            calls.append(1); self.send_response(200); self.send_header('Content-Length','2'); self.end_headers(); self.wfile.write(b'{}')
+    server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
+    context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); context.load_cert_chain(cert,private)
+    server.socket=context.wrap_socket(server.socket,server_side=True)
+    thread=threading.Thread(target=server.serve_forever); thread.start()
+    try:
+        for trusted in (False,True):
+            with SocketDeadline(time.monotonic()+3,lambda:None,time.monotonic) as guard:
+                handler=_HttpsHandler(guard)
+                if trusted: handler._context=ssl.create_default_context(cafile=str(cert))
+                opener=build_opener(handler); request=Request(f'https://localhost:{server.server_port}/')
+                if trusted:
+                    with opener.open(request,timeout=2) as response: assert response.read()==b'{}'
+                else:
+                    try: opener.open(request,timeout=2)
+                    except Exception: pass
+                    else: raise AssertionError('Untrusted certificate accepted')
+                    assert calls==[]
+        assert calls==[1]
+    finally:
+        server.shutdown(); server.server_close(); thread.join(2)
+print('Packaged auth smoke passed: CPython 3.11.9, exact pinned SDKs, real MSAL/signed ID tokens, SDK STS wire, forced refresh, missing-oid cache preservation, Windows DPAPI/tombstone lifecycle and actual local TLS certificate verification; no external traffic or real identities.')

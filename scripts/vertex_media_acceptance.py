@@ -144,8 +144,34 @@ def _legacy_live_acceptance(evidence):
     return report
 
 
+def _correlated_workforce_refresh(proof, evidence):
+    row = evidence['cases']['completion_refresh']
+    refresh = proof['poll_refresh']
+    context = proof['generation_context']
+    expected = {'operation_label': row['operation_label'], 'binding_label': row['binding_label'],
+        'principal_label': proof['principal_labels'][0], 'account_label': evidence['provenance']['account_label'],
+        'project_label': evidence['provenance']['project_label'], 'resource_project_label': proof['project_labels']['resource'],
+        'workforce_user_project_label': proof['project_labels']['workforce_user'], 'quota_project_label': proof['project_labels']['quota']}
+    if type(context) is not dict or context != expected: return False
+    events = refresh['events']
+    if type(events) is not list or not 3 <= len(events) <= 96 or len(events) != 3 * refresh['entra_refresh_count'] or refresh['entra_refresh_count'] != refresh['sts_exchange_count']:
+        return False
+    if row['request_counts']['poll'] < refresh['sts_exchange_count'] + 1: return False
+    before = _utc(row['refresh_evidence']['lease_invalidated_utc'])
+    completed = _utc(row['refresh_evidence']['completed_utc'])
+    fields = ' '.join(expected) + ' kind utc source_evidence_sha256'
+    for index, event in enumerate(events):
+        if not _closed(event, fields) or any(event[key] != value for key, value in expected.items()) or event['kind'] != ('entra_refresh', 'sts_exchange', 'poll')[index % 3] or not _sha(event['source_evidence_sha256']):
+            return False
+        now = _utc(event['utc'])
+        if not before < now < completed: return False
+        before = now
+    return (_utc(events[1]['utc']) == _utc(row['refresh_evidence']['google_refresh_utc'])
+        and _utc(events[2]['utc']) == _utc(row['refresh_evidence']['subsequent_poll_utc']))
+
+
 def _workforce_proof(proof, evidence):
-    fields = 'contract_version adapter exchange principal_labels project_labels runtime_pins runtime_manifest_sha256 authentication_review prerequisites lifecycle sign_in_check poll_refresh billing_attribution'
+    fields = 'contract_version adapter exchange principal_labels project_labels runtime_pins runtime_manifest_sha256 authentication_review prerequisites lifecycle sign_in_check poll_refresh billing_attribution generation_context'
     if not _closed(proof, fields) or type(proof['contract_version']) is not int or proof['contract_version'] != 2:
         return 'failed'
     if proof['adapter'] != 'msal_public_desktop' or proof['exchange'] != 'google_auth_sts_id_token' or proof['authentication_review'] != 'passed':
@@ -173,12 +199,12 @@ def _workforce_proof(proof, evidence):
     if check['state'] != 'signed_in' or check['check_scope'] != 'identity_exchange' or any(check[k] != 'unverified' for k in ('image_access', 'video_access', 'billing', 'quota')) or type(check['model_calls']) is not int or check['model_calls'] != 0:
         return 'failed'
     refresh = proof['poll_refresh']
-    if not _closed(refresh, 'entra_refresh_count sts_exchange_count signed_token_altered binding_preserved additional_submissions') or refresh['signed_token_altered'] is not False or refresh['binding_preserved'] is not True or type(refresh['additional_submissions']) is not int or refresh['additional_submissions'] != 0:
+    if not _closed(refresh, 'entra_refresh_count sts_exchange_count signed_token_altered binding_preserved additional_submissions events') or refresh['signed_token_altered'] is not False or refresh['binding_preserved'] is not True or type(refresh['additional_submissions']) is not int or refresh['additional_submissions'] != 0:
         return 'failed'
     if any(type(row[k]) is not int or row[k] < 1 for row in (check, refresh) for k in ('entra_refresh_count', 'sts_exchange_count')):
         return 'failed'
     actual = evidence.get('cases', {}).get('completion_refresh', {}).get('refresh_evidence', {}).get('actual_refresh_count')
-    if actual != refresh['sts_exchange_count']:
+    if actual != refresh['sts_exchange_count'] or not _correlated_workforce_refresh(proof, evidence):
         return 'failed'
     billing = proof['billing_attribution']
     if not _closed(billing, 'resource workforce_user quota') or any(billing[k] not in ('passed', 'pending', 'failed') for k in ('resource', 'workforce_user')) or billing['quota'] not in (('not_applicable',) if projects['quota'] is None else ('passed', 'pending', 'failed')):
@@ -193,6 +219,11 @@ def live_acceptance(evidence):
         return _legacy_live_acceptance(evidence)
     legacy = {k: v for k, v in evidence.items() if k != 'workforce'}
     report = _legacy_live_acceptance(legacy)
+    submitted = legacy.get('submitted')
+    if submitted is not None and (not _closed(submitted, 'images videos') or any(type(submitted[key]) is not int or submitted[key] < 0 or submitted[key] > limit for key, limit in BUDGET.items())):
+        report = _legacy_live_acceptance(None)
+        report.update(status='failed', reason='Live submission budget was exceeded or is invalid. No automatic additional submission is authorized.')
+        return report
     try:
         status = _workforce_proof(evidence['workforce'], evidence)
     except (ValueError, TypeError, KeyError, AttributeError):

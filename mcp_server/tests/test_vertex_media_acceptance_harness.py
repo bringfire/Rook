@@ -134,7 +134,68 @@ def workforce_evidence():
         'poll_refresh': {'entra_refresh_count': 1, 'sts_exchange_count': 1, 'signed_token_altered': False, 'binding_preserved': True, 'additional_submissions': 0},
         'billing_attribution': {'resource': 'passed', 'workforce_user': 'passed', 'quota': 'passed'},
     }
+    context = {'operation_label':'operation-02', 'binding_label':'authorization-01', 'principal_label':'employee-01',
+        'account_label':'pilot-account-01', 'project_label':'pilot-project-01', 'resource_project_label':'project-01',
+        'workforce_user_project_label':'project-02', 'quota_project_label':'project-03'}
+    evidence['workforce']['generation_context'] = context
+    evidence['workforce']['poll_refresh']['events'] = [
+        {**context, 'kind':kind, 'utc':utc, 'source_evidence_sha256':'a'*64}
+        for kind, utc in [('entra_refresh','2026-10-05T12:00:12Z'), ('sts_exchange','2026-10-05T12:00:15Z'), ('poll','2026-10-05T12:00:20Z')]]
     return evidence
+
+
+@pytest.mark.parametrize('change', ['principal', 'projects', 'operation', 'binding', 'reorder', 'timestamp', 'entra-count', 'sts-count', 'missing-events', 'provenance'])
+def test_workforce_refresh_requires_correlated_ordered_events(change):
+    evidence = workforce_evidence(); proof = evidence['workforce']
+    assert harness().live_acceptance(evidence)['status'] == 'passed'
+    if change == 'principal': proof['poll_refresh']['events'][0]['principal_label'] = 'employee-02'
+    if change == 'projects': proof['project_labels']['resource'] = 'project-04'
+    if change == 'operation': proof['poll_refresh']['events'][1]['operation_label'] = 'operation-03'
+    if change == 'binding': proof['poll_refresh']['events'][2]['binding_label'] = 'authorization-02'
+    if change == 'reorder': proof['poll_refresh']['events'].reverse()
+    if change == 'timestamp': proof['poll_refresh']['events'][0]['utc'] = '2026-10-05T12:00:25Z'
+    if change == 'entra-count': proof['poll_refresh']['entra_refresh_count'] = 99
+    if change == 'sts-count': proof['poll_refresh']['sts_exchange_count'] = 99
+    if change == 'missing-events': proof['poll_refresh'].pop('events')
+    if change == 'provenance': proof['generation_context']['account_label'] = 'pilot-account-02'
+    assert harness().live_acceptance(evidence)['status'] == 'failed'
+
+
+@pytest.mark.parametrize('installed', [False, True])
+def test_workforce_budget_failure_precedes_missing_prerequisites(installed):
+    evidence = workforce_evidence()
+    evidence['workforce'].pop('generation_context')
+    evidence['workforce']['poll_refresh'].pop('events')
+    evidence['installed_verified'] = installed
+    evidence['workforce']['prerequisites']['spend_approved'] = False
+    evidence['submitted']['videos'] = 4
+    report = harness().live_acceptance(evidence)
+    assert report['status'] == 'failed'
+    assert 'budget' in report['reason'].lower()
+
+
+@pytest.mark.parametrize('entra_count', [1, 99])
+def test_old_uncorrelated_workforce_counts_cannot_qualify(entra_count):
+    evidence = workforce_evidence()
+    evidence['workforce'].pop('generation_context')
+    evidence['workforce']['poll_refresh'].pop('events')
+    evidence['workforce']['poll_refresh']['entra_refresh_count'] = entra_count
+    assert harness().live_acceptance(evidence)['status'] == 'failed'
+
+
+def test_cli_budget_violation_exits_nonzero_without_spend_approval(tmp_path):
+    import json
+    import subprocess
+    import sys
+    evidence = workforce_evidence()
+    evidence['workforce'].pop('generation_context'); evidence['workforce']['poll_refresh'].pop('events')
+    evidence['workforce']['prerequisites']['spend_approved'] = False
+    evidence['submitted']['videos'] = 4
+    source = tmp_path/'synthetic-evidence.json'; output = tmp_path/'synthetic-result.json'
+    source.write_text(json.dumps(evidence), encoding='utf-8')
+    result = subprocess.run([sys.executable, str(path), '--mode', 'live', '--live-evidence', str(source), '--output', str(output)], capture_output=True, text=True)
+    assert result.returncode == 1
+    assert json.loads(output.read_text(encoding='utf-8'))['live']['status'] == 'failed'
 
 
 def test_workforce_evidence_requires_real_refresh_and_project_attribution():
@@ -157,6 +218,8 @@ def test_inconclusive_intervention_is_not_pass():
 def test_workforce_optional_quota_is_explicitly_not_applicable():
     evidence = workforce_evidence()
     evidence['workforce']['project_labels']['quota'] = None
+    evidence['workforce']['generation_context']['quota_project_label'] = None
+    for event in evidence['workforce']['poll_refresh']['events']: event['quota_project_label'] = None
     evidence['workforce']['billing_attribution']['quota'] = 'not_applicable'
     assert harness().live_acceptance(evidence)['status'] == 'passed'
     evidence['workforce']['billing_attribution']['quota'] = 'passed'
