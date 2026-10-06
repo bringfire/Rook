@@ -1,0 +1,94 @@
+"""Isolated packaged SDK + real DPAPI smoke; synthetic identities, zero network."""
+import base64
+import hashlib
+import importlib
+from importlib.metadata import version
+import json
+from pathlib import Path
+import sys
+import tempfile
+import time
+from types import SimpleNamespace
+from urllib.parse import parse_qs,urlsplit
+import uuid
+
+from cryptography.hazmat.primitives.asymmetric import rsa
+import jwt
+from rook.providers.vertex_auth import VertexStore,VertexAuthError
+from rook.providers.vertex_entra import EntraSessionAdapter
+from rook.providers.vertex_workforce_contract import FirmSettings
+from rook.providers.vertex_workforce_store import VertexWorkforceStore
+from rook.providers.vertex_workforce_exchange import exchange_assertion
+from rook.providers import vertex_backend as backend
+
+expected={'msal':'1.39.0','google-auth':'2.56.3','PyJWT':'2.15.0','litellm':'1.89.7','requests':'2.34.2','cryptography':'50.0.1'}
+assert sys.version_info[:3]==(3,11,9) and all(version(key)==value for key,value in expected.items())
+repo=Path(__file__).resolve().parents[3]
+for name in ('vertex_backend','vertex_entra','vertex_workforce_exchange','vertex_workforce_store','vertex_token_lease'):
+    module=importlib.import_module('rook.providers.'+name)
+    installed=Path(module.__file__).resolve()
+    assert installed.is_relative_to(Path(sys.prefix).resolve())
+    source=repo/'mcp_server/src/rook/providers'/f'{name}.py'
+    # Wheel build may normalize line endings; compare exact source text.
+    assert installed.read_text(encoding='utf-8')==source.read_text(encoding='utf-8')
+
+settings=FirmSettings(2,'Packaged synthetic firm','11111111-1111-1111-1111-111111111111','22222222-2222-2222-2222-222222222222','123456789','synthetic-pool','synthetic-provider','synthetic-firm-project','synthetic-firm-project',None,'us-central1')
+oid='33333333-3333-3333-3333-333333333333'
+key=rsa.generate_private_key(public_exponent=65537,key_size=2048)
+wire={'nonce':None,'state':None,'missing_oid':False,'sts':0,'entra':0}
+class Response:
+    status_code=200
+    headers={}
+    def __init__(self,data): self.data=data; self.text=json.dumps(data)
+    def json(self): return self.data
+class Transport:
+    def get(self,url,**kwargs):
+        if url.endswith('/.well-known/openid-configuration'):
+            return Response({'issuer':settings.authority+'/v2.0','authorization_endpoint':settings.authority+'/oauth2/v2.0/authorize','token_endpoint':settings.authority+'/oauth2/v2.0/token','jwks_uri':settings.authority+'/discovery/v2.0/keys'})
+        assert url==settings.authority+'/discovery/v2.0/keys'
+        jwk=json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(key.public_key())); jwk.update(kid='synthetic-key',alg='RS256',use='sig')
+        return Response({'keys':[jwk]})
+    def post(self,url,data,**kwargs):
+        assert url==settings.authority+'/oauth2/v2.0/token'
+        wire['entra']+=1
+        now=int(time.time())
+        claims={'iss':settings.authority+'/v2.0','aud':settings.entra_client_id,'tid':settings.entra_tenant_id,'oid':oid,'sub':'synthetic-subject','iat':now,'nbf':now-10,'exp':now+3600,'nonce':wire['nonce']}
+        if wire['missing_oid']: claims.pop('oid')
+        info=base64.urlsafe_b64encode(json.dumps({'uid':oid,'utid':settings.entra_tenant_id}).encode()).decode().rstrip('=')
+        return Response({'access_token':'synthetic-entra-access','id_token':jwt.encode(claims,key,algorithm='RS256',headers={'kid':'synthetic-key'}),'token_type':'Bearer','expires_in':3600,'refresh_token':'synthetic-entra-refresh','client_info':info,'scope':'openid profile offline_access'})
+class Listener:
+    redirect_uri='http://localhost:45678'
+    def wait_for_callback(self,*args): return {'code':'synthetic-code','state':wire['state']}
+    def close(self): pass
+def browser(url):
+    query=parse_qs(urlsplit(url).query)
+    assert set(query['scope'][0].split())=={'openid','profile','offline_access'}
+    assert query['code_challenge_method']==['S256']
+    wire.update(nonce=query['nonce'][0],state=query['state'][0]); return True
+def sts(**kwargs):
+    assert kwargs['url']=='https://sts.googleapis.com/v1/token' and kwargs['method']=='POST'
+    assert not any(key.lower()=='authorization' for key in kwargs['headers'])
+    body=parse_qs(kwargs['body'].decode())
+    assert body['subject_token_type']==['urn:ietf:params:oauth:token-type:id_token']
+    wire['sts']+=1
+    return SimpleNamespace(status=200,data=json.dumps({'access_token':'synthetic-google-access','expires_in':3600,'token_type':'Bearer','issued_token_type':'urn:ietf:params:oauth:token-type:access_token'}).encode())
+backend.exchange_assertion=lambda *args,**kwargs:exchange_assertion(*args,**kwargs,request=sts)
+adapter=EntraSessionAdapter(http_client_factory=lambda *args:Transport(),listener_factory=Listener,browser_open=browser)
+with tempfile.TemporaryDirectory(prefix='rook-packaged-auth-smoke-') as directory:
+    base=VertexStore(Path(directory)/'vertex.json',mutex_name='Local\\Rook.PackagedSmoke.'+uuid.uuid4().hex)
+    store=VertexWorkforceStore(base)
+    ticket=store.import_pending(settings)
+    result=backend.connect_vertex_workforce(ticket,store=store,entra=adapter,cancel_check=lambda:None,retire=lambda *args:None)
+    assert result.success and not store.snapshot_active().chirp_retirement_pending
+    context=backend.refresh_vertex_workforce(store=store,entra=adapter,expected_generation=result.generation,deadline=time.monotonic()+30,cancel_check=lambda:None)
+    assert context.generation==result.generation and store.snapshot_active().cache_revision==1
+    assert wire['entra']==2 and wire['sts']==2
+    before=base.path.read_bytes(); wire['missing_oid']=True
+    try:
+        backend.refresh_vertex_workforce(store=store,entra=adapter,expected_generation=result.generation,deadline=time.monotonic()+30,cancel_check=lambda:None)
+        raise AssertionError('Missing oid accepted')
+    except VertexAuthError: pass
+    assert base.path.read_bytes()==before and wire['sts']==2
+    store.disconnect_all()
+    assert store.snapshot_active() is None and store.authorization_epoch()!=ticket.authorization_epoch
+print('Packaged auth smoke passed: CPython 3.11.9, exact pinned SDKs, real MSAL/signed ID tokens, SDK STS wire, forced refresh, missing-oid cache preservation and Windows DPAPI/tombstone lifecycle; no network or real identities.')
