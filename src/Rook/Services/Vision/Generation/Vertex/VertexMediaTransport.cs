@@ -38,7 +38,8 @@ namespace Rook.Services.Vision.Generation.Vertex
             $"https://{(binding.Location == "global" ? "aiplatform.googleapis.com" : binding.Location + "-aiplatform.googleapis.com")}/v1/{ModelPath(binding)}:{action}";
 
         internal async Task<VertexHttpResult> PostAsync(VertexAccessTokenLease lease,
-            string action, string body, long responseLimit, bool submission, CancellationToken ct, Action? beforeDispatch = null)
+            string action, string body, long responseLimit, bool submission, CancellationToken ct, Action? beforeDispatch = null,
+            Func<CancellationToken, Task<GenerationError?>>? validateDispatch = null)
         {
             var binding = lease.Binding;
             if (!ValidLease(lease, binding.ModelId, binding.Location)) return new(null, Interrupted());
@@ -52,6 +53,15 @@ namespace Rook.Services.Vision.Generation.Vertex
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", lease.AccessToken);
                 if (lease.QuotaProjectId is not null) request.Headers.Add("x-goog-user-project", lease.QuotaProjectId);
                 deadline.Token.ThrowIfCancellationRequested();
+                if (validateDispatch is not null)
+                {
+                    GenerationError? denied;
+                    try { denied = await validateDispatch(deadline.Token).ConfigureAwait(false); }
+                    catch (OperationCanceledException) { throw; }
+                    catch { return new(null, Interrupted()); }
+                    if (denied is not null) return new(null, denied);
+                    deadline.Token.ThrowIfCancellationRequested();
+                }
                 beforeDispatch?.Invoke();
                 using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token).ConfigureAwait(false);
                 var status = (int)response.StatusCode;

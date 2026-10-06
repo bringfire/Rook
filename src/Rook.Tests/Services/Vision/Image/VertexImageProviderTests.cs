@@ -123,7 +123,7 @@ namespace Rook.Tests.Services.Vision.Image
             Assert.Equal(1,handler.Calls);
         }
         [Theory]
-        [InlineData(2)] [InlineData(3)]
+        [InlineData(3)] [InlineData(4)]
         public async Task SynchronousHandlerGuardsBeforeCreateAndCommit(int failAt)
         {
             var root=Path.Combine(Path.GetTempPath(),Guid.NewGuid().ToString("N"));

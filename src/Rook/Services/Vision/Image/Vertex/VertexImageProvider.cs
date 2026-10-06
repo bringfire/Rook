@@ -38,7 +38,8 @@ namespace Rook.Services.Vision.Image.Vertex
                 if (!VertexMediaTransport.ValidLease(lease, ModelKey, Location)) return new FailedSubmitOutcome(VertexMediaTransport.Interrupted());
                 dispatched = true;
                 var response = await _transport.PostAsync(lease, "generateContent",
-                    GeminiImageProvider.BuildRequestJson(request, resolvedMedia), 4L * ((MaxDecodedBytes + 2L) / 3) + VertexMediaTransport.SmallResponseLimit, true, deadline.Token).ConfigureAwait(false);
+                    GeminiImageProvider.BuildRequestJson(request, resolvedMedia), 4L * ((MaxDecodedBytes + 2L) / 3) + VertexMediaTransport.SmallResponseLimit, true, deadline.Token,
+                    validateDispatch: token => ValidatePublicationAsync(lease.Binding.ToMetadata(), token)).ConfigureAwait(false);
                 if (response.Error is not null) return new FailedSubmitOutcome(response.Error);
                 var error = await ValidatePublicationAsync(lease.Binding.ToMetadata(), deadline.Token).ConfigureAwait(false);
                 if (error is not null) return new FailedSubmitOutcome(error);

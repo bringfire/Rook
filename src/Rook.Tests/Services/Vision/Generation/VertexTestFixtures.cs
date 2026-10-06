@@ -21,12 +21,15 @@ namespace Rook.Tests.Services.Vision.Generation
         public Func<VertexAuthorizationBinding, CancellationToken, Task<VertexAccessTokenFailure?>>? OnValidate;
         public int AcquireCalls;
         public int ValidateCalls;
+        public bool DisconnectAfterAcquire;
         public Task<VertexAccessTokenResult> AcquireAsync(string model, string location, VertexAuthorizationBinding? expected, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested(); AcquireCalls++;
             var binding = Binding(model, location);
             var failure = Failure ?? (expected is not null && expected != binding ? new VertexAccessTokenFailure("vertex_authorization_changed","Authorization changed.",false) : null);
-            return Task.FromResult(failure is not null ? new VertexAccessTokenResult(null,failure) : new VertexAccessTokenResult(new VertexAccessTokenLease("secret-bearer-sentinel",DateTimeOffset.UtcNow.ToUnixTimeSeconds()+3600,Project,location,Generation,binding, Workforce ? 2 : 1, Workforce ? QuotaProject : null),null));
+            var result = failure is not null ? new VertexAccessTokenResult(null,failure) : new VertexAccessTokenResult(new VertexAccessTokenLease("secret-bearer-sentinel",DateTimeOffset.UtcNow.ToUnixTimeSeconds()+3600,Project,location,Generation,binding, Workforce ? 2 : 1, Workforce ? QuotaProject : null),null);
+            if (DisconnectAfterAcquire) Generation = "fedcba9876543210fedcba9876543210";
+            return Task.FromResult(result);
         }
         public Task<VertexAccessTokenFailure?> ValidateBindingAsync(VertexAuthorizationBinding binding,CancellationToken ct)
         {

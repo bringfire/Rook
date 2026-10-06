@@ -29,7 +29,9 @@ namespace Rook.Tests.Services.Vision.Video.Vertex
                 var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                 var finished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                 tokens.OnValidate = async (binding, _) => {
-                    if (tokens.ValidateCalls == 3) { entered.TrySetResult(true); await release.Task; }
+                    // Submit/poll/fetch each now also checks authorization just
+                    // before dispatch. Hold the manager's publication check.
+                    if (tokens.ValidateCalls == 6) { entered.TrySetResult(true); await release.Task; }
                     return binding.AuthorizationGeneration == tokens.Generation ? null : new VertexAccessTokenFailure("vertex_authorization_changed", "Changed.", false);
                 };
                 var http = new VertexTestHandler((request, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(request.RequestUri!.AbsoluteUri.EndsWith(":predictLongRunning") ? "{\"name\":\"" + VertexVeoTests.Operation + "\"}" : "{\"done\":true,\"response\":{\"videos\":[{\"mimeType\":\"video/mp4\",\"bytesBase64Encoded\":\"AAAAGGZ0eXA=\"}]}}") }));
