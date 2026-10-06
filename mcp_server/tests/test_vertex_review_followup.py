@@ -5,6 +5,7 @@ import socket
 import threading
 import time
 from dataclasses import replace
+from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 from urllib.parse import urlsplit
@@ -14,6 +15,51 @@ import pytest
 from rook.providers.vertex_auth import VertexAuthError
 from rook.providers import vertex_entra as entra, vertex_workforce_exchange as exchange
 from .test_vertex_workforce_store import fixture as workforce_fixture
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('cancel_caller', [False, True])
+async def test_disconnect_owns_deletion_before_await_and_after_caller_cancellation(workforce_fixture, tmp_path, monkeypatch, cancel_caller):
+    from rook.agent.chat.vertex_configuration_http import VertexConfigurationHttp
+    _, store, settings, *_ = workforce_fixture
+    service = VertexConfigurationHttp(store=store.base, recycler=lambda _: None, check_timeout=.1)
+    old_release = asyncio.Event()
+    service.worker = asyncio.create_task(old_release.wait())
+    service.cancel = threading.Event()
+    service.worker.add_done_callback(service._settled)
+    deletion_entered, deletion_release, deletion_finished = threading.Event(), threading.Event(), threading.Event()
+    calls = []
+    delete = service.firm_store.disconnect_all
+    def held_delete():
+        calls.append(1); deletion_entered.set()
+        try:
+            assert deletion_release.wait(3)
+            delete()
+        finally: deletion_finished.set()
+    monkeypatch.setattr(service.firm_store, 'disconnect_all', held_delete)
+    path = tmp_path/'synthetic-firm.json'; path.write_text(json.dumps(asdict(settings)))
+    disconnect = asyncio.create_task(service.execute({'operation':'disconnect'}, lambda: False))
+    assert await asyncio.to_thread(deletion_entered.wait, 1)
+    retained = None
+    try:
+        old = service.worker; old_release.set(); await old; await asyncio.sleep(0)
+        if cancel_caller:
+            disconnect.cancel()
+            with pytest.raises(asyncio.CancelledError): await disconnect
+        busy = await service.execute({'operation':'import_firm', 'settings_path':str(path)}, lambda: False)
+        assert busy.status == 409 and json.loads(busy.body)['error']['code'] == 'vertex_configuration_busy'
+        retained = service.retirement_worker
+        assert retained is not None and not retained.done()
+        deletion_release.set(); await retained; await asyncio.sleep(0)
+        if not cancel_caller: await disconnect
+        imported = await service.execute({'operation':'import_firm', 'settings_path':str(path)}, lambda: False)
+        assert imported.status == 200 and store.read_pending()[0] == settings
+        assert calls == [1]
+    finally:
+        old_release.set(); deletion_release.set()
+        if not disconnect.done(): await disconnect
+        assert await asyncio.to_thread(deletion_finished.wait, 1)
+        if service.retirement_worker is not None: await service.retirement_worker
 
 
 @pytest.mark.parametrize('phase', ['headers', 'body'])

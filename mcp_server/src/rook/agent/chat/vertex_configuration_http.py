@@ -34,6 +34,7 @@ class VertexConfigurationHttp:
         self.worker = None
         self.cancel = None
         self.retirement_worker = None
+        self.disconnect_committed = None
 
     def status(self):
         record = self.store.read()
@@ -119,17 +120,25 @@ class VertexConfigurationHttp:
 
     def _retirement_settled(self, worker):
         if not worker.cancelled(): worker.exception()
-        if self.retirement_worker is worker: self.retirement_worker = None
+        if self.retirement_worker is worker:
+            self.retirement_worker = None
+            self.disconnect_committed = None
 
     async def _busy_disconnect(self, disconnected):
         if self.cancel is not None: self.cancel.set()
-        await asyncio.to_thread(self.firm_store.disconnect_all)
-        # Local invalidation is committed before retirement. Retain an unfinished
-        # recycler so later mutations cannot overlap it or launch replacements.
+        # Reserve the whole operation before the first await. Caller cancellation
+        # cannot release this slot while its deletion thread can still write.
         worker = self.retirement_worker
+        committed = self.disconnect_committed
         if worker is None:
-            worker = asyncio.create_task(asyncio.to_thread(self.recycler or _managed_chirp_recycler, None))
+            committed = threading.Event()
+            def disconnect_and_retire():
+                self.firm_store.disconnect_all()
+                committed.set()
+                (self.recycler or _managed_chirp_recycler)(None)
+            worker = asyncio.create_task(asyncio.to_thread(disconnect_and_retire))
             self.retirement_worker = worker
+            self.disconnect_committed = committed
             worker.add_done_callback(self._retirement_settled)
         deadline = time.monotonic() + self.check_timeout
         try:
@@ -139,7 +148,11 @@ class VertexConfigurationHttp:
                 await asyncio.sleep(min(.025, max(0, deadline-time.monotonic())))
             await asyncio.shield(worker)
         except asyncio.CancelledError: raise
-        except Exception:
+        except Exception as error:
+            if not committed.is_set():
+                return failure('vertex_token_issuance_timeout' if isinstance(error, TimeoutError) else 'vertex_configuration_failed',
+                    'Disconnect is not confirmed. Read local settings after the owned worker settles.',
+                    504 if isinstance(error, TimeoutError) else 409)
             status = self.firm_status()
             if status['active'] is not None or status['pending'] is not None or status['legacy_mode'] is not None:
                 return failure('vertex_authorization_changed', 'Google configuration changed. Read local settings.', 409)
