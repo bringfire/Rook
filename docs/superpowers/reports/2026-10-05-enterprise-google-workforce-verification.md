@@ -2,25 +2,26 @@
 
 Implementation uses the approved MSAL public desktop and Google auth STS assertion contract. Credentials remain Python-owned, with DPAPI-protected persistence; workforce media reuses the existing RookVision providers, managers, ledger and artifact pipeline.
 
-Automated implementation evidence and installed live acceptance are separate gates. Tasks 1–9 are complete, including the earlier independent review's four fixes, the user's subsequent seven findings, the second review's four findings, the third review's socket-allocation fallback correction, and corrected-source packaged qualification. Task 10 has not started. No real Entra/Google exchange or workforce media generation has been run, and the qualified payload has not been deployed into installed Rook.
+Automated implementation evidence and installed live acceptance are separate gates. Tasks 1–9 are complete, including the earlier independent review's four fixes, the user's subsequent seven findings, the second review's four findings, the third review's socket-allocation fallback correction, the full-PR integration corrections, and paired corrected-source packaged qualification. Task 10 has not started. No real Entra/Google exchange or workforce media generation has been run, and the qualified payload has not been deployed into installed Rook.
 
-Final production source tested and packaged: `56da9b249909b6a2fafd766259a9d2716bc0a08e`, branch `codex/enterprise-google-media`. Matching clean Chirp source: `12230c7a9ce71104a4de31f9bc29b444cbc0b135`. This final evidence update changes documentation only; the packaged source includes the reproducible SDK/DPAPI/local-TLS smoke fixture.
+Final production source tested and packaged: `54f35209107f961f276335b7a2c52dee899e3942`, branch `codex/enterprise-google-media`. Matching clean Chirp source: `1e1289fd8d2998e32732d623d5cdacc21a87cb78`. This final evidence update changes documentation only; the packaged source includes the reproducible SDK/DPAPI/local-TLS and paired Chirp/process-containment smoke fixtures.
 
 | Gate | Current result |
 |---|---|
 | Focused Python auth/configuration/Chirp tests at `e96f9899` | 372 passed; 11 existing DSPy deprecation warnings |
 | Focused managed configuration tests at `e96f9899` | 216 passed with the external Prime producer case excluded |
 | Unexcluded managed configuration tests | 216 passed, 1 failed: `Task7_original_producer_values_survive_managed_http_parser`, “Stage B requires the real producer fixture from its Python gate.” |
-| Final expanded Python auth/Vertex/Chirp/text/DSPy/configuration suite | 596 passed, 5 deselected; 11 existing DSPy deprecation warnings; exact missing external prerequisites below |
-| Managed configuration suite at `29c07b7c` (unchanged managed source) | 30 passed, including both disconnect views, unavailable/malformed/cancelled reconciliation, committed-deletion fallback and recovery races |
-| Debug and Release managed Rebuild at `29c07b7c` (unchanged managed source) | Rook and then RookBim rebuilt in each configuration; all four builds passed with 0 errors |
+| Final expanded Python auth/Vertex/Chirp/text/DSPy/configuration suite | 619 passed, 5 deselected; 11 existing DSPy deprecation warnings; exact missing external prerequisites below |
+| Historical managed configuration suite at `29c07b7c` | 30 passed, including both disconnect views, unavailable/malformed/cancelled reconciliation, committed-deletion fallback and recovery races |
+| Fresh Debug and Release managed Rebuild for `54f35209` | Rook and then RookBim rebuilt in each configuration; all four builds passed with 0 errors |
 | Historical unexcluded whole managed suite | 4,253 passed, 2 prerequisite failures; detailed below |
-| Whole managed suite at `29c07b7c`, scoped to available prerequisites (unchanged managed source) | 4,266 passed; excludes exactly the two documented absent prerequisites |
+| Whole managed suite for `54f35209`, scoped to available prerequisites | 4,267 passed; excludes exactly the two documented absent prerequisites |
 | Python runtime packaging / wheelhouse policy tests | Both passed against the actual final staged payload; release validator passed 1.6.1 with 109 wheels |
 | Authority CPython runtime input | Official CPython 3.11.9 Windows x64 NuGet SHA-256 verified: `9283876d58c017e0e846f95b490da3bca0fc0a6ee1134b2870677cfb7eec3c67` |
 | Historical packaged runtime build attempt | At clean `53dcd439`, offline verification passed, but required dependency audit failed; replaced by the qualified final-source build below |
-| Qualified final packaged Python/MSAL payload | Passed at clean `56da9b24`: both isolated offline installs/imports, exact lock matching, `pip check`, cache removal and dependency audits; no broker extras |
+| Qualified final packaged Python/MSAL payload | Passed at clean Rook `54f35209` / Chirp `1e1289fd`: both isolated offline installs/imports, exact lock matching, `pip check`, cache removal and dependency audits; no broker extras |
 | Packaged auth smoke on CPython 3.11.9 | Passed: actual MSAL with synthetic signed ID tokens, actual Google SDK STS wire, forced refresh, missing-oid refusal/cache preservation and Windows DPAPI/disconnect tombstone and actual loopback TLS/Windows DNS and IPv6-allocation/IPv4 fallback verification; zero cloud traffic |
+| Paired Chirp qualification | 177 development tests passed on Python 3.13.5; actual isolated CPython 3.11.9 Rook/Chirp wheels passed v2 OAuth/ADC/pending-import/disconnect and cross-process/orphan retirement smoke |
 | Independent authentication/whole-branch review | Fresh independent review of `bc19d4af..53dcd439`: 137 focused Python tests passed; four Important findings, no Critical/Minor findings; all four fixed with failing-then-passing regressions and fresh source suites |
 | Installed firm sign-in and media acceptance | Not run; administrator setup, two approved identities and spend approval required |
 | Private resource/user/quota billing attribution | Pending live observation |
@@ -75,7 +76,22 @@ Commit `56da9b24` moves socket allocation and registration inside the per-addres
 
 The 26 focused review regressions passed, followed by the expanded Python gate: 596 passed, the same five absent external Prime cases deselected, and 11 existing DSPy warnings. No managed/native source changed; the recorded four fresh managed rebuilds and 4,266 managed tests at `29c07b7c` remain evidence for those identical bytes, not a newly run managed gate for this Python-only change.
 
-The clean `56da9b24` authority build passed both isolated offline verifiers, exact lock/freeze matching, cache removal, pip check and both audits with the unchanged existing exception. The isolated CPython 3.11.9 SDK/DPAPI/source-equality/TLS smoke now also injects only IPv6 allocation failure against real Windows localhost resolution and a real IPv4 listener; it passed connection and data transfer. The staged 109-wheel release validator and both packaging-policy suites passed. The five hashes below identify this final payload. Private-value and whitespace scans passed; raw logs and staging data stay uncommitted. No installed deployment, real sign-in/exchange, generation, playback or billing check occurred. Task 10 and its explicit spending approval remain separate.
+The clean `56da9b24` authority build passed both isolated offline verifiers, exact lock/freeze matching, cache removal, pip check and both audits with the unchanged existing exception. The isolated CPython 3.11.9 SDK/DPAPI/source-equality/TLS smoke now also injects only IPv6 allocation failure against real Windows localhost resolution and a real IPv4 listener; it passed connection and data transfer. The staged 109-wheel release validator and both packaging-policy suites passed. Those hashes are historical; the current paired payload is identified below. Private-value and whitespace scans passed; raw logs and staging data stay uncommitted. No installed deployment, real sign-in/exchange, generation, playback or billing check occurred. Task 10 and its explicit spending approval remain separate.
+
+## Full PR integration review follow-up — 2026-10-06
+
+The reviewer withdrew the earlier merge recommendation after reviewing the full PR against main. All four integration findings are corrected at Rook `54f35209`, paired with Chirp `1e1289fd`:
+
+- Chirp reads legacy authorization generation from v2 `active`, checks its original mode, ignores a spoofed top-level generation, and rejects absent/changed/workforce activation. Fresh Google OAuth and ADC remain usable after importing pending firm settings. The actual Rook-store/old-Chirp cross-package tests failed for both modes before the reader change, then passed with the corrected reader. Seven reader regressions also failed before correction; the full Chirp development suite passed 177 tests on the existing Python 3.13.5 environment. An initial attempt using the Rook development environment could not collect two FastAPI test modules; no shared environment was modified.
+- Credential-mutex-owned, bounded private receipts precede each managed launch. The child starts suspended, is assigned to a named Windows job using its original retained process handle, and resumes only after the containment receipt and keeper readiness. A small isolated helper from the trusted package retains the job query handle through complete tree settlement; job count and a committed settlement receipt remain authoritative after launcher/intermediate exit. A missing discovery or job name never proves settlement. No job-based force cancellation is introduced. Real Windows tests cover an undiscovered launch from another process, late discovery, and a surviving leaf after both intermediate launchers exit. Malformed/inaccessible metadata, failed containment/helper/inspection and incomplete receipts remain blocked. The administrator guide documents exceptional reboot-based recovery while all Rook processes remain stopped, preserving authorization files.
+- Healthy Chirp admission takes the replacement lock and performs the guarded authorization check in a worker thread. The independent 20 ms heartbeat regression failed with synchronous admission and passes under concurrent replacement.
+- Video local Stop rereads the durable record under the transition gate. The deterministic pre-handle-read/accepted-handle-write race failed with a final Interrupted record missing its handle, then passed retaining the original operation and binding. Ten focused stop/disconnect/publication cases and the fresh 4,267-test managed run pass after all four managed rebuilds.
+
+Independent read-only review caught a missing-intermediate ancestry case and an opened-thread identity race during this fix pass. The final implementation uses lifetime job containment and validates both the opened thread's owning process and liveness of the original held Popen handle before resuming. The final independent rerun passed 23 focused tracking/integration cases with no remaining Critical or Important findings. The final primary source gate passed 619 Python tests with the same five external prerequisite cases deselected and 11 existing DSPy warnings. No managed exclusions, assertions or timeouts were changed. Native C++ source was not changed or rebuilt in this pass.
+
+The clean paired authority build regenerated both wheels and source archives from the exact commits above, then passed both isolated offline verifiers, lock/freeze matching, cache removal, dependency consistency and unchanged-exception audits. The installed-wheel SDK/DPAPI/TLS smoke also checks every new lifecycle module against production source. The separate paired smoke launches the isolated Chirp interpreter with synthetic OAuth/ADC bootstrap data over stdin, validates installed reader correspondence and pending-import continuity, then exercises actual CPython 3.11.9 cross-process and orphan job settlement. Both smokes, the 109-wheel validator and both packaging-policy suites pass. The Rook PR depends on the companion Chirp reader change; building with the historical Chirp checkout does not qualify this integration.
+
+Private-value and whitespace scans pass. Fixtures use only temporary synthetic stores and local child processes. No installed Rook files, real authorization, cloud configuration, generation, playback, billing or spending were changed. Installed/live acceptance remains Task 10.
 
 ## Packaged qualification and resolved audit failure
 
@@ -95,9 +111,9 @@ The authority build uses release version 1.6.1 and the verified CPython 3.11.9 i
 
 | Qualified artifact | SHA-256 |
 |---|---|
-| Runtime manifest | `5182db1186f34165e791acfe8b2af66738c36e8130978ff18de7a6c6a3c7d70f` |
-| Rook 1.6.1 wheel | `5f9b0a1c857e6c5050166f55ba5b68b743722afb1d863fd7d8c873d41cadf968` |
-| Chirp 0.1.0 wheel | `51f83e5369b216be7ed00c14290b5682fb4df907cd3266ea25cdd94f2a750fca` |
+| Runtime manifest | `59f8d738ad5d2137556e730b5f98edc7e57e6e2180a41fe134dc9df5e0f975d8` |
+| Rook 1.6.1 wheel | `ad1ac1c58f10d14fba6eb9830af1745c56e376276dfdab9c74329fa610323432` |
+| Chirp 0.1.0 wheel | `9cd8911246c88e9b3293d93d0cc543334f3c5bf106a201fac964f2ef1610469f` |
 | Rook dependency audit JSON | `93d5b3a80421e05b3d714caecd97e26aa32c2f4c03a5d75b84a01651381d6e7f` |
 | Chirp dependency audit JSON | `570604a91e8b7bb767818d456d60074284648a6dfd7a22e4b097cdd8363061b2` |
 
