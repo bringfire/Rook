@@ -1,11 +1,14 @@
 """Interrupt owned sockets at an absolute deadline, including HTTP headers."""
 import http.client
+import errno
 import math
+import select
 import socket
 import threading
 from urllib.request import HTTPHandler, HTTPSHandler, HTTPRedirectHandler, build_opener
 
 from .vertex_workforce_contract import auth_error
+from .vertex_dns import resolve_addresses
 
 
 class SocketDeadline:
@@ -57,12 +60,40 @@ class SocketDeadline:
 
 def _track_connection(connection, guard):
     connection.guard = guard
-    create = connection._create_connection
-    def connect(*args, **kwargs):
-        guard.check()
-        peer = create(*args, **kwargs)
-        guard.register(peer)  # Before proxy headers or TLS handshake.
-        return peer
+    def connect(address, timeout=socket._GLOBAL_DEFAULT_TIMEOUT, source_address=None):
+        addresses = resolve_addresses(*address, guard)
+        for family, kind, protocol, endpoint in addresses:
+            guard.check()
+            peer = socket.socket(family, kind, protocol)
+            guard.register(peer)  # Before bind/connect, proxy headers or TLS.
+            try:
+                if source_address: peer.bind(source_address)
+                peer.setblocking(False)
+                attempt_deadline = min(guard.deadline, guard.monotonic()+timeout) if isinstance(timeout, (float, int)) else guard.deadline
+                status = peer.connect_ex(endpoint)
+                pending = {errno.EINPROGRESS, errno.EWOULDBLOCK, errno.EALREADY, errno.EINTR, 10035, 10036, 10037}
+                if status not in (0, errno.EISCONN):
+                    if status not in pending: raise OSError(status, 'Connection failed')
+                    while True:
+                        guard.check()
+                        if guard.monotonic() >= attempt_deadline: raise OSError('Connection timed out')
+                        _, writable, failed = select.select([], [peer], [peer],
+                            min(.025, max(0, attempt_deadline-guard.monotonic())))
+                        if writable or failed:
+                            status = peer.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
+                            if status: raise OSError(status, 'Connection failed')
+                            break
+                guard.check()
+                remaining = guard.deadline-guard.monotonic()
+                peer.settimeout(min(timeout, remaining) if isinstance(timeout, (float, int)) else remaining)
+                return peer
+            except OSError:
+                guard._abort(peer)
+                guard.check()
+            except BaseException:
+                guard._abort(peer)
+                raise
+        raise OSError('Connection failed')
     connection._create_connection = connect
 
 

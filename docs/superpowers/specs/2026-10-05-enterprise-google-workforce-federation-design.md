@@ -130,6 +130,8 @@ Each refresh has a thread-safe cancellation event and an absolute monotonic dead
 
 Preserve the current aggregate token-issuance ceiling of 30 seconds, 20-second per-request maximum and serialized refresh ownership, including lock wait, Entra refresh, key retrieval and Google exchange. Initial interactive sign-in has a 180-second browser deadline and a separately bounded exchange/commit phase. A late worker must not install a session after cancellation or overwrite a newer connection. Transport or refresh errors are mapped to fixed public codes; no raw Entra/Google response bodies or exception strings escape to the UI.
 
+DNS and TCP setup are included in the transport deadline. Python uses Windows' overlapped `GetAddrInfoExW` in the DNS namespace with `GetAddrInfoExCancel`, then a registered nonblocking socket with bounded readiness checks. Preserve per-address timeouts and the absolute aggregate cutoff. There is no synchronous Python DNS fallback, resolver thread or extra process. Only one outstanding Rook native lookup is admitted; if cancellation does not confirm completion, keep its native buffers alive and refuse new lookups until it settles. Discard its late result. Windows may retain underlying provider resources after cancelling the user's lookup; Rook does not claim otherwise. See [Microsoft's resolver cancellation contract](https://learn.microsoft.com/en-us/windows/win32/api/ws2tcpip/nf-ws2tcpip-getaddrinfoexcancel).
+
 ## 7. Credential context, projects and headers
 
 Extend the existing credential result rather than inventing a second token service. Its versioned result carries bearer/expiry, authorization generation, opaque principal/session identity, connection fingerprint, generation project, workforce user project and optional API quota project. Python validates all fields; C# rejects missing, unknown or inconsistent fields for the selected contract version.
@@ -183,6 +185,8 @@ Keep existing legacy text readiness behavior separate. Actual image/video submis
 Keep configuration operations on the existing session-nonce-protected owned route, with closed operation schemas. Do not expose credential export or generic token exchange over the public Rhino/MCP surface. All new authentication errors map through Python and C# consistently. A denied operation never offers an automatic account/project fallback.
 
 A timed-out sign-in check returns within its 30-second caller ceiling after revoking its worker. Retain/observe the worker and keep the mutation slot occupied until it actually settles; do not extend the response by awaiting an unbounded cleanup. Disconnect can cancel an outstanding worker and invalidate the active store/tombstone immediately. Late cleanup cannot overwrite UI success or clear a newer worker's slot. These route-level cases are tested separately from direct store/refresh tests.
+
+An overlapping disconnect reserves its entire deletion-and-retirement worker before its first await and retains ownership across caller cancellation or timeout. Later disconnect requests join that worker; imports stay blocked until it settles. Report deletion as confirmed only after its durable commit. A restart-required confirmed-deletion response carries its closed firm status through the managed client and both UI choices; failed/cancelled reconciliation keeps that status as a fallback, and clearing fields must preserve the restart warning.
 
 ## 10. Automated verification
 

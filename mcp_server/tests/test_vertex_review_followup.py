@@ -17,9 +17,172 @@ from rook.providers import vertex_entra as entra, vertex_workforce_exchange as e
 from .test_vertex_workforce_store import fixture as workforce_fixture
 
 
+@pytest.mark.parametrize('cancelled', [False, True])
+def test_native_dns_cancel_closes_request_without_resolver_thread(monkeypatch, cancelled):
+    from rook.providers import vertex_dns as dns
+    from rook.providers.vertex_bounded_io import SocketDeadline
+    instances = []
+    class Lookup:
+        def __init__(self, *args): self.ready = False; self.cancelled = False; self.closed = False; instances.append(self)
+        def poll(self, seconds): time.sleep(seconds); return self.ready
+        def cancel(self): self.cancelled = True; self.ready = True
+        def close(self): self.closed = True
+        def addresses(self): raise AssertionError('Late resolution must not publish')
+    monkeypatch.setattr(dns, '_WindowsResolution', Lookup)
+    cancel = threading.Event()
+    def check():
+        if cancel.is_set(): raise VertexAuthError('vertex_authorization_declined', 'Cancelled.')
+    timer = threading.Timer(.05, cancel.set) if cancelled else None
+    if timer: timer.start()
+    started = time.monotonic()
+    try:
+        with SocketDeadline(started+(2 if cancelled else .05), check, time.monotonic) as guard:
+            with pytest.raises(VertexAuthError): dns.resolve_addresses('synthetic.invalid', 443, guard)
+        assert time.monotonic()-started < .4
+        assert len(instances) == 1 and instances[0].cancelled and instances[0].closed
+        assert dns._retained is None
+    finally:
+        if timer: timer.cancel(); timer.join()
+
+
+def test_failed_native_cancel_retains_one_request_until_completion(monkeypatch):
+    from rook.providers import vertex_dns as dns
+    from rook.providers.vertex_bounded_io import SocketDeadline
+    instances = []
+    class Lookup:
+        def __init__(self, *args): self.ready = bool(instances); self.closed = False; instances.append(self)
+        def poll(self, seconds): time.sleep(seconds); return self.ready
+        def cancel(self): pass  # Broken provider does not confirm cancellation.
+        def close(self): self.closed = True
+        def addresses(self):
+            assert self is not instances[0], 'Abandoned lookup cannot return late results'
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, ('127.0.0.1', 443))]
+    monkeypatch.setattr(dns, '_WindowsResolution', Lookup)
+    monkeypatch.setattr(dns, '_retained', None)
+    with SocketDeadline(time.monotonic()+.05, lambda: None, time.monotonic) as guard:
+        with pytest.raises(VertexAuthError): dns.resolve_addresses('synthetic.invalid', 443, guard)
+    assert dns._retained is instances[0] and not instances[0].closed
+    with SocketDeadline(time.monotonic()+1, lambda: None, time.monotonic) as guard:
+        with pytest.raises(VertexAuthError): dns.resolve_addresses('synthetic.invalid', 443, guard)
+        assert len(instances) == 1
+        instances[0].ready = True
+        assert dns.resolve_addresses('synthetic.invalid', 443, guard)[0][-1] == ('127.0.0.1', 443)
+    assert all(instance.closed for instance in instances) and dns._retained is None
+
+
+def test_native_localhost_resolution_preserves_addresses_without_blocking_getaddrinfo(monkeypatch):
+    from rook.providers.vertex_dns import resolve_addresses
+    from rook.providers.vertex_bounded_io import SocketDeadline
+    monkeypatch.setattr(socket, 'getaddrinfo', lambda *args: pytest.fail('Blocking resolver must not be called'))
+    with SocketDeadline(time.monotonic()+2, lambda: None, time.monotonic) as guard:
+        values = resolve_addresses('localhost', 45678, guard)
+    assert values and all(value[-1][1] == 45678 for value in values)
+    assert all(value[-1][0] in ('127.0.0.1', '::1') for value in values)
+
+
+def test_per_address_timeout_allows_next_address_before_absolute_cutoff(monkeypatch):
+    import errno
+    from rook.providers import vertex_bounded_io as bounded
+    peers = []
+    class Peer:
+        def __init__(self, *args): self.closed = False; peers.append(self)
+        def setblocking(self, value): pass
+        def settimeout(self, value): pass
+        def setsockopt(self, *args): pass
+        def connect_ex(self, address): return errno.EINPROGRESS if len(peers) == 1 else 0
+        def shutdown(self, how): pass
+        def close(self): self.closed = True
+    monkeypatch.setattr(socket, 'socket', Peer)
+    monkeypatch.setattr(bounded, 'resolve_addresses', lambda *args: [(socket.AF_INET6, socket.SOCK_STREAM, 6, ('::1', 9, 0, 0)), (socket.AF_INET, socket.SOCK_STREAM, 6, ('127.0.0.1', 9))])
+    def pending(*args): time.sleep(args[-1]); return [], [], []
+    monkeypatch.setattr(bounded.select, 'select', pending)
+    with bounded.SocketDeadline(time.monotonic()+.5, lambda: None, time.monotonic) as guard:
+        connection = bounded._DeadlineHTTPConnection('localhost', 9, timeout=.1, guard=guard)
+        connection.connect()
+        assert connection.sock is peers[1] and peers[0].closed
+        connection.close()
+
+
 @pytest.mark.asyncio
-@pytest.mark.parametrize('cancel_caller', [False, True])
-async def test_disconnect_owns_deletion_before_await_and_after_caller_cancellation(workforce_fixture, tmp_path, monkeypatch, cancel_caller):
+async def test_held_native_dns_releases_configuration_slot_on_deadline(workforce_fixture, tmp_path, monkeypatch):
+    from rook.agent.chat.vertex_configuration_http import VertexConfigurationHttp
+    from rook.providers import vertex_dns as dns
+    instances = []
+    class Lookup:
+        def __init__(self, *args): self.ready = False; self.closed = False; instances.append(self)
+        def poll(self, seconds): time.sleep(seconds); return self.ready
+        def cancel(self): self.ready = True
+        def close(self): self.closed = True
+        def addresses(self): raise AssertionError('Must not dispatch')
+    monkeypatch.setattr(dns, '_WindowsResolution', Lookup)
+    monkeypatch.setattr(entra, '_allowed_url', lambda *args, **kwargs: None)
+    _, store, settings, *_ = workforce_fixture
+    ticket = store.import_pending(settings)
+    def begin(settings, ticket, *, cancel_check, deadline_changed):
+        deadline = time.monotonic()+.1; deadline_changed(deadline)
+        return entra.BoundedEntraHttpClient(settings, deadline, cancel_check).get('http://synthetic.invalid/')
+    service = VertexConfigurationHttp(store=store.base, entra=SimpleNamespace(begin=begin))
+    started = time.monotonic()
+    response = await service.execute({'operation':'connect_firm', 'pending_revision':ticket.pending_revision, 'authorization_epoch':ticket.authorization_epoch}, lambda: False)
+    assert response.status != 200
+    if service.worker is not None: await asyncio.wait_for(asyncio.shield(service.worker), .3)
+    await asyncio.sleep(0)
+    assert service.worker is None and time.monotonic()-started < .6
+    assert len(instances) == 1 and instances[0].closed
+    path = tmp_path/'synthetic-firm.json'; path.write_text(json.dumps(asdict(settings)))
+    imported = await service.execute({'operation':'import_firm', 'settings_path':str(path)}, lambda: False)
+    assert imported.status == 200
+
+
+@pytest.mark.parametrize('phase', ['dns', 'connect'])
+@pytest.mark.parametrize('cancelled', [False, True])
+def test_resolution_and_connect_release_auth_worker_at_cutoff(monkeypatch, phase, cancelled):
+    import errno
+    from rook.providers import vertex_bounded_io as bounded
+    cancel = threading.Event()
+    peers = []
+    def check():
+        if cancel.is_set(): raise VertexAuthError('vertex_authorization_declined', 'Cancelled.')
+    def held_dns(*args, **kwargs):
+        time.sleep(.8)
+        raise socket.gaierror('synthetic held DNS')
+    def held_resolution(host, port, guard):
+        while True:
+            guard.check(); time.sleep(.01)
+    class Peer:
+        def __init__(self, *args): self.closed = False; peers.append(self)
+        def settimeout(self, value): pass
+        def setblocking(self, value): pass
+        def connect(self, address): time.sleep(.8)
+        def connect_ex(self, address): return errno.EINPROGRESS
+        def shutdown(self, how): pass
+        def close(self): self.closed = True
+    if phase == 'dns':
+        monkeypatch.setattr(socket, 'getaddrinfo', held_dns)
+        monkeypatch.setattr(bounded, 'resolve_addresses', held_resolution, raising=False)
+    else:
+        monkeypatch.setattr(socket, 'getaddrinfo', lambda *args: [(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('127.0.0.1', 9))])
+        monkeypatch.setattr(socket, 'socket', Peer)
+        # A pending nonblocking connection never becomes writable.
+        import select
+        def pending(*args): time.sleep(args[-1]); return [], [], []
+        monkeypatch.setattr(select, 'select', pending)
+    timer = threading.Timer(.15, cancel.set) if cancelled else None
+    if timer: timer.start()
+    started = time.monotonic()
+    try:
+        with bounded.SocketDeadline(started+(2 if cancelled else .15), check, time.monotonic) as guard:
+            connection = bounded._DeadlineHTTPConnection('synthetic.invalid' if phase == 'dns' else '127.0.0.1', 9, timeout=2, guard=guard)
+            with pytest.raises(VertexAuthError): connection.connect()
+        assert time.monotonic()-started < .5
+        assert all(peer.closed for peer in peers)
+    finally:
+        if timer: timer.cancel(); timer.join()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('caller', ['normal', 'cancelled', 'timeout'])
+async def test_disconnect_owns_deletion_before_await_and_after_caller_cancellation(workforce_fixture, tmp_path, monkeypatch, caller):
     from rook.agent.chat.vertex_configuration_http import VertexConfigurationHttp
     _, store, settings, *_ = workforce_fixture
     service = VertexConfigurationHttp(store=store.base, recycler=lambda _: None, check_timeout=.1)
@@ -43,15 +206,21 @@ async def test_disconnect_owns_deletion_before_await_and_after_caller_cancellati
     retained = None
     try:
         old = service.worker; old_release.set(); await old; await asyncio.sleep(0)
-        if cancel_caller:
+        if caller == 'cancelled':
             disconnect.cancel()
             with pytest.raises(asyncio.CancelledError): await disconnect
+        elif caller == 'timeout':
+            result = await asyncio.wait_for(asyncio.shield(disconnect), .4)
+            assert result.status == 504 and 'data' not in json.loads(result.body)
+            owned = service.retirement_worker
+            retry = await service.execute({'operation':'disconnect'}, lambda: False)
+            assert retry.status == 504 and service.retirement_worker is owned
         busy = await service.execute({'operation':'import_firm', 'settings_path':str(path)}, lambda: False)
         assert busy.status == 409 and json.loads(busy.body)['error']['code'] == 'vertex_configuration_busy'
         retained = service.retirement_worker
         assert retained is not None and not retained.done()
         deletion_release.set(); await retained; await asyncio.sleep(0)
-        if not cancel_caller: await disconnect
+        if caller == 'normal': await disconnect
         imported = await service.execute({'operation':'import_firm', 'settings_path':str(path)}, lambda: False)
         assert imported.status == 200 and store.read_pending()[0] == settings
         assert calls == [1]

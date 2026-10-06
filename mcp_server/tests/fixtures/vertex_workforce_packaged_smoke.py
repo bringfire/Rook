@@ -42,7 +42,7 @@ for dictionary in (CIMultiDict, MultiDict):
         gc.collect()
         assert sys.getrefcount(sentinel)==before, f'{dictionary.__name__} {operation} leaks references'
 repo=Path(__file__).resolve().parents[3]
-for name in ('vertex_backend','vertex_entra','vertex_workforce_exchange','vertex_workforce_store','vertex_token_lease','vertex_bounded_io'):
+for name in ('vertex_backend','vertex_entra','vertex_workforce_exchange','vertex_workforce_store','vertex_token_lease','vertex_bounded_io','vertex_dns'):
     module=importlib.import_module('rook.providers.'+name)
     installed=Path(module.__file__).resolve()
     assert installed.is_relative_to(Path(sys.prefix).resolve())
