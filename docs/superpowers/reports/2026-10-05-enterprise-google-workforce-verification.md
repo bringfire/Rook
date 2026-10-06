@@ -23,6 +23,7 @@ Final production source tested and packaged: `54f35209107f961f276335b7a2c52dee89
 | Packaged auth smoke on CPython 3.11.9 | Passed: actual MSAL with synthetic signed ID tokens, actual Google SDK STS wire, forced refresh, missing-oid refusal/cache preservation and Windows DPAPI/disconnect tombstone and actual loopback TLS/Windows DNS and IPv6-allocation/IPv4 fallback verification; zero cloud traffic |
 | Paired Chirp qualification | 177 development tests passed on Python 3.13.5; actual isolated CPython 3.11.9 Rook/Chirp wheels passed v2 OAuth/ADC/pending-import/disconnect and cross-process/orphan retirement smoke |
 | Independent authentication/whole-branch review | Fresh independent review of `bc19d4af..53dcd439`: 137 focused Python tests passed; four Important findings, no Critical/Minor findings; all four fixed with failing-then-passing regressions and fresh source suites |
+| Final independent integration/package review | No actionable findings; 23 focused tests passed, five artifact/source-archive hashes and all 109 wheel hashes checked, 289 Rook/nine Chirp Python sources matched wheels and isolated installs, both installed-runtime smokes rerun successfully |
 | Installed firm sign-in and media acceptance | Not run; administrator setup, two approved identities and spend approval required |
 | Private resource/user/quota billing attribution | Pending live observation |
 
@@ -92,6 +93,8 @@ Independent read-only review caught a missing-intermediate ancestry case and an 
 The clean paired authority build regenerated both wheels and source archives from the exact commits above, then passed both isolated offline verifiers, lock/freeze matching, cache removal, dependency consistency and unchanged-exception audits. The installed-wheel SDK/DPAPI/TLS smoke also checks every new lifecycle module against production source. The separate paired smoke launches the isolated Chirp interpreter with synthetic OAuth/ADC bootstrap data over stdin, validates installed reader correspondence and pending-import continuity, then exercises actual CPython 3.11.9 cross-process and orphan job settlement. Both smokes, the 109-wheel validator and both packaging-policy suites pass. The Rook PR depends on the companion Chirp reader change; building with the historical Chirp checkout does not qualify this integration.
 
 Private-value and whitespace scans pass. Fixtures use only temporary synthetic stores and local child processes. No installed Rook files, real authorization, cloud configuration, generation, playback, billing or spending were changed. Installed/live acceptance remains Task 10.
+
+Final independent artifact review confirmed all five recorded artifact hashes, both manifest/source-archive identities, all 109 wheel hashes and source correspondence for all 289 Rook and nine Chirp Python files in wheels and isolated installations. Both offline verifier records and restricted-cache audit evidence matched. The reviewer independently reran both isolated CPython 3.11.9 smokes successfully with no discrepancies or actionable findings. [Chirp PR #10](https://github.com/bringfire/Chirp/pull/10) supplies the reader dependency for [Rook PR #613](https://github.com/bringfire/Rook/pull/613); neither PR has been merged.
 
 ## Packaged qualification and resolved audit failure
 
