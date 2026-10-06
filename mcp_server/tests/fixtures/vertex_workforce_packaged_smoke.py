@@ -49,6 +49,11 @@ for name in ('vertex_backend','vertex_entra','vertex_workforce_exchange','vertex
     source=repo/'mcp_server/src/rook/providers'/f'{name}.py'
     # Wheel build may normalize line endings; compare exact source text.
     assert installed.read_text(encoding='utf-8')==source.read_text(encoding='utf-8')
+for name in ('chirp_manager', 'chirp_launch_tracking', 'chirp_process_job', 'chirp_job_keeper'):
+    module=importlib.import_module('rook.'+name)
+    installed=Path(module.__file__).resolve()
+    assert installed.is_relative_to(Path(sys.prefix).resolve())
+    assert installed.read_text(encoding='utf-8')==(repo/'mcp_server/src/rook'/f'{name}.py').read_text(encoding='utf-8')
 
 settings=FirmSettings(2,'Packaged synthetic firm','11111111-1111-1111-1111-111111111111','22222222-2222-2222-2222-222222222222','123456789','synthetic-pool','synthetic-provider','synthetic-firm-project','synthetic-firm-project',None,'us-central1')
 oid='33333333-3333-3333-3333-333333333333'

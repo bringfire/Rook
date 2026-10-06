@@ -9,10 +9,27 @@ import pytest
 from rook import chirp_manager
 
 
+@pytest.fixture(autouse=True)
+def isolated_launch_store(monkeypatch, tmp_path):
+    """Launcher tests must never write process metadata to the user's store."""
+    import uuid
+    from rook.providers.vertex_auth import VertexStore
+    store = VertexStore(tmp_path / 'auth' / 'vertex.json', mutex_name='Local\\Rook.Chirp.Test.' + uuid.uuid4().hex)
+    monkeypatch.setattr(VertexStore, 'production', lambda: store)
+    # These tests fake Popen; real process tracking is covered by the integration tests.
+    from rook import chirp_launch_tracking
+    monkeypatch.setattr(chirp_launch_tracking, 'process_identity', lambda pid: {'pid':pid, 'created':1})
+    monkeypatch.setattr(chirp_launch_tracking, 'ProcessJob', lambda _: SimpleNamespace(assign=lambda _: None, close=lambda: None))
+    monkeypatch.setattr(chirp_launch_tracking, 'resume_process', lambda _: None)
+    monkeypatch.setattr(chirp_launch_tracking, 'job_is_active', lambda _: False)
+    monkeypatch.setattr(chirp_launch_tracking, 'keep_job_open', lambda *args: None)
+    yield store
+
+
 def _admit_synthetic_bootstrap(monkeypatch, generation):
     from rook.providers.vertex_auth import VertexMode
     import uuid
-    store = SimpleNamespace(read=lambda: SimpleNamespace(mode=VertexMode.ADC, generation=generation),
+    store = SimpleNamespace(read=lambda: SimpleNamespace(mode=VertexMode.ADC, generation=generation), path=chirp_manager.VertexStore.production().path,
         _mutex_name='Local\\Rook.Chirp.Test.' + uuid.uuid4().hex, _mutex_timeout_ms=1000)
     monkeypatch.setattr(chirp_manager.VertexStore, 'production', lambda: store)
 
@@ -30,7 +47,7 @@ def test_start_chirp_marks_non_vertex_child_managed_without_secret_pipe(
     captured: dict = {}
 
     class _DummyProc:
-        pass
+        pid = 3210
 
     def fake_popen(*args, **kwargs):
         captured["args"] = args
@@ -62,7 +79,7 @@ def test_start_chirp_marks_non_vertex_child_managed_without_secret_pipe(
     assert captured["kwargs"]["close_fds"] is True
     assert (
         captured["kwargs"]["creationflags"]
-        == chirp_manager.subprocess.CREATE_NO_WINDOW
+        == chirp_manager.subprocess.CREATE_NO_WINDOW | 0x00000004
     )
 
 
@@ -977,11 +994,11 @@ async def test_concurrent_vertex_admission_restarts_stale_child_once(
     assert starts == [4201]
 
 @pytest.mark.parametrize('live', [False, True, 'unowned', 'alive'])
-def test_workforce_activation_retires_without_resolving_bootstrap(monkeypatch, live):
+def test_workforce_activation_retires_without_resolving_bootstrap(monkeypatch, live, isolated_launch_store):
     import time
     from rook.providers.vertex_auth import VertexMode
     snapshot = SimpleNamespace(mode=VertexMode.WORKFORCE, generation='a' * 32, chirp_retirement_pending=True)
-    monkeypatch.setattr(chirp_manager.VertexStore, 'production', lambda: SimpleNamespace(read=lambda: snapshot))
+    monkeypatch.setattr(isolated_launch_store, 'read', lambda: snapshot)
     discovery = {'host': '127.0.0.1', 'port': 9123, 'pid': 4101}
     monkeypatch.setattr(chirp_manager, '_find_live_discovery', lambda: discovery if live else None)
     monkeypatch.setattr(chirp_manager, '_chirp_process', None)

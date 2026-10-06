@@ -289,7 +289,12 @@ namespace Rook.Services.Vision.Video
                 {
                     lock(running.TransitionGate)
                     {
-                        var stopped = AppendTransition(inFlightRecord ?? running.LatestRecord, VideoJobState.Interrupted,
+                        // Submission may have persisted its operation and binding
+                        // while this stop was waiting for the transition gate.
+                        var latest = FindLedgerRecord(jobId) ?? running.LatestRecord;
+                        if (IsTerminal(latest.State))
+                            return JobCancelResult.Ok(latest.State);
+                        var stopped = AppendTransition(latest, VideoJobState.Interrupted,
                             error: LocalStopError(running));
                         running.LatestRecord = stopped;
                         if (stopped.State == VideoJobState.Interrupted) try { running.Cts.Cancel(); } catch { }

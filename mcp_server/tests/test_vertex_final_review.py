@@ -154,7 +154,9 @@ def test_legacy_mutation_releases_credential_lock_before_chirp_recycle(tmp_path,
     monkeypatch.setattr(VertexStore,'production',classmethod(lambda cls:store))
     monkeypatch.setattr(chirp,'_WindowsNamedMutex',launch_lock)
     monkeypatch.setattr(chirp,'_chirp_process',None)
-    child=object()
+    import os
+    from types import SimpleNamespace
+    child=SimpleNamespace(pid=os.getpid())
     monkeypatch.setattr(chirp,'_start_chirp_unlocked',lambda *args,**kwargs:child)
     results, errors=[],[]
     def recycle(_):

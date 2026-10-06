@@ -264,23 +264,34 @@ class _PROCESSENTRY32W(ctypes.Structure):
     ]
 
 
-def _parent_pid_map() -> dict[int, int]:
+def _parent_pid_map(*, strict=False) -> dict[int, int]:
     """Snapshot ``pid -> parent pid`` for every live process (Toolhelp32)."""
     TH32CS_SNAPPROCESS = 0x00000002
     INVALID_HANDLE_VALUE = wintypes.HANDLE(-1).value
-    kernel32 = ctypes.windll.kernel32
+    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    kernel32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(_PROCESSENTRY32W)]
+    kernel32.Process32FirstW.restype = wintypes.BOOL
+    kernel32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(_PROCESSENTRY32W)]
+    kernel32.Process32NextW.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
     snapshot = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
     if snapshot == INVALID_HANDLE_VALUE or not snapshot:
+        if strict: raise _restart_required()
         return {}
     parents: dict[int, int] = {}
     try:
         entry = _PROCESSENTRY32W()
         entry.dwSize = ctypes.sizeof(_PROCESSENTRY32W)
         if not kernel32.Process32FirstW(snapshot, ctypes.byref(entry)):
+            if strict: raise _restart_required()
             return {}
         while True:
             parents[int(entry.th32ProcessID)] = int(entry.th32ParentProcessID)
             if not kernel32.Process32NextW(snapshot, ctypes.byref(entry)):
+                if strict and ctypes.get_last_error() != 18: raise _restart_required()
                 break
     finally:
         kernel32.CloseHandle(snapshot)
@@ -557,7 +568,16 @@ def _start_chirp(chirp_home, *, vertex_bootstrap=None, requested_port=None):
     with _WindowsNamedMutex(store._mutex_name, store._mutex_timeout_ms):
         _assert_chirp_authorization(vertex_bootstrap is not None,
             vertex_bootstrap.get("generation") if vertex_bootstrap is not None else None, store=store)
-        return _start_chirp_unlocked(chirp_home, vertex_bootstrap=vertex_bootstrap, requested_port=requested_port)
+        from .chirp_launch_tracking import LaunchRegistry
+        registry = LaunchRegistry(store)
+        # Reap only launches whose recorded processes and descendants have
+        # settled, so normal repeated restarts do not exhaust the bounded store.
+        registry.pending()
+        intent = registry.begin()
+        process = _start_chirp_unlocked(chirp_home, vertex_bootstrap=vertex_bootstrap, requested_port=requested_port, launch=registry.launch(intent))
+        if process is None:
+            intent.unlink()
+        return process
 
 
 def _launch_registered_chirp(chirp_home, vertex_bootstrap, vertex_required):
@@ -574,6 +594,7 @@ def _start_chirp_unlocked(
     *,
     vertex_bootstrap: dict[str, object] | None = None,
     requested_port: int | None = None,
+    launch,
 ) -> subprocess.Popen | None:
     """Start the Chirp adapter as a detached background process.
 
@@ -616,7 +637,7 @@ def _start_chirp_unlocked(
         if len(bootstrap_line) > MAX_VERTEX_BOOTSTRAP_BYTES + 1:
             raise ValueError("Vertex bootstrap exceeds the bounded stdin payload")
 
-    proc = subprocess.Popen(
+    proc = launch.start(
         arguments,
         cwd=str(chirp_home),
         env=env,
@@ -802,6 +823,17 @@ def retire_after_workforce_commit(expected_generation, deadline, cancel_check):
         current = VertexStore.production().read()
         if current is None or current.generation != expected_generation:
             raise auth_error("vertex_authorization_changed")
+        # Startup records precede process creation under the same cross-process
+        # credential mutex as activation. Discovery can therefore be absent
+        # without implying that all previously admitted launches have settled.
+        from .chirp_launch_tracking import LaunchRegistry
+        while True:
+            _check(deadline, cancel_check, time.monotonic)
+            store = VertexStore.production()
+            with _WindowsNamedMutex(store._mutex_name, min(store._mutex_timeout_ms, max(0, int((deadline-time.monotonic())*1000)))):
+                pending = LaunchRegistry(store).pending()
+            if not pending: break
+            time.sleep(min(.025, max(0, deadline-time.monotonic())))
     finally:
         _replacement_lock.release()
 
@@ -828,9 +860,11 @@ async def _handle_live_discovery(
     )
     if classified is not None:
         try:
-            with _replacement_lock:
-                _assert_chirp_authorization(vertex_required)
-                return classified
+            def admit():
+                with _replacement_lock:
+                    _assert_chirp_authorization(vertex_required)
+                    return classified
+            return await asyncio.to_thread(admit)
         except VertexAuthError as error:
             return _error_result(error, host, port)
     if not isinstance(payload, dict):
