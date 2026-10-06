@@ -125,15 +125,7 @@ def test_sts_real_drip_response_yields_for_aggregate_deadline(monkeypatch):
             except OSError: pass
     server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
     thread=threading.Thread(target=server.serve_forever,daemon=True); thread.start()
-    real_client=exchange.httpx.Client
-    class LocalClient:
-        def __init__(self,**kwargs): self.client=real_client(**kwargs)
-        def __enter__(self): self.client.__enter__(); return self
-        def __exit__(self,*args): return self.client.__exit__(*args)
-        def stream(self,method,url,**kwargs):
-            assert url == exchange.STS_URL
-            return self.client.stream(method,f'http://127.0.0.1:{server.server_port}/',**kwargs)
-    monkeypatch.setattr(exchange.httpx,'Client',LocalClient)
+    monkeypatch.setattr(exchange,'STS_URL',f'http://127.0.0.1:{server.server_port}/')
     started=time.monotonic()
     try:
         with pytest.raises(VertexAuthError):

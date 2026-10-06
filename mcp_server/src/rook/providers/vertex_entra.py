@@ -10,10 +10,11 @@ import time
 from typing import Callable
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlencode, urlsplit
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import Request
 import webbrowser
 
 from .vertex_auth import VertexAuthError
+from .vertex_bounded_io import SocketDeadline, bounded_opener
 from .vertex_workforce_contract import (
     ActivationTicket, CACHE_LIMIT, EntraSessionCandidate, FirmSettings, PrivatePrincipal,
     TOKEN_LIMIT, VerifiedEntraAssertion, auth_error, bounded_text, guid, json_object,
@@ -44,11 +45,6 @@ def _allowed_url(url, settings, *, authorize=False):
         raise auth_error()
 
 
-class _NoRedirect(HTTPRedirectHandler):
-    def redirect_request(self, *args, **kwargs):
-        return None
-
-
 class _JsonResponse:
     def __init__(self, status, headers, body):
         self.status_code = status
@@ -65,7 +61,7 @@ class BoundedEntraHttpClient:
     def __init__(self, settings, deadline, cancel_check, monotonic=time.monotonic, *, opener=None):
         self.settings, self.deadline = settings, deadline
         self.cancel_check, self.monotonic = cancel_check, monotonic
-        self.opener = opener or build_opener(_NoRedirect())
+        self.opener = opener
 
     def get(self, url, **kwargs):
         return self._request("GET", url, **kwargs)
@@ -85,10 +81,16 @@ class BoundedEntraHttpClient:
         request_headers = dict(headers or {})
         if body is not None:
             request_headers["Content-Type"] = "application/x-www-form-urlencoded"
+        with SocketDeadline(deadline, self.cancel_check, self.monotonic) as guard:
+            return self._read_request(request_headers, body, method, url, deadline, guard)
+
+    def _read_request(self, request_headers, body, method, url, deadline, guard):
         try:
             try:
                 _check(deadline, self.cancel_check, self.monotonic)
-                response = self.opener.open(Request(url, data=body, headers=request_headers, method=method), timeout=deadline - self.monotonic())
+                opener = self.opener or bounded_opener(guard)
+                guard.check()
+                response = opener.open(Request(url, data=body, headers=request_headers, method=method), timeout=deadline - self.monotonic())
             except HTTPError as error:
                 response = error
             with response:
@@ -111,6 +113,7 @@ class BoundedEntraHttpClient:
         except VertexAuthError:
             raise
         except Exception:
+            guard.check()
             raise auth_error() from None
 
 
@@ -160,6 +163,8 @@ class _EntraCallbackServer(HTTPServer):
 
     def get_request(self):
         connection, address = super().get_request()
+        if getattr(self, 'deadline_guard', None) is not None:
+            self.deadline_guard.register(connection)
         connection.settimeout(0.5)
         return connection, address
 
@@ -174,11 +179,17 @@ class EntraLoopbackListener:
     def wait_for_callback(self, deadline, cancel_check, monotonic):
         if self._consumed:
             raise auth_error()
-        while self._server.callback is None:
-            _check(deadline, cancel_check, monotonic)
-            self._server.handle_request()
-            if self._server.callback_error:
-                raise auth_error()
+        with SocketDeadline(deadline, cancel_check, monotonic) as guard:
+            self._server.deadline_guard = guard
+            try:
+                while self._server.callback is None:
+                    guard.check()
+                    self._server.handle_request()
+                    guard.check()
+                    if self._server.callback_error:
+                        raise auth_error()
+            finally:
+                self._server.deadline_guard = None
         self._consumed = True
         _check(deadline, cancel_check, monotonic)
         return self._server.callback

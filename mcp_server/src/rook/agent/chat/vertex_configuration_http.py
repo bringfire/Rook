@@ -33,6 +33,7 @@ class VertexConfigurationHttp:
         self.check_timeout = min(30, check_timeout)
         self.worker = None
         self.cancel = None
+        self.retirement_worker = None
 
     def status(self):
         record = self.store.read()
@@ -116,6 +117,36 @@ class VertexConfigurationHttp:
         return web.json_response({'success':False,'error':{'code':'vertex_restart_required',
             'message':'Firm authorization was saved. Restart required before media authorization can be used.'},'data':status},status=409)
 
+    def _retirement_settled(self, worker):
+        if not worker.cancelled(): worker.exception()
+        if self.retirement_worker is worker: self.retirement_worker = None
+
+    async def _busy_disconnect(self, disconnected):
+        if self.cancel is not None: self.cancel.set()
+        await asyncio.to_thread(self.firm_store.disconnect_all)
+        # Local invalidation is committed before retirement. Retain an unfinished
+        # recycler so later mutations cannot overlap it or launch replacements.
+        worker = self.retirement_worker
+        if worker is None:
+            worker = asyncio.create_task(asyncio.to_thread(self.recycler or _managed_chirp_recycler, None))
+            self.retirement_worker = worker
+            worker.add_done_callback(self._retirement_settled)
+        deadline = time.monotonic() + self.check_timeout
+        try:
+            while not worker.done():
+                if disconnected(): raise asyncio.CancelledError
+                if time.monotonic() >= deadline: raise TimeoutError
+                await asyncio.sleep(min(.025, max(0, deadline-time.monotonic())))
+            await asyncio.shield(worker)
+        except asyncio.CancelledError: raise
+        except Exception:
+            status = self.firm_status()
+            if status['active'] is not None or status['pending'] is not None or status['legacy_mode'] is not None:
+                return failure('vertex_authorization_changed', 'Google configuration changed. Read local settings.', 409)
+            return web.json_response({'success':False,'error':{'code':'vertex_restart_required',
+                'message':'Disconnected locally. Restart required: a previous managed process has not been confirmed retired.'},'data':status}, status=409)
+        return web.json_response({'success':True,'data':self.status()})
+
     async def execute(self, body, disconnected):
         fields={'status':{'operation'},'disconnect':{'operation'},'save':{'operation','project_id','video_location'},
             'connect':{'operation','project_id','video_location','client_config_path'},'firm_status':{'operation'},
@@ -132,14 +163,10 @@ class VertexConfigurationHttp:
                 return web.json_response({'success':True,'data':self.status() if operation=='status' else self.firm_status()})
             if 'video_location' in body and body['video_location']!='us-central1':
                 return failure('vertex_model_region_unsupported','Choose us-central1 explicitly to enable video. Existing text settings were preserved.',400)
-            if self.worker is not None:
+            if self.worker is not None or self.retirement_worker is not None:
                 if operation!='disconnect':
                     return failure('vertex_configuration_busy','A Google configuration change is already in progress.',409)
-                self.cancel.set()
-                await asyncio.to_thread(self.firm_store.disconnect_all)
-                try: await asyncio.to_thread(self.recycler or _managed_chirp_recycler,None)
-                except Exception: return failure('vertex_restart_required','Restart required: a previous managed process could not be retired.',409)
-                return web.json_response({'success':True,'data':self.status()})
+                return await self._busy_disconnect(disconnected)
             stopped=threading.Event()
             deadline=time.monotonic()+(self.check_timeout if operation=='check_firm_sign_in' else 210)
             phase_deadline=[deadline]

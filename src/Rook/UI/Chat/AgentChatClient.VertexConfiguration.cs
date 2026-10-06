@@ -11,7 +11,7 @@ namespace Rook.UI.Chat
 {
     internal sealed record VertexConfigurationStatus(bool Configured, string? Mode, string ProjectId,
         string VideoLocation, string ImageLocation, bool VideoAvailable);
-    internal sealed record VertexConfigurationResult(bool Success, VertexConfigurationStatus? Status, string Message);
+    internal sealed record VertexConfigurationResult(bool Success, VertexConfigurationStatus? Status, string Message, string? Code = null);
 
     internal sealed record FirmSettingsSummary(string Label, string ProjectId, string VideoLocation, string ImageLocation, string WorkforcePoolUserProject, string? QuotaProjectId);
     internal sealed record FirmConfigurationStatus(FirmSettingsSummary? Active, FirmSettingsSummary? Pending, string? ActiveGeneration, string? PendingRevision, string? AuthorizationEpoch, string State, string? LegacyMode, bool RetirementPending);
@@ -45,10 +45,23 @@ namespace Rook.UI.Chat
                 if (response.Content.Headers.ContentLength > 8192) return new(false, null, "Invalid Google configuration response.");
                 using var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
                 var bytes = await CappedStreamReader.ReadCappedAsync(stream, 8192, deadline.Token).ConfigureAwait(false);
-                if (!response.IsSuccessStatusCode || bytes is null) return new(false, null,
+                if (bytes is null) return new(false, null,
                     "Google configuration was not completed. Refresh local status; check the client file, administrator approval and project settings.");
                 using var doc = JsonDocument.Parse(bytes);
                 var root = doc.RootElement;
+                if (!response.IsSuccessStatusCode) {
+                    if (root.TryGetProperty("data", out var committed)) {
+                        ConfigurationJson.Shape(root, "success error data");
+                        ConfigurationJson.Need(root.GetProperty("success").ValueKind == JsonValueKind.False);
+                        ConfigurationJson.Shape(root.GetProperty("error"), "code message");
+                        ConfigurationJson.Need(ConfigurationJson.Text(root.GetProperty("error").GetProperty("code")) == "vertex_restart_required");
+                        var status = ParseFirmStatus(committed);
+                        ConfigurationJson.Need(status.State == "unconfigured" && status.LegacyMode is null);
+                        return new(false, new(false, null, "", "", "global", false),
+                            "Disconnected locally. Restart required: process retirement has not been confirmed.", "vertex_restart_required");
+                    }
+                    return new(false, null, "Google configuration was not completed. Refresh local status; check the client file, administrator approval and project settings.");
+                }
                 ConfigurationJson.Shape(root, "success data");
                 ConfigurationJson.Need(root.GetProperty("success").GetBoolean());
                 var data = root.GetProperty("data");
@@ -74,7 +87,12 @@ namespace Rook.UI.Chat
         internal async Task<FirmConfigurationResult> DisconnectFirmAccountAsync(CancellationToken ct)
         {
             var result = await DisconnectVertexAccountAsync(ct).ConfigureAwait(false);
-            return result.Success ? await ReadFirmConfigurationAsync(ct).ConfigureAwait(false) : new(false, null, result.Message);
+            if (result.Success) return await ReadFirmConfigurationAsync(ct).ConfigureAwait(false);
+            if (result.Code == "vertex_restart_required" && result.Status?.Configured == false) {
+                var current = await ReadFirmConfigurationAsync(ct).ConfigureAwait(false);
+                return new(false, current.Status, result.Message, result.Code);
+            }
+            return new(false, null, result.Message, result.Code);
         }
 
         private static string? NullableText(JsonElement obj, string key) => obj.GetProperty(key).ValueKind == JsonValueKind.Null ? null : ConfigurationJson.Text(obj.GetProperty(key));

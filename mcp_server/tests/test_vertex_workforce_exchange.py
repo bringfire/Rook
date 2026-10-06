@@ -11,6 +11,21 @@ from rook.providers.vertex_auth import VertexAuthError, VertexMode, VertexRecord
 from rook.providers.vertex_workforce_contract import WorkforceActiveRecord
 
 
+@pytest.mark.parametrize('status,code', [(429, 'vertex_request_failed'), (500, 'vertex_request_failed'),
+    (503, 'vertex_request_failed'), (400, 'vertex_workforce_exchange_denied'), (403, 'vertex_workforce_exchange_denied')])
+def test_sts_outages_are_sanitized_service_failures_without_retry(fixture, status, code):
+    from rook.providers.vertex_workforce_exchange import exchange_assertion
+    _, _, settings, _, candidate, _ = fixture
+    calls = []
+    def request(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(status=status, data=b'{"error":"private-provider-sentinel"}')
+    with pytest.raises(VertexAuthError) as error:
+        exchange_assertion(settings, candidate.assertion, deadline=time.monotonic()+30, cancel_check=lambda:None, request=request)
+    assert error.value.code == code and len(calls) == 1
+    assert 'private-provider-sentinel' not in str(error.value)
+
+
 def test_sts_id_token_contract_has_no_client_auth(fixture):
     from rook.providers.vertex_workforce_exchange import exchange_assertion
     _, _, settings, _, candidate, _ = fixture

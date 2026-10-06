@@ -7,9 +7,11 @@ import time
 from types import SimpleNamespace
 from typing import Callable
 
-import httpx
+from urllib.error import HTTPError
+from urllib.request import Request
 
 from .vertex_auth import VertexAuthError, VERTEX_SCOPE
+from .vertex_bounded_io import SocketDeadline, bounded_opener
 from .vertex_workforce_contract import (
     FirmSettings, VerifiedEntraAssertion, WorkforceExchangeResult, TOKEN_LIMIT,
     auth_error, json_object,
@@ -35,20 +37,36 @@ class _StsRequest:
         _check(deadline, self.cancel_check, time.monotonic)
         if url != STS_URL or method != 'POST' or len(body) > TOKEN_LIMIT or any(key.lower() == 'authorization' for key in headers):
             raise auth_error()
-        with httpx.Client(follow_redirects=False, timeout=deadline - time.monotonic()) as client:
-            with client.stream(method, url, headers=headers, content=body) as response:
-                if 300 <= response.status_code < 400:
+        with SocketDeadline(deadline, self.cancel_check, time.monotonic) as guard:
+            opener = bounded_opener(guard)
+            guard.check()  # Construction can consume the remaining deadline.
+            try:
+                try:
+                    response = opener.open(Request(url, data=body, headers=headers, method=method), timeout=deadline - time.monotonic())
+                except HTTPError as error:
+                    response = error
+            except Exception:
+                guard.check()
+                raise auth_error() from None
+            with response:
+                if 300 <= response.getcode() < 400:
                     raise auth_error()
                 payload = bytearray()
                 # Do not aggregate multiple socket reads into a 64KiB chunk:
                 # a slow peer must yield control to deadline/cancellation checks.
-                for chunk in response.iter_bytes():
+                while True:
                     _check(deadline, self.cancel_check, time.monotonic)
+                    try:
+                        chunk = response.read1(min(65536, TOKEN_LIMIT + 1 - len(payload)))
+                    except Exception:
+                        guard.check()
+                        raise auth_error() from None
+                    if not chunk: break
                     payload.extend(chunk)
                     if len(payload) > TOKEN_LIMIT:
                         raise auth_error()
                 _check(deadline, self.cancel_check, time.monotonic)
-                return SimpleNamespace(status=response.status_code, data=bytes(payload))
+                return SimpleNamespace(status=response.getcode(), data=bytes(payload))
 
 
 def exchange_assertion(settings: FirmSettings, assertion: VerifiedEntraAssertion, *,
@@ -79,9 +97,11 @@ def exchange_assertion(settings: FirmSettings, assertion: VerifiedEntraAssertion
             calls += 1
             response = dispatch(**kwargs)
             _check(deadline, cancel_check, monotonic)
-            received = json_object(response.data, TOKEN_LIMIT)
             if response.status != 200:
+                if response.status == 429 or 500 <= response.status <= 599:
+                    raise auth_error('vertex_request_failed')
                 raise auth_error('vertex_workforce_exchange_denied')
+            received = json_object(response.data, TOKEN_LIMIT)
             if received.get('token_type') != 'Bearer' or received.get('issued_token_type') != ACCESS_TOKEN_TYPE or type(received.get('expires_in')) is not int or not 0 < received['expires_in'] <= 3600 or not isinstance(received.get('access_token'), str) or not received['access_token'] or any(ord(char) < 33 or ord(char) > 126 for char in received['access_token']):
                 raise auth_error()
             return response

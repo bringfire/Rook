@@ -13,6 +13,23 @@ namespace Rook.Tests.UI.Chat
 {
     public sealed class VertexConfigurationClientTests
     {
+        [Fact]
+        public async Task FailedRetirementAfterDisconnectStillReturnsCommittedDeletion()
+        {
+            var data = new { contract_version = 2, active = (object?)null, active_generation = (string?)null,
+                retirement_pending = false, pending = (object?)null, pending_revision = (string?)null,
+                authorization_epoch = (string?)null, legacy_mode = (string?)null, state = "unconfigured" };
+            var handler = new VertexTestHandler(async (request, _) => {
+                var operation = JsonDocument.Parse(await request.Content!.ReadAsStringAsync()).RootElement.GetProperty("operation").GetString();
+                return new HttpResponseMessage(operation == "disconnect" ? HttpStatusCode.Conflict : HttpStatusCode.OK) {
+                    Content = new StringContent(operation == "disconnect"
+                        ? JsonSerializer.Serialize(new { success = false, error = new { code = "vertex_restart_required", message = "private-sentinel" }, data })
+                        : JsonSerializer.Serialize(new { success = true, data })) };
+            });
+            var result = await AgentChatClient.ForTests(handler, new Uri("http://127.0.0.1:1")).DisconnectFirmAccountAsync(CancellationToken.None);
+            Assert.False(result.Success); Assert.NotNull(result.Status); Assert.Null(result.Status!.Active); Assert.Null(result.Status.Pending);
+            Assert.Equal("vertex_restart_required", result.Code); Assert.DoesNotContain("private-sentinel", result.Message);
+        }
         internal static object RetirementStatus(bool committed) => new {
             contract_version = 2,
             active = committed ? SyntheticSummary : null, active_generation = committed ? new string('c', 32) : null,
