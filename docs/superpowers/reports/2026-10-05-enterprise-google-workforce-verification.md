@@ -2,25 +2,25 @@
 
 Implementation uses the approved MSAL public desktop and Google auth STS assertion contract. Credentials remain Python-owned, with DPAPI-protected persistence; workforce media reuses the existing RookVision providers, managers, ledger and artifact pipeline.
 
-Automated implementation evidence and installed live acceptance are separate gates. Tasks 1–9 are complete, including the earlier independent review's four fixes, the user's subsequent seven findings, the second review's four findings, and corrected-source packaged qualification. Task 10 has not started. No real Entra/Google exchange or workforce media generation has been run, and the qualified payload has not been deployed into installed Rook.
+Automated implementation evidence and installed live acceptance are separate gates. Tasks 1–9 are complete, including the earlier independent review's four fixes, the user's subsequent seven findings, the second review's four findings, the third review's socket-allocation fallback correction, and corrected-source packaged qualification. Task 10 has not started. No real Entra/Google exchange or workforce media generation has been run, and the qualified payload has not been deployed into installed Rook.
 
-Final production source tested and packaged: `29c07b7cada6d98deb3fe4bda34a9ee5859ac548`, branch `codex/enterprise-google-media`. Matching clean Chirp source: `12230c7a9ce71104a4de31f9bc29b444cbc0b135`. This final evidence update changes documentation only; the packaged source includes the reproducible SDK/DPAPI/local-TLS smoke fixture.
+Final production source tested and packaged: `56da9b249909b6a2fafd766259a9d2716bc0a08e`, branch `codex/enterprise-google-media`. Matching clean Chirp source: `12230c7a9ce71104a4de31f9bc29b444cbc0b135`. This final evidence update changes documentation only; the packaged source includes the reproducible SDK/DPAPI/local-TLS smoke fixture.
 
 | Gate | Current result |
 |---|---|
 | Focused Python auth/configuration/Chirp tests at `e96f9899` | 372 passed; 11 existing DSPy deprecation warnings |
 | Focused managed configuration tests at `e96f9899` | 216 passed with the external Prime producer case excluded |
 | Unexcluded managed configuration tests | 216 passed, 1 failed: `Task7_original_producer_values_survive_managed_http_parser`, “Stage B requires the real producer fixture from its Python gate.” |
-| Final expanded Python auth/Vertex/Chirp/text/DSPy/configuration suite | 595 passed, 5 deselected; 11 existing DSPy deprecation warnings; exact missing external prerequisites below |
-| Final managed configuration suite | 30 passed, including both disconnect views, unavailable/malformed/cancelled reconciliation, committed-deletion fallback and recovery races |
-| Fresh Debug and Release managed Rebuild | Rook and then RookBim rebuilt in each configuration; all four builds passed with 0 errors |
+| Final expanded Python auth/Vertex/Chirp/text/DSPy/configuration suite | 596 passed, 5 deselected; 11 existing DSPy deprecation warnings; exact missing external prerequisites below |
+| Managed configuration suite at `29c07b7c` (unchanged managed source) | 30 passed, including both disconnect views, unavailable/malformed/cancelled reconciliation, committed-deletion fallback and recovery races |
+| Debug and Release managed Rebuild at `29c07b7c` (unchanged managed source) | Rook and then RookBim rebuilt in each configuration; all four builds passed with 0 errors |
 | Historical unexcluded whole managed suite | 4,253 passed, 2 prerequisite failures; detailed below |
-| Final whole managed suite scoped to available prerequisites | 4,266 passed; excludes exactly the two documented absent prerequisites |
+| Whole managed suite at `29c07b7c`, scoped to available prerequisites (unchanged managed source) | 4,266 passed; excludes exactly the two documented absent prerequisites |
 | Python runtime packaging / wheelhouse policy tests | Both passed against the actual final staged payload; release validator passed 1.6.1 with 109 wheels |
 | Authority CPython runtime input | Official CPython 3.11.9 Windows x64 NuGet SHA-256 verified: `9283876d58c017e0e846f95b490da3bca0fc0a6ee1134b2870677cfb7eec3c67` |
 | Historical packaged runtime build attempt | At clean `53dcd439`, offline verification passed, but required dependency audit failed; replaced by the qualified final-source build below |
-| Qualified final packaged Python/MSAL payload | Passed at clean `29c07b7c`: both isolated offline installs/imports, exact lock matching, `pip check`, cache removal and dependency audits; no broker extras |
-| Packaged auth smoke on CPython 3.11.9 | Passed: actual MSAL with synthetic signed ID tokens, actual Google SDK STS wire, forced refresh, missing-oid refusal/cache preservation and Windows DPAPI/disconnect tombstone and actual loopback TLS/Windows DNS verification; zero cloud traffic |
+| Qualified final packaged Python/MSAL payload | Passed at clean `56da9b24`: both isolated offline installs/imports, exact lock matching, `pip check`, cache removal and dependency audits; no broker extras |
+| Packaged auth smoke on CPython 3.11.9 | Passed: actual MSAL with synthetic signed ID tokens, actual Google SDK STS wire, forced refresh, missing-oid refusal/cache preservation and Windows DPAPI/disconnect tombstone and actual loopback TLS/Windows DNS and IPv6-allocation/IPv4 fallback verification; zero cloud traffic |
 | Independent authentication/whole-branch review | Fresh independent review of `bc19d4af..53dcd439`: 137 focused Python tests passed; four Important findings, no Critical/Minor findings; all four fixed with failing-then-passing regressions and fresh source suites |
 | Installed firm sign-in and media acceptance | Not run; administrator setup, two approved identities and spend approval required |
 | Private resource/user/quota billing attribution | Pending live observation |
@@ -63,9 +63,19 @@ The review of `90cdf2ba` against `404747c4` confirmed the earlier seven fixes an
 
 Focused gates passed 25 review regressions and 30 managed configuration cases; an earlier combined auth/HTTP transport slice passed 107 cases. The first whole managed run passed 4,264 cases and failed two unchanged timing tests: `GhSolveReceiptRegistryTests.Supersession_SignalsPendingWaiterAndReleasesOwnership` and the completed-close case of `ConversationCloseCoordinatorTests.Shutdown_style_synchronous_drain_completes_without_context_pumping`. Both passed in isolation (four cases), then the complete rerun passed without changing any code or time limit. The final expanded Python gate passed 595 tests with the same five missing external Prime cases deselected and 11 existing warnings. Fresh Rook then RookBim Debug/Release rebuilds passed with zero errors, followed by 4,266 managed tests with the same two documented prerequisite exclusions. No timing budget or assertion was relaxed. All dependency pins and audit exceptions remain unchanged.
 
-The clean `29c07b7c` authority build passed both isolated offline verifiers, freeze/lock matching, cache removal, pip check, both audits, the 109-wheel release validator and both packaging-policy suites. The isolated CPython 3.11.9 SDK/DPAPI/TLS/reference-leak smoke checks source equality for the new resolver module and exercises real Windows localhost resolution. The artifact hashes below identify this package; earlier qualification is historical evidence.
+The clean `29c07b7c` authority build passed both isolated offline verifiers, freeze/lock matching, cache removal, pip check, both audits, the 109-wheel release validator and both packaging-policy suites. The isolated CPython 3.11.9 SDK/DPAPI/TLS/reference-leak smoke checks source equality for the new resolver module and exercises real Windows localhost resolution. This qualification is historical; the third-review package and its hashes are recorded below.
 
 Windows' cancellation contract immediately completes the user's lookup but may leave underlying legacy provider resources running. Rook bounds its outstanding native user lookup and buffers, preserves an unconfirmed cancellation safely until completion, and returns authentication/configuration control without waiting indefinitely for DNS. It does not claim control of provider internals. See [Microsoft's documented cancellation contract](https://learn.microsoft.com/en-us/windows/win32/api/ws2tcpip/nf-ws2tcpip-getaddrinfoexcancel). The deliberate cost is fail-closed temporary authentication unavailability if the single lookup remains unconfirmed; later completion is disposed without returning its addresses. No account, tenant, client or project values were added to public evidence. Task 10 remains separately unrun: tenant policy, model permissions, generation, playback and billing need private installed live acceptance.
+
+## Third user review follow-up - 2026-10-06
+
+The review closed all four previous findings, then reproduced one P2 address-fallback defect. Real Windows localhost resolution returned IPv6 before IPv4, and an IPv4 listener was reachable. Injecting only IPv6 socket creation failure (unsupported address family) let the standard-library connector connect and transfer data, while Rook failed at socket allocation. The regression was observed failing before the fix.
+
+Commit `56da9b24` moves socket allocation and registration inside the per-address exception boundary, initializes the candidate to `None` for each address, and cleans up only allocated sockets. Allocation failure now reaches the next address while retaining deadline/cancellation checks. No DNS, TLS, submission-retry, dependency or credential contract changes were introduced.
+
+The 26 focused review regressions passed, followed by the expanded Python gate: 596 passed, the same five absent external Prime cases deselected, and 11 existing DSPy warnings. No managed/native source changed; the recorded four fresh managed rebuilds and 4,266 managed tests at `29c07b7c` remain evidence for those identical bytes, not a newly run managed gate for this Python-only change.
+
+The clean `56da9b24` authority build passed both isolated offline verifiers, exact lock/freeze matching, cache removal, pip check and both audits with the unchanged existing exception. The isolated CPython 3.11.9 SDK/DPAPI/source-equality/TLS smoke now also injects only IPv6 allocation failure against real Windows localhost resolution and a real IPv4 listener; it passed connection and data transfer. The staged 109-wheel release validator and both packaging-policy suites passed. The five hashes below identify this final payload. Private-value and whitespace scans passed; raw logs and staging data stay uncommitted. No installed deployment, real sign-in/exchange, generation, playback or billing check occurred. Task 10 and its explicit spending approval remain separate.
 
 ## Packaged qualification and resolved audit failure
 
@@ -79,15 +89,15 @@ The corrected-source authority rebuild at clean `6f918209` passed both isolated 
 
 Expanded text/DSPy/configuration/auth regression testing under these updated pins found five additional cases requiring the same absent real Prime checkout/Node loader: `test_task7_real_prime_writer_sdk_http_and_panel_fixture` and the four parameterizations of `test_real_prime_writes_refresh_and_replacement_preserve_acl`. The unexcluded expanded run passed 550 cases and failed those five prerequisite cases. The scoped rerun excludes exactly these two functions, with all available tests retained. They are not treated as a successful real Prime integration gate.
 
-Final second-review verification rebuilt Rook and then RookBim in Debug and Release before the managed tests, with zero build errors, then passed the scoped 595 Python and 4,266 managed tests and both packaging-policy suites. An operator-only Bash/PowerShell module-path issue and propagation of an intentionally failing negative test's exit code were corrected in the ignored verification runner. Product validators and negative tests were not weakened.
+Before the final Python-only fallback correction, second-review verification rebuilt Rook and then RookBim in Debug and Release before the managed tests, with zero build errors, then passed the scoped 595 Python and 4,266 managed tests and both packaging-policy suites. An operator-only Bash/PowerShell module-path issue and propagation of an intentionally failing negative test's exit code were corrected in the ignored verification runner. Product validators and negative tests were not weakened.
 
 The authority build uses release version 1.6.1 and the verified CPython 3.11.9 input above. Qualified runtime pins include MSAL 1.39.0, Google auth 2.56.3, PyJWT 2.15.0, LiteLLM 1.89.7, Requests 2.34.2, packaged Cryptography 50.0.1 and multidict 6.9.1. The existing development Cryptography profile remains 50.0.0. The [packaged smoke fixture](../../../mcp_server/tests/fixtures/vertex_workforce_packaged_smoke.py) runs with the isolated installed-wheel interpreter and `-I`; it verifies module origins and production-source equality as well as the synthetic SDK/DPAPI lifecycle. It does not substitute for live identity, policy, model or billing checks.
 
 | Qualified artifact | SHA-256 |
 |---|---|
-| Runtime manifest | `6b9d71ae25656b9458f6187c6cc51a06162ce90d664f44747376c7a0597f352f` |
-| Rook 1.6.1 wheel | `c7cb03f28e1ffb55a7b2a35bb6771c9c167b3ccc11f6c5233d009e20b4dd4442` |
-| Chirp 0.1.0 wheel | `65ec7c2125ed97680b0a089e83963d8cdc7aa48e127533d31f01d084b8d1a144` |
+| Runtime manifest | `5182db1186f34165e791acfe8b2af66738c36e8130978ff18de7a6c6a3c7d70f` |
+| Rook 1.6.1 wheel | `5f9b0a1c857e6c5050166f55ba5b68b743722afb1d863fd7d8c873d41cadf968` |
+| Chirp 0.1.0 wheel | `51f83e5369b216be7ed00c14290b5682fb4df907cd3266ea25cdd94f2a750fca` |
 | Rook dependency audit JSON | `93d5b3a80421e05b3d714caecd97e26aa32c2f4c03a5d75b84a01651381d6e7f` |
 | Chirp dependency audit JSON | `570604a91e8b7bb767818d456d60074284648a6dfd7a22e4b097cdd8363061b2` |
 
