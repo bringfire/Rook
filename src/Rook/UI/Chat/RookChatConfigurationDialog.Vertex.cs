@@ -111,7 +111,16 @@ namespace Rook.UI.Chat
             try {
                 if (operation == "check_firm_sign_in") {
                     var result = shown?.ActiveGeneration is not null ? await _client.CheckFirmSignInAsync(shown.ActiveGeneration, cancellation.Token).ConfigureAwait(false) : new FirmSignInResult(false, null, "Read local firm settings before checking sign-in.");
-                    await PresentAsync(() => { if (epoch == _vertexViewEpoch) VertexStatus.Text = result.Message; }).ConfigureAwait(false);
+                    var current = await _client.ReadFirmConfigurationAsync(cancellation.Token).ConfigureAwait(false);
+                    await PresentAsync(() => {
+                        if (epoch != _vertexViewEpoch) return;
+                        if (current.Status is not null) ShowFirmStatus(current.Status);
+                        VertexStatus.Text = current.Status is null
+                            ? "Local firm status could not be reconciled. Read local settings. Image/video access, billing and quota remain unverified."
+                            : result.Check?.State == "signed_in" && (current.Status.ActiveGeneration != result.Check.Generation || current.Status.RetirementPending)
+                                ? "Google authorization changed after checking sign-in. Read local settings. Image/video access, billing and quota remain unverified."
+                                : result.Message;
+                    }).ConfigureAwait(false);
                 }
                 else if (operation is "firm_status" or "import_firm" or "discard_firm" or "prepare_firm_reconnect" or "connect_firm" or "disconnect_firm") {
                     var result = await RunFirmActionAsync(operation, shown, firmPath, cancellation.Token).ConfigureAwait(false);

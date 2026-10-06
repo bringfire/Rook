@@ -17,6 +17,57 @@ namespace Rook.Tests.UI.Chat
     {
         private readonly AgentChatProgressTests.PanelThread _ui;
         public VertexConfigurationDialogTests(AgentChatProgressTests.PanelThread ui) => _ui = ui;
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public async Task RecoveryCheckReconcilesStatusWithoutOverwritingLaterDisconnect(bool superseded)
+        {
+            var queue = new ConcurrentQueue<Action>(); RookChatConfigurationDialog dialog = null!;
+            var recovered = false; var disconnected = false;
+            var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var http = new VertexTestHandler(async (request, _) => {
+                var operation = JsonDocument.Parse(await request.Content!.ReadAsStringAsync()).RootElement.GetProperty("operation").GetString();
+                object data;
+                if (operation == "check_firm_sign_in") {
+                    recovered = true;
+                    data = new { contract_version = 2, check_scope = "identity_exchange", state = "signed_in", code = (string?)null, generation = new string('c', 32), image_access = "unverified", video_access = "unverified", billing = "unverified", quota = "unverified" };
+                } else if (operation == "disconnect") {
+                    disconnected = true;
+                    data = new { configured = false, mode = (string?)null, project_id = "", video_location = "", image_location = "global", video_available = false };
+                } else {
+                    data = new { contract_version = 2,
+                        active = disconnected ? null : new { label = "Synthetic firm", project_id = "synthetic-firm-project", video_location = "us-central1", image_location = "global", workforce_pool_user_project = "synthetic-firm-project", quota_project_id = (string?)null },
+                        active_generation = disconnected ? null : new string('c', 32), retirement_pending = !disconnected && !recovered,
+                        pending = (object?)null, pending_revision = (string?)null, authorization_epoch = (string?)null,
+                        legacy_mode = (string?)null, state = disconnected ? "unconfigured" : recovered ? "signed_in" : "restart_required" };
+                    if (superseded && recovered && !disconnected) { entered.TrySetResult(true); await release.Task; }
+                }
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(new { success = true, data })) };
+            });
+            using var client = AgentChatClient.ForTests(http, new Uri("http://127.0.0.1:1"));
+            _ui.Run(() => { Rook.Tests.UI.EtoTestPlatform.Ensure(); SynchronizationContext.SetSynchronizationContext(null); dialog = new(client, queue.Enqueue); dialog.VertexConnectionChoice.SelectedIndex = 1; });
+            Task Start(string operation) { Task pending = null!; _ui.Run(() => pending = dialog.RunVertexActionAsync(operation)); return pending; }
+            async Task Pump(Task pending) {
+                for (var i = 0; i < 5000 && !pending.IsCompleted; i++) { _ui.Run(() => { while (queue.TryDequeue(out var next)) next(); }); await Task.Delay(1); }
+                _ui.Run(() => { while (queue.TryDequeue(out var next)) next(); }); Assert.True(pending.IsCompleted); await pending;
+            }
+            try {
+                await Pump(Start("firm_status"));
+                _ui.Run(() => Assert.Contains("Restart required", dialog.FirmActiveStatus.Text));
+                var check = Start("check_firm_sign_in");
+                if (superseded) {
+                    Assert.Same(entered.Task, await Task.WhenAny(entered.Task, check, Task.Delay(5000)));
+                    await Pump(Start("disconnect_firm")); release.TrySetResult(true);
+                }
+                await Pump(check);
+                _ui.Run(() => {
+                    Assert.DoesNotContain("Restart required", dialog.FirmActiveStatus.Text);
+                    if (superseded) { Assert.Contains("No active firm session", dialog.FirmActiveStatus.Text); Assert.DoesNotContain("exchange passed", dialog.VertexStatus.Text); }
+                    else { Assert.Contains("exchange passed", dialog.VertexStatus.Text); Assert.Contains("unverified", dialog.FirmActiveStatus.Text); }
+                });
+            } finally { release.TrySetResult(true); _ui.Run(() => dialog.Dispose()); }
+        }
         [Fact]
         public async Task FailedCommittedActivationReplacesDisplayedLegacyAndPendingState()
         {
@@ -115,7 +166,8 @@ namespace Rook.Tests.UI.Chat
                 _ui.Run(() => { Assert.Contains("Pending", dialog.FirmPendingStatus.Text); Assert.Contains("images and videos", RookChatConfigurationDialog.FirmMediaOnlyWarning); });
                 await Run("connect_firm"); await Run("check_firm_sign_in");
                 _ui.Run(() => { Assert.Contains("remain unverified", dialog.VertexStatus.Text); Assert.DoesNotContain("Generation ready", dialog.VertexStatus.Text); });
-                Assert.Equal(3, requests.Count);
+                Assert.Equal(4, requests.Count);
+                Assert.Equal("firm_status", requests[3].GetProperty("operation").GetString());
             }
             finally { _ui.Run(() => dialog.Dispose()); }
         }
