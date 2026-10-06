@@ -56,6 +56,8 @@ Preserve existing dependency pins: development lock `requests==2.34.2`, `PyJWT==
 
 Task 9's required authority audit found advisories in existing LiteLLM 1.89.4 and PyJWT 2.14.0 (development 2.13.0 is also affected). Deliberate dependency maintenance within that verification task changes only LiteLLM to 1.89.7 and PyJWT to 2.15.0 in both profiles, after reviewing maintainer advisories, universal-wheel hashes and a targeted audit. This is a concrete audit correction, not incidental profile synchronization. Other pins/extras remain unchanged; the full offline install, audit and final-source package gates still apply. Evidence and scope are in the [runtime security-pin maintenance plan](../plans/2026-10-05-enterprise-google-workforce-runtime-pin-remediation.md).
 
+The corrected-source rebuild on 2026-10-06 found `GHSA-54p9-h82j-f925` in packaged multidict 6.8.0; development 6.7.1 is also affected. The same deliberate maintenance rule admits existing multidict 6.9.1 in both locks after advisory, binary-wheel hash, exact graph and reference-leak regression review. No other dependency or extra changes, no new audit exception, and no runtime fallback are admitted. Full package qualification must pass again.
+
 ### Selected Google exchange and migration decision
 
 Pin the first adapter to `POST https://sts.googleapis.com/v1/token` through `google.auth.identity_pool.Credentials` and a Rook-owned `SubjectTokenSupplier`. Use the following SDK-generated form contract; the assertion is a validated Entra ID token, never an Entra API access token:

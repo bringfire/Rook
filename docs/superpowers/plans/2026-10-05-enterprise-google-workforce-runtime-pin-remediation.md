@@ -35,3 +35,16 @@ Their Python requirements permit packaged CPython 3.11.9. A targeted `pip-audit=
 5. Proceed to the installed workforce pilot only after packaged qualification succeeds and private administrator setup, two approved identities and media spend are available. The pilot remains separately responsible for refresh, disconnect/restart behavior, image dimensions/video playback and resource/user/quota billing attribution.
 
 The execution ledger records this deliberate correction and its cost: text-library behavior could regress, so both auth/media and existing text/DSPy/configuration tests must run under the updated pins. No new audit exception or installation of the failing payload is allowed. Final qualification results belong in the workforce verification report.
+
+## 2026-10-06 corrected-source audit follow-up
+
+The authority rebuild at clean `6f91820902123326a7f1e13b498bc6970aa58160` completed both isolated offline verifiers, then failed the Rook audit on multidict 6.8.0, `CVE-2026-104874` / `GHSA-54p9-h82j-f925`. The development lock's 6.7.1 is also affected. The [maintainer advisory](https://github.com/aio-libs/multidict/security/advisories/GHSA-54p9-h82j-f925) identifies a C-extension reference leak in reflected items-view union and subtraction, fixed in 6.9.1. This does not establish that Rook exposes the affected operators to remote callers; the required audit gate still applies. The prior qualified payload and its hashes are historical evidence, not qualification of corrected source.
+
+Deliberately update this existing package only, with no new dependencies/extras or audit exceptions. Public PyPI metadata requires Python >=3.10 and adds no dependency on supported 3.11/3.12 runtimes. Downloads were independently SHA-256 checked:
+
+| Wheel | SHA-256 |
+|---|---|
+| `multidict-6.9.1-cp311-cp311-win_amd64.whl` | `5f89dad732280e7a10b74d40b91364f88e13c3f2c08c2ef83a8cd42f7a61af2e` |
+| `multidict-6.9.1-cp312-cp312-win_amd64.whl` | `a16a1dc8529f9e734a41c3b856f3eae7ebacdc061dde3f8a844e0c7889c97203` |
+
+The complete UV package-object diff changes only multidict 6.7.1 to 6.9.1; dependency declarations and the package set are identical. A targeted no-deps audit of 6.9.1 returned zero known vulnerabilities. Small 32-element C-extension probes reproduced 32 leaked references for each affected operator in both MultiDict and CIMultiDict on development 6.7.1 and packaged 6.8.0; intersection controls leaked zero. The same probes under a hash-verified development overlay of 6.9.1 all leak zero. The shared environment remains unchanged. Add these ownership checks to the packaged smoke fixture, run the expanded source regressions under reviewed pins, then commit and rerun the full authority build, both audits, manifest and packaging-policy checks. The prior fresh managed rebuilds/tests remain evidence for unchanged managed bytes; this update changes no C# or native source. Installed live acceptance remains separate and unrun.

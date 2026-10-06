@@ -1,5 +1,6 @@
 """Isolated packaged SDK/DPAPI/TLS smoke; synthetic identities, no external traffic."""
 import base64
+import gc
 import hashlib
 import importlib
 from importlib.metadata import version
@@ -21,8 +22,25 @@ from rook.providers.vertex_workforce_store import VertexWorkforceStore
 from rook.providers.vertex_workforce_exchange import exchange_assertion
 from rook.providers import vertex_backend as backend
 
-expected={'msal':'1.39.0','google-auth':'2.56.3','PyJWT':'2.15.0','litellm':'1.89.7','requests':'2.34.2','cryptography':'50.0.1'}
+expected={'msal':'1.39.0','google-auth':'2.56.3','PyJWT':'2.15.0','litellm':'1.89.7','requests':'2.34.2','cryptography':'50.0.1','multidict':'6.9.1'}
 assert sys.version_info[:3]==(3,11,9) and all(version(key)==value for key,value in expected.items())
+
+# Guard the admitted C-extension correction for GHSA-54p9-h82j-f925.
+# Tiny operands verify actual reference ownership without a memory stress test.
+from multidict import CIMultiDict, MultiDict
+assert CIMultiDict.__module__ == 'multidict._multidict'
+for dictionary in (CIMultiDict, MultiDict):
+    for operation in ('reflected_union', 'subtraction', 'intersection_control'):
+        items=dictionary(seed='x').items()
+        sentinel=object()
+        operand=[(f'synthetic-{index}',sentinel) for index in range(32)]
+        gc.collect(); before=sys.getrefcount(sentinel)
+        if operation=='reflected_union': result=operand | items
+        elif operation=='subtraction': result=items - operand
+        else: result=items & operand
+        del result
+        gc.collect()
+        assert sys.getrefcount(sentinel)==before, f'{dictionary.__name__} {operation} leaks references'
 repo=Path(__file__).resolve().parents[3]
 for name in ('vertex_backend','vertex_entra','vertex_workforce_exchange','vertex_workforce_store','vertex_token_lease','vertex_bounded_io'):
     module=importlib.import_module('rook.providers.'+name)
