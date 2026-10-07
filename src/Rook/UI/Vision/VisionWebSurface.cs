@@ -402,7 +402,8 @@ p { margin: 8px 0; line-height: 1.4; }
                 artifactStore: RookSubsystemRoot.Instance.SharedArtifactStore,
                 generationSecrets: RookSubsystemRoot.Instance.SharedGenerationSecretStore,
                 enhancer: new PromptEnhancer(),
-                viewportHandler: new ViewportHandler());
+                viewportHandler: new ViewportHandler(),
+                imageProviderRegistry: RookSubsystemRoot.Instance.ImageJobs.Registry);
         }
 
         // ─── Bridge handler ───────────────────────────────────────────

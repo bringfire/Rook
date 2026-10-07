@@ -97,6 +97,7 @@ namespace Rook.Tests.Services.Vision.Video
                         FalVideoCapabilities.WanT2v,
                         FalVideoCapabilities.SeedanceI2v,
                         FalVideoCapabilities.KlingV3StandardI2v,
+                        "vertex_ai/veo-3.1-fast-generate-001",
                     })
                     .OrderBy(k => k, StringComparer.Ordinal)
                     .ToArray();

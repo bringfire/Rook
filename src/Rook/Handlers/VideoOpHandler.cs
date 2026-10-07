@@ -721,14 +721,18 @@ namespace Rook.Handlers
         private static Dictionary<string, object?> ErrorToObj(VideoJobError err) =>
             ErrorToObj(VideoProviderOutcomeAdapters.ToGenerationError(err));
 
-        private static Dictionary<string, object?> ErrorToObj(GenerationError err) =>
-            new()
+        private static Dictionary<string, object?> ErrorToObj(GenerationError err)
+        {
+            var result = new Dictionary<string, object?>
             {
                 ["code"] = ErrorCodeToString(err.Code),
                 ["message"] = err.Message,
                 ["retryable"] = err.Retryable,
                 ["field"] = err.Field,
             };
+            if(err.ProviderErrorCode == "vertex_submission_unknown") result["submission_outcome_unknown"] = true;
+            return result;
+        }
 
         private static Dictionary<string, object?> ProgressToObj(VideoJobProgress p) =>
             new()

@@ -89,7 +89,7 @@ namespace Rook.Services.Vision.Generation
             else
             {
                 var metaCopy = new Dictionary<string, JsonNode>(providerMetadata.Count);
-                foreach (var kvp in providerMetadata) metaCopy[kvp.Key] = kvp.Value;
+                foreach (var kvp in providerMetadata) metaCopy[kvp.Key] = kvp.Value?.DeepClone()!;
                 ProviderMetadata = metaCopy;
             }
         }

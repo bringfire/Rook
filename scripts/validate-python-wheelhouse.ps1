@@ -60,6 +60,27 @@ function Get-NormalizedPackageName {
     return ($Name -replace '[-_.]+', '-').ToLowerInvariant()
 }
 
+function Assert-FirmAuthPayload {
+    param([object]$Manifest)
+    $records = @($Manifest.wheelhouse.wheels | Where-Object {
+        (Get-NormalizedPackageName ([string]$_.project)) -eq 'msal'
+    })
+    if ($records.Count -ne 1 -or [string]$records[0].version -ne '1.39.0' -or
+        [string]$records[0].file -ne 'msal-1.39.0-py3-none-any.whl' -or
+        ([string]$records[0].sha256).ToUpperInvariant() -ne '2D2577886906CD7293850DFFA2DA29119966C213BFC6EC0CECF8BF7621E1CA77') {
+        Fail 'MSAL 1.39.0 approved wheel is missing or inconsistent'
+    }
+    $auth = $Manifest.verification.rook.firm_auth_dependencies
+    if ($null -eq $auth -or [string]$auth.msal -ne '1.39.0' -or [string]$auth.'google-auth' -ne '2.56.3') {
+        Fail 'installed firm-auth dependency verification is missing or inconsistent'
+    }
+    foreach ($record in @($Manifest.wheelhouse.wheels)) {
+        if ((Get-NormalizedPackageName ([string]$record.project)) -in @('msal-extensions', 'pymsalruntime')) {
+            Fail 'unapproved MSAL broker dependency'
+        }
+    }
+}
+
 # --- Resolve paths --------------------------------------------------------
 
 if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
@@ -107,6 +128,7 @@ if ([string]$manifest.release_version -ne $Version) {
 }
 
 Require-NonEmptyField -Object $manifest.wheelhouse -Field 'wheels' -Context 'manifest wheelhouse'
+Assert-FirmAuthPayload -Manifest $manifest
 
 # --- Wheelhouse directory + on-disk inventory -----------------------------
 

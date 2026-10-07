@@ -132,21 +132,6 @@ def _mutation_lock(store: VertexStore) -> _WindowsNamedMutex:
     return _WindowsNamedMutex(store._mutex_name, store._mutex_timeout_ms)
 
 
-def _replace_and_recycle(
-    store: VertexStore,
-    record: VertexRecord,
-    recycler: Callable[[str | None], None],
-    *,
-    message: str,
-) -> VertexOperationResult:
-    committed = store.replace(record)
-    try:
-        recycler(committed.generation)
-    except Exception:
-        return _restart_required(committed.generation)
-    return _success(committed.generation, message)
-
-
 def _managed_chirp_recycler(generation: str | None) -> None:
     from ..chirp_manager import recycle_after_vertex_commit
 
@@ -395,6 +380,7 @@ def connect_vertex_oauth(
     store: VertexStore | None = None,
     authorize: Callable[[DesktopOAuthClient], dict[str, str]] | None = None,
     oauth_dependencies: _OAuthDependencies | None = None,
+    cancel_check: Callable[[], None] | None = None,
 ) -> VertexOperationResult:
     """Authorize and atomically commit one Rook-owned desktop OAuth record."""
 
@@ -402,29 +388,22 @@ def connect_vertex_oauth(
     try:
         selected_recycler = _select_recycler(recycler)
         _validate_project_region(project_id, region)
-        with _mutation_lock(selected_store):
-            selected_store.read()
-            credentials = (
-                authorize(client)
-                if authorize is not None
-                else authorize_desktop(client, dependencies=oauth_dependencies)
-            )
-            ciphertext = selected_store.protect_authorized_user(credentials)
-            requested = VertexRecord(
-                schema_version=VERTEX_SCHEMA_VERSION,
-                generation=_EMPTY_GENERATION,
-                mode=VertexMode.OAUTH,
-                project_id=project_id,
-                region=region,
-                oauth_ciphertext=ciphertext,
-                service_account_path=None,
-            )
-            return _replace_and_recycle(
-                selected_store,
-                requested,
-                selected_recycler,
-                message="Google authorization was saved for Vertex AI.",
-            )
+        from .vertex_workforce_store import VertexWorkforceStore
+        import time
+        firm_store = VertexWorkforceStore(selected_store)
+        selected_store.read()
+        expected_epoch = firm_store.authorization_epoch()
+        credentials = authorize(client) if authorize is not None else authorize_desktop(client, dependencies=oauth_dependencies, cancel_check=cancel_check)
+        if cancel_check is not None:
+            cancel_check()
+        ciphertext = selected_store.protect_authorized_user(credentials)
+        requested = VertexRecord(VERTEX_SCHEMA_VERSION, _EMPTY_GENERATION, VertexMode.OAUTH, project_id, region, ciphertext, None)
+        committed = firm_store.activate_legacy(expected_epoch, requested, deadline=time.monotonic() + 30, cancel_check=cancel_check or (lambda: None))
+        try:
+            selected_recycler(committed.generation)
+        except Exception:
+            return _restart_required(committed.generation)
+        return _success(committed.generation, "Google authorization was saved for Vertex AI.")
     except VertexAuthError as exc:
         return _result_from_error(exc)
     except Exception:
@@ -439,6 +418,7 @@ def save_vertex_configuration(
     recycler: Callable[[str | None], None] | None = None,
     service_account_path: str | None = None,
     store: VertexStore | None = None,
+    cancel_check: Callable[[], None] | None = None,
 ) -> VertexOperationResult:
     """Select one explicit Vertex mode without falling through to another."""
 
@@ -455,6 +435,8 @@ def save_vertex_configuration(
             ) from exc
         with _mutation_lock(selected_store):
             prior = selected_store.read()
+            if prior is not None and prior.mode is VertexMode.WORKFORCE:
+                raise VertexAuthError('vertex_firm_settings_reimport_required', 'Reimport firm settings and sign in deliberately to change the active firm connection.')
             ciphertext = None
             path = None
             if selected_mode is VertexMode.OAUTH:
@@ -483,12 +465,16 @@ def save_vertex_configuration(
                         "The selected service-account file is unavailable.",
                     ) from exc
                 raise
-            return _replace_and_recycle(
-                selected_store,
-                requested,
-                selected_recycler,
-                message="Vertex AI configuration was saved.",
-            )
+            if cancel_check is not None:
+                cancel_check()
+            committed = selected_store.replace(requested)
+        # Chirp replacement takes its own lock before the credential mutex.
+        # Never wait for it while holding the opposite lock order.
+        try:
+            selected_recycler(committed.generation)
+        except Exception:
+            return _restart_required(committed.generation)
+        return _success(committed.generation, "Vertex AI configuration was saved.")
     except VertexAuthError as exc:
         return _result_from_error(exc)
     except Exception:
@@ -509,6 +495,7 @@ def disconnect_vertex(
     recycler: Callable[[str | None], None] | None = None,
     store: VertexStore | None = None,
     revoke: Callable[[str], bool] | None = None,
+    cancel_check: Callable[[], None] | None = None,
 ) -> VertexOperationResult:
     """Best-effort revoke OAuth and exact-delete only the Vertex record."""
 
@@ -516,8 +503,17 @@ def disconnect_vertex(
     try:
         selected_recycler = _select_recycler(recycler)
         with _mutation_lock(selected_store):
+            if cancel_check is not None:
+                cancel_check()
             record = selected_store.read()
             if record is None:
+                from .vertex_workforce_store import VertexWorkforceStore
+                firm = VertexWorkforceStore(selected_store)
+                if cancel_check is not None:
+                    cancel_check()
+                # Even an empty profile may have a first browser flow in another
+                # service. Persist a new epoch so it cannot restore authorization.
+                firm.disconnect_all()
                 return VertexOperationResult(
                     success=True,
                     code=None,
@@ -535,6 +531,8 @@ def disconnect_vertex(
                     if isinstance(credentials, dict):
                         refresh_token = credentials.get("refresh_token")
                         if isinstance(refresh_token, str) and refresh_token:
+                            if cancel_check is not None:
+                                cancel_check()
                             revocation = (
                                 "revoked"
                                 if (revoke or _revoke_token)(refresh_token)
@@ -542,8 +540,13 @@ def disconnect_vertex(
                             )
                 except Exception:
                     revocation = "failed"
+            # Revocation already dispatched cannot be recalled. Cancellation
+            # still prevents deletion of the local record; UI requires a status read.
+            if cancel_check is not None:
+                cancel_check()
             try:
-                selected_store.path.unlink()
+                from .vertex_workforce_store import VertexWorkforceStore
+                VertexWorkforceStore(selected_store).disconnect_all()
             except FileNotFoundError:
                 local_deletion = "absent"
             except OSError:
@@ -557,23 +560,124 @@ def disconnect_vertex(
                 )
             else:
                 local_deletion = "deleted"
-            try:
-                selected_recycler(None)
-            except Exception:
-                return _restart_required(
-                    None,
-                    revocation=revocation,
-                    local_deletion=local_deletion,
-                )
-            return VertexOperationResult(
-                success=True,
-                code=None,
-                message="Vertex AI was disconnected locally.",
-                generation=None,
-                revocation=revocation,
-                local_deletion=local_deletion,
-            )
+        try:
+            selected_recycler(None)
+        except Exception:
+            return _restart_required(None, revocation=revocation, local_deletion=local_deletion)
+        return VertexOperationResult(success=True, code=None, message="Vertex AI was disconnected locally.",
+            generation=None, revocation=revocation, local_deletion=local_deletion)
     except VertexAuthError as exc:
         return _result_from_error(exc)
     except Exception:
         return _generic_failure()
+
+# Workforce operations stay in the existing Python credential owner. Candidates
+# are isolated until exchange succeeds; only the store activates their cache.
+from dataclasses import asdict
+import time
+from .vertex_workforce_contract import (
+    WorkforceActiveRecord, WorkforceCredentialContext, auth_error,
+)
+from .vertex_workforce_exchange import exchange_assertion, _check as _check_workforce
+
+
+def finish_workforce_retirement(*, store, expected_generation, deadline, cancel_check, retire):
+    _check_workforce(deadline, cancel_check, store._monotonic)
+    active = store.snapshot_active()
+    if not isinstance(active, WorkforceActiveRecord) or active.generation != expected_generation:
+        raise auth_error('vertex_authorization_changed')
+    if not active.chirp_retirement_pending:
+        return
+    try:
+        retire(expected_generation, deadline, cancel_check)
+        _check_workforce(deadline, cancel_check, store._monotonic)
+        store.mark_chirp_retired(expected_generation, deadline=deadline, cancel_check=cancel_check)
+    except VertexAuthError:
+        raise
+    except Exception:
+        raise auth_error('vertex_restart_required') from None
+
+
+def connect_vertex_workforce(ticket, *, store, entra, cancel_check, retire, deadline_changed=None, activation_committed=None):
+    generation = None
+    try:
+        pending = store.read_pending()
+        if pending is None or pending[1] != ticket:
+            raise auth_error('vertex_authorization_changed')
+        settings, _ = pending
+        options = {} if deadline_changed is None else {'deadline_changed': deadline_changed}
+        candidate = entra.begin(settings, ticket, cancel_check=cancel_check, **options)
+        if candidate.operation_deadline is None:
+            raise auth_error()
+        deadline = candidate.operation_deadline
+        _check_workforce(deadline, cancel_check, store._monotonic)
+        exchange = exchange_assertion(settings, candidate.assertion, deadline=deadline, cancel_check=cancel_check)
+        _check_workforce(deadline, cancel_check, store._monotonic)
+        context = store.activate(ticket, candidate, exchange, cancel_check=cancel_check)
+        generation = context.generation
+        if activation_committed is not None:
+            activation_committed(generation)
+        finish_workforce_retirement(store=store, expected_generation=generation, deadline=deadline, cancel_check=cancel_check, retire=retire)
+        return _success(generation, 'Firm sign-in was saved for Google images and videos. Model access, billing and quota remain unverified.')
+    except VertexAuthError as error:
+        if generation is not None:
+            active = store.snapshot_active()
+            if isinstance(active, WorkforceActiveRecord) and active.generation == generation:
+                return _restart_required(generation)
+        return _result_from_error(error)
+    except Exception:
+        return _restart_required(generation) if generation is not None else _generic_failure()
+
+
+def refresh_vertex_workforce(*, store, entra, expected_generation, deadline, cancel_check, monotonic=time.monotonic):
+    def require_active():
+        _check_workforce(deadline, cancel_check, monotonic)
+        active = store.snapshot_active()
+        if not isinstance(active, WorkforceActiveRecord) or active.generation != expected_generation:
+            raise auth_error('vertex_authorization_changed')
+        if active.chirp_retirement_pending:
+            raise auth_error('vertex_restart_required')
+        return active
+    active = require_active()
+    settings, principal, cache, revision = store.load_active_session(expected_generation)
+    candidate = entra.refresh(settings, cache, principal, deadline=deadline, cancel_check=cancel_check)
+    current = require_active()
+    if current.cache_revision != revision:
+        raise auth_error('vertex_refresh_stale')
+    if candidate.principal != principal:
+        raise auth_error('vertex_authorization_changed')
+    exchange = exchange_assertion(settings, candidate.assertion, deadline=deadline, cancel_check=cancel_check)
+    require_active()
+    store.commit_refreshed_cache(expected_generation, revision, principal, candidate.serialized_cache, deadline=deadline, cancel_check=cancel_check)
+    current = require_active()
+    if (current.principal_id, current.connection_fingerprint) != (active.principal_id, active.connection_fingerprint):
+        raise auth_error('vertex_authorization_changed')
+    return WorkforceCredentialContext(**asdict(exchange), generation=active.generation, principal_id=active.principal_id, connection_fingerprint=active.connection_fingerprint)
+
+from .vertex_workforce_contract import FirmSignInCheckResult
+
+
+def check_firm_sign_in(expected_generation, *, store, entra, deadline, cancel_check, retire):
+    """Identity/exchange only; never infer model permissions, billing or quota."""
+    code = None
+    state = 'signed_in'
+    try:
+        finish_workforce_retirement(store=store, expected_generation=expected_generation, deadline=deadline, cancel_check=cancel_check, retire=retire)
+        context = refresh_vertex_workforce(store=store, entra=entra, expected_generation=expected_generation, deadline=deadline, cancel_check=cancel_check, monotonic=store._monotonic)
+        _check_workforce(deadline, cancel_check, store._monotonic)
+        active = store.snapshot_active()
+        if not isinstance(active, WorkforceActiveRecord) or active.generation != expected_generation or active.chirp_retirement_pending or (active.principal_id, active.connection_fingerprint) != (context.principal_id, context.connection_fingerprint):
+            raise auth_error('vertex_authorization_changed')
+    except VertexAuthError as error:
+        code = error.code
+        states = {'vertex_firm_sign_in_required':'sign_in_required', 'vertex_workforce_exchange_denied':'exchange_denied', 'vertex_authorization_changed':'authorization_changed', 'vertex_restart_required':'restart_required', 'vertex_token_issuance_timeout':'service_unavailable', 'vertex_request_failed':'service_unavailable', 'vertex_refresh_stale':'service_unavailable'}
+        if code not in states:
+            code = 'vertex_authorization_changed' if code == 'vertex_authorization_declined' else 'vertex_request_failed'
+        state = states[code]
+    except Exception:
+        code, state = 'vertex_request_failed', 'service_unavailable'
+    try:
+        generation = expected_generation if store.snapshot_active() is not None else None
+    except Exception:
+        generation = None
+    return FirmSignInCheckResult(state, code, generation)

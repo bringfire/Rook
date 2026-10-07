@@ -929,6 +929,10 @@ import json
 from rook.runtime_paths import resolve_runtime_paths
 import rook
 import rook.server
+import msal
+from importlib.metadata import version
+if version('msal') != '1.39.0':
+    raise SystemExit('vertex_auth_dependency_version')
 paths = resolve_runtime_paths()
 payload = {
     "rook_file": rook.__file__,

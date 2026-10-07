@@ -41,6 +41,9 @@ namespace Rook.Services.Vision.Video
         public static readonly TimeSpan DefaultPollInterval = TimeSpan.FromSeconds(10);
         public const int DefaultMaxConcurrentJobs = 2;
 
+        internal Action<Guid>? AfterRunForTests { get; set; }
+        internal Func<Guid,Task>? AfterSubmitForTests { get; set; }
+
         private readonly IVideoProviderRegistry _registry;
         private readonly IMediaResolver _mediaResolver;
         private readonly IVideoJobLedger _ledger;
@@ -153,6 +156,7 @@ namespace Rook.Services.Vision.Video
             // Kick off background task. Caller returns immediately with
             // Queued state; the task drives the state machine.
             var jobCts = CancellationTokenSource.CreateLinkedTokenSource(_shutdownCts.Token);
+            if (model.Provider is ILocalMonitoringProvider) jobCts.CancelAfter(TimeSpan.FromMinutes(15));
             var running = new RunningJob(initial, jobCts, model);
             _runningJobs[jobId] = running;
 
@@ -281,6 +285,23 @@ namespace Rook.Services.Vision.Video
                 if (inFlightRecord is not null && IsTerminal(inFlightRecord.State))
                     return JobCancelResult.Ok(inFlightRecord.State);
 
+                if (running.Model.Provider is ILocalMonitoringProvider)
+                {
+                    lock(running.TransitionGate)
+                    {
+                        // Submission may have persisted its operation and binding
+                        // while this stop was waiting for the transition gate.
+                        var latest = FindLedgerRecord(jobId) ?? running.LatestRecord;
+                        if (IsTerminal(latest.State))
+                            return JobCancelResult.Ok(latest.State);
+                        var stopped = AppendTransition(latest, VideoJobState.Interrupted,
+                            error: LocalStopError(running));
+                        running.LatestRecord = stopped;
+                        if (stopped.State == VideoJobState.Interrupted) try { running.Cts.Cancel(); } catch { }
+                        return JobCancelResult.Ok(stopped.State);
+                    }
+                }
+
                 var inFlightProviderHandle = inFlightRecord?.ProviderHandle;
                 var inFlightProviderJobId = inFlightProviderHandle?.ProviderJobId
                     ?? inFlightRecord?.ProviderJobId;
@@ -295,6 +316,9 @@ namespace Rook.Services.Vision.Video
                     if (remote.Error is not null)
                         return remote;  // Fail; local task untouched
 
+                    if (remote.State == VideoJobState.Interrupted)
+                        running.LatestRecord = AppendTransition(inFlightRecord ?? running.LatestRecord, VideoJobState.Interrupted,
+                            error: new GenerationError(GenerationErrorCode.Interrupted, LocalStopOnlyOutcome.Message, false));
                     try { running.Cts.Cancel(); } catch { /* already cancelled */ }
                     // Background task will write its own Cancelled record
                     // with the Cancelled error on its catch path; we just
@@ -379,8 +403,8 @@ namespace Rook.Services.Vision.Video
                         return modelAwareRemote;  // Fail; ledger state unchanged
 
                     var modelAwareCancelled = VideoJobRecordFactory.WithState(
-                        record, VideoJobState.Cancelled, _clock.UtcNow(),
-                        error: CancelledError());
+                        record, modelAwareRemote.State == VideoJobState.Interrupted ? VideoJobState.Interrupted : VideoJobState.Cancelled, _clock.UtcNow(),
+                        error: modelAwareRemote.State == VideoJobState.Interrupted ? new VideoJobError(VideoErrorCode.Interrupted, LocalStopOnlyOutcome.Message, false) : CancelledError());
                     _ledger.Append(modelAwareCancelled);
                     return modelAwareRemote;
                 }
@@ -407,8 +431,8 @@ namespace Rook.Services.Vision.Video
                 // the explicit Cancelled error so durable terminal
                 // state matches the result-factory invariant.
                 var cancelled = VideoJobRecordFactory.WithState(
-                    record, VideoJobState.Cancelled, _clock.UtcNow(),
-                    error: CancelledError());
+                    record, remote.State == VideoJobState.Interrupted ? VideoJobState.Interrupted : VideoJobState.Cancelled, _clock.UtcNow(),
+                    error: remote.State == VideoJobState.Interrupted ? new VideoJobError(VideoErrorCode.Interrupted, LocalStopOnlyOutcome.Message, false) : CancelledError());
                 _ledger.Append(cancelled);
                 return remote;
             }
@@ -474,6 +498,7 @@ namespace Rook.Services.Vision.Video
         {
             return outcome switch
             {
+                LocalStopOnlyOutcome => JobCancelResult.Ok(VideoJobState.Interrupted),
                 CanceledOutcome =>
                     JobCancelResult.Ok(VideoJobState.Cancelled),
                 AlreadyTerminalOutcome terminal =>
@@ -803,11 +828,27 @@ namespace Rook.Services.Vision.Video
                 {
                     current = AppendTransition(current, VideoJobState.Submitting);
                     running.LatestRecord = current;
+                    ct.ThrowIfCancellationRequested();
 
-                    var submitOutcome = await provider.SubmitAsync(
-                        request,
-                        resolvedMedia,
-                        ct).ConfigureAwait(false);
+                    var submitOutcome = provider is ISubmissionDispatchAwareVideoProvider dispatchAware
+                        ? await dispatchAware.SubmitWithDispatchAsync(request,resolvedMedia,() =>
+                        {
+                            lock(running.TransitionGate)
+                            {
+                                ct.ThrowIfCancellationRequested();
+                                if(FindLedgerRecord(jobId) is { } durable && IsTerminal(durable.State))
+                                    throw new OperationCanceledException(ct);
+                                running.SubmissionDispatched = true;
+                            }
+                        },ct).ConfigureAwait(false)
+                        : await provider.SubmitAsync(request,resolvedMedia,ct).ConfigureAwait(false);
+                    lock(running.TransitionGate)
+                    {
+                        running.SubmissionOutcomeUnknown = submitOutcome is FailedSubmitOutcome failedSubmit
+                            && failedSubmit.Error.ProviderErrorCode == "vertex_submission_unknown";
+                        running.SubmissionSettled = true;
+                    }
+                    if(AfterSubmitForTests is { } afterSubmit) await afterSubmit(jobId).ConfigureAwait(false);
 
                     ProviderJobHandle handle;
                     switch (submitOutcome)
@@ -847,6 +888,7 @@ namespace Rook.Services.Vision.Video
                         providerHandle: handle);
                     running.LatestRecord = current;
 
+                    ct.ThrowIfCancellationRequested();
                     // Polling loop
                     while (true)
                     {
@@ -856,6 +898,7 @@ namespace Rook.Services.Vision.Video
                             handle,
                             ct).ConfigureAwait(false);
 
+                        ct.ThrowIfCancellationRequested();
                         switch (statusOutcome)
                         {
                             case InFlightStatusOutcome:
@@ -898,6 +941,7 @@ namespace Rook.Services.Vision.Video
                     var fetch = await FetchProviderResultAsync(running.Model, handle, ct)
                         .ConfigureAwait(false);
 
+                    ct.ThrowIfCancellationRequested();
                     if (fetch is FailedResultOutcome failedFetch)
                     {
                         current = AppendTransition(
@@ -955,7 +999,7 @@ namespace Rook.Services.Vision.Video
                         current,
                         running,
                         request,
-                        materialized).ConfigureAwait(false);
+                        materialized, successFetch.Envelope.EnvelopeMetadata).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -967,10 +1011,10 @@ namespace Rook.Services.Vision.Video
                 if (!IsTerminal(current.State))
                 {
                     var cancelled = AppendTransition(
-                        current, VideoJobState.Cancelled,
-                        error: new VideoJobError(
-                            Code: VideoErrorCode.Cancelled,
-                            Message: "Job cancelled.",
+                        current, provider is ILocalMonitoringProvider ? VideoJobState.Interrupted : VideoJobState.Cancelled,
+                        error: provider is ILocalMonitoringProvider ? LocalStopError(running) : new VideoJobError(
+                            Code: provider is ILocalMonitoringProvider ? VideoErrorCode.Interrupted : VideoErrorCode.Cancelled,
+                            Message: provider is ILocalMonitoringProvider ? LocalStopOnlyOutcome.Message : "Job cancelled.",
                             Retryable: false));
                     running.LatestRecord = cancelled;
                 }
@@ -992,6 +1036,7 @@ namespace Rook.Services.Vision.Video
             {
                 _runningJobs.TryRemove(jobId, out _);
                 running.Cts.Dispose();
+                AfterRunForTests?.Invoke(jobId);
             }
         }
 
@@ -1006,15 +1051,56 @@ namespace Rook.Services.Vision.Video
             GenerationError? error = null,
             ProviderJobHandle? providerHandle = null)
         {
-            var next = VideoJobRecordFactory.WithState(
-                prior, newState, _clock.UtcNow(),
-                providerJobId: providerJobId,
-                providerResultToken: providerResultToken,
-                resultArtifactId: resultArtifactId,
-                error: error,
-                providerHandle: providerHandle);
-            _ledger.Append(next);
-            return next;
+            _runningJobs.TryGetValue(prior.JobId, out var running);
+            lock (running?.TransitionGate ?? _ledger)
+            {
+                var durable = FindLedgerRecord(prior.JobId);
+                if (durable is not null && IsTerminal(durable.State))
+                {
+                    // A submission admitted before stop can return its original operation afterward.
+                    if (durable.State == VideoJobState.Interrupted && durable.ProviderHandle is null && providerHandle is not null)
+                    {
+                        durable = VideoJobRecordFactory.WithState(durable, VideoJobState.Interrupted, _clock.UtcNow(), providerHandle: providerHandle, error: durable.Error);
+                        _ledger.Append(durable);
+                    }
+                    return durable;
+                }
+                if (error?.Code == GenerationErrorCode.Interrupted) newState = VideoJobState.Interrupted;
+                var next = VideoJobRecordFactory.WithState(prior, newState, _clock.UtcNow(), providerJobId: providerJobId,
+                    providerResultToken: providerResultToken, resultArtifactId: resultArtifactId, error: error, providerHandle: providerHandle);
+                _ledger.Append(next);
+                return next;
+            }
+        }
+
+        private static GenerationError LocalStopError(RunningJob running)
+        {
+            lock(running.TransitionGate)
+                return (running.SubmissionDispatched && !running.SubmissionSettled || running.SubmissionOutcomeUnknown)
+                    && running.Model.Provider is ISubmissionDispatchAwareVideoProvider aware
+                    ? aware.SubmissionInterruptedError
+                    : new GenerationError(GenerationErrorCode.Interrupted,LocalStopOnlyOutcome.Message,false);
+        }
+
+        private async Task<bool> CanPublishAsync(VideoJobRecord current, RunningJob running, IReadOnlyDictionary<string, JsonNode> metadata)
+        {
+            if (running.Model.Provider is IGenerationPublicationGuard guard)
+            {
+                var error = await guard.ValidatePublicationAsync(metadata, running.Cts.Token).ConfigureAwait(false);
+                if (error is not null)
+                {
+                    running.LatestRecord = AppendTransition(current, VideoJobState.Interrupted, error: error);
+                    return false;
+                }
+                if (running.Cts.IsCancellationRequested) return false;
+            }
+            lock (running.TransitionGate)
+            {
+                var durable = FindLedgerRecord(current.JobId);
+                if (durable is not null && IsTerminal(durable.State))
+                { running.LatestRecord = durable; return false; }
+                return true;
+            }
         }
 
         private static Task<ProviderStatusOutcome> GetProviderStatusAsync(
@@ -1101,79 +1187,95 @@ namespace Rook.Services.Vision.Video
                 current,
                 running,
                 request,
-                materialized).ConfigureAwait(false);
+                materialized, success.Envelope.EnvelopeMetadata).ConfigureAwait(false);
         }
 
         private async Task<VideoJobRecord> SaveGeneratedVideoAndCompleteAsync(
             VideoJobRecord current,
             RunningJob running,
             VideoGenerationRequest request,
-            VideoArtifactMaterializationResult materialized)
+            VideoArtifactMaterializationResult materialized,
+            IReadOnlyDictionary<string, JsonNode> metadata)
         {
+            if (!await CanPublishAsync(current, running, metadata).ConfigureAwait(false)) return running.LatestRecord;
             var ext = ExtensionFromMime(materialized.MimeType!);
             var artifact = _artifactStore.Create(
                 kind: "generated_video",
                 blobs: new[] { new BlobInput(VideoMediaRoles.Video, materialized.Bytes!, ext) },
                 parentIds: CollectMediaParents(request));
 
-            VideoPosterSidecarResult? posterResult = null;
-            VideoFrameSidecarResult? frameResult = null;
-
             try
             {
-                posterResult = await _posterProducer.TryPublishPosterAsync(
-                    artifact.Id,
-                    CancellationToken.None).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                posterResult = VideoPosterSidecarResult.From(
-                    VideoPosterSidecarResultCode.CancelledAfterArtifactCreated,
-                    artifact.Id,
-                    "Poster sidecar generation was cancelled after video artifact creation.");
-            }
-            catch (Exception ex)
-            {
-                posterResult = VideoPosterSidecarResult.From(
-                    VideoPosterSidecarResultCode.FinalizerFailed,
-                    artifact.Id,
-                    ex.Message,
-                    ex.ToString());
-            }
+                VideoPosterSidecarResult? posterResult = null;
+                VideoFrameSidecarResult? frameResult = null;
 
-            try
-            {
-                frameResult = await _frameProducer.TryPublishFrameSidecarsAsync(
-                    artifact.Id,
-                    CancellationToken.None).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                frameResult = FrameFinalizerFailureResult(
-                    artifact.Id,
-                    VideoFrameSidecarRoleResultCode.CancelledAfterArtifactCreated,
-                    "Frame sidecar generation was cancelled after video artifact creation.",
-                    diagnostic: null);
-            }
-            catch (Exception ex)
-            {
-                frameResult = FrameFinalizerFailureResult(
-                    artifact.Id,
-                    VideoFrameSidecarRoleResultCode.FinalizerFailed,
-                    ex.Message,
-                    ex.ToString());
-            }
+                try
+                {
+                    posterResult = await _posterProducer.TryPublishPosterAsync(
+                        artifact.Id,
+                        CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    posterResult = VideoPosterSidecarResult.From(
+                        VideoPosterSidecarResultCode.CancelledAfterArtifactCreated,
+                        artifact.Id,
+                        "Poster sidecar generation was cancelled after video artifact creation.");
+                }
+                catch (Exception ex)
+                {
+                    posterResult = VideoPosterSidecarResult.From(
+                        VideoPosterSidecarResultCode.FinalizerFailed,
+                        artifact.Id,
+                        ex.Message,
+                        ex.ToString());
+                }
 
-            current = current with
+                try
+                {
+                    frameResult = await _frameProducer.TryPublishFrameSidecarsAsync(
+                        artifact.Id,
+                        CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    frameResult = FrameFinalizerFailureResult(
+                        artifact.Id,
+                        VideoFrameSidecarRoleResultCode.CancelledAfterArtifactCreated,
+                        "Frame sidecar generation was cancelled after video artifact creation.",
+                        diagnostic: null);
+                }
+                catch (Exception ex)
+                {
+                    frameResult = FrameFinalizerFailureResult(
+                        artifact.Id,
+                        VideoFrameSidecarRoleResultCode.FinalizerFailed,
+                        ex.Message,
+                        ex.ToString());
+                }
+
+                if (!await CanPublishAsync(current, running, metadata).ConfigureAwait(false))
+                {
+                    _artifactStore.Delete(artifact.Id);
+                    return running.LatestRecord;
+                }
+                current = current with
+                {
+                    Extensions = MergeSidecarEvidence(current.Extensions, posterResult, frameResult),
+                };
+                current = AppendTransition(
+                    current,
+                    VideoJobState.Complete,
+                    resultArtifactId: artifact.Id);
+                running.LatestRecord = current;
+                if (current.State != VideoJobState.Complete || current.ResultArtifactId != artifact.Id) _artifactStore.Delete(artifact.Id);
+                return current;
+            }
+            catch
             {
-                Extensions = MergeSidecarEvidence(current.Extensions, posterResult, frameResult),
-            };
-            current = AppendTransition(
-                current,
-                VideoJobState.Complete,
-                resultArtifactId: artifact.Id);
-            running.LatestRecord = current;
-            return current;
+                _artifactStore.Delete(artifact.Id);
+                throw;
+            }
         }
 
         private static VideoFrameSidecarResult FrameFinalizerFailureResult(
@@ -1408,6 +1510,8 @@ namespace Rook.Services.Vision.Video
         // lifecycle never re-resolve through the registry.
         private sealed class RunningJob
         {
+            public readonly object TransitionGate = new();
+            public bool SubmissionDispatched, SubmissionSettled, SubmissionOutcomeUnknown;
             public VideoJobRecord LatestRecord;
             public readonly CancellationTokenSource Cts;
             public readonly ResolvedVideoModel Model;

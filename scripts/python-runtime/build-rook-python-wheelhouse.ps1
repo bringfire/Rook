@@ -498,6 +498,23 @@ def bytecode_probe(module: str) -> list[str]:
     ]
 
 
+def firm_auth_probe() -> list[str]:
+    """Run imports/version checks inside the installed, isolated interpreter."""
+    return ["-I", "-c", """
+import json
+from importlib.metadata import version
+try:
+    import msal
+    import google.auth
+    installed = {name: version(name) for name in ('msal', 'google-auth')}
+except ImportError:
+    raise SystemExit('vertex_auth_dependency_missing') from None
+if installed != {'msal': '1.39.0', 'google-auth': '2.56.3'}:
+    raise SystemExit('vertex_auth_dependency_version')
+print(json.dumps(installed))
+"""]
+
+
 def run(cmd: list[str], env: dict[str, str] | None = None, *, timeout: int, with_stderr: bool = False) -> str:
     try:
         result = subprocess.run(cmd, text=True, capture_output=True, env=env, timeout=timeout)
@@ -611,6 +628,12 @@ def main() -> int:
     if args.module == "rook":
         run([str(venv_python), "-c", "import rook.server"], env=env, timeout=args.command_timeout_seconds)
 
+    auth_dependencies = {}
+    if args.module == "rook":
+        auth_dependencies = json.loads(run(
+            [str(venv_python), *firm_auth_probe()], env=env,
+            timeout=args.command_timeout_seconds))
+
     dspy_cache = {}
     if args.module == "rook":
         dspy_expr = (
@@ -658,6 +681,7 @@ def main() -> int:
         "import_record": sanitized_import_record,
         "dspy_cache": dspy_cache,
         "vision_imports": vision,
+        "firm_auth_dependencies": auth_dependencies,
     }, indent=2), encoding="utf-8")
     return 0
 

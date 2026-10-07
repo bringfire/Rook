@@ -1,6 +1,7 @@
 using System;
 using Rook.Artifacts;
 using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Image.Vertex;
 
 namespace Rook.Services.Vision.Video
 {
@@ -45,7 +46,8 @@ namespace Rook.Services.Vision.Video
             IGenerationSecretStore generationSecrets,
             ArtifactStore artifactStore,
             IVideoJobLedger? ledger = null,
-            IVideoSidecarBackfillService? sidecarBackfill = null)
+            IVideoSidecarBackfillService? sidecarBackfill = null,
+            IVertexAccessTokenSource? vertexAccessTokenSource = null)
         {
             if (generationSecrets is null)
                 throw new ArgumentNullException(nameof(generationSecrets));
@@ -54,7 +56,8 @@ namespace Rook.Services.Vision.Video
             var registry = new DefaultVideoProviderRegistry(
                 VisionProviderRegistrations.CreateVideoRegistrations(
                     () => generationSecrets.GetSecret(GenerationSecretKeys.GeminiApiKey),
-                    () => generationSecrets.GetSecret(GenerationSecretKeys.FalApiKey)));
+                    () => generationSecrets.GetSecret(GenerationSecretKeys.FalApiKey),
+                    vertexAccessTokenSource));
 
             var mediaResolver = new ArtifactOnlyVideoMediaResolver(artifactStore);
             var actualLedger = ledger ?? new JsonlVideoJobLedger();

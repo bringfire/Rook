@@ -43,7 +43,8 @@ def test_vertex_text_routing_does_not_enter_ai_studio_rookvision():
     assert 'GeminiApiKey = "gemini.api_key"' in secret_contract
     assert "GenerationSecretKeys.GeminiApiKey" in registration
     assert "vertex_ai" not in secret_contract
-    assert "vertex_ai" not in registration
+    assert "VertexImageProviderRegistration" in registration
+    assert "GeminiImageProviderRegistration(new GeminiImageProvider(geminiKeyProvider))" in registration
 
 
 class _RuntimeStore:

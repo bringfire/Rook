@@ -844,6 +844,18 @@ namespace Rook.Tests.Handlers
             Assert.False(data.ContainsKey("provider_message"));
         }
 
+        [Fact]
+        public async Task Submit_UnknownOutcomeExposesOnlyTypedBillingWarning()
+        {
+            var stub=new StubManager {SubmitImpl=(_,_)=>JobSubmitResult.Fail(new GenerationError(
+                GenerationErrorCode.ExecutionFailed,"Fixed unknown outcome",false,ProviderErrorCode:"vertex_submission_unknown"))};
+            var response=await NewHandler(stub).DispatchAsync(BuildSubmitBody());
+            var data=AssertDataDict(response);
+            Assert.Equal(true,data["submission_outcome_unknown"]);
+            Assert.False(data.ContainsKey("provider_error_code"));
+            Assert.False(data.ContainsKey("provider_detail"));
+        }
+
         // ─── Cancel ──────────────────────────────────────────────────────
 
         [Fact]

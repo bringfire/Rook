@@ -226,12 +226,23 @@ namespace Rook.Tests.UI.Chat
         {
             var source = ReadSourceFile("src", "Rook", "UI", "Chat", "ChatServiceManager.cs");
             var ensureStarted = ExtractMethod(source, "public async Task<ChatServiceHealth> EnsureStartedAsync(");
+            var acquireConnection = ExtractMethod(source, "internal async Task<ChatServiceConnectionSnapshot?> AcquireOwnedConnectionAsync(");
+            var ensureUnderGate = ExtractMethod(source, "private async Task<ChatServiceHealth> EnsureStartedUnderGateAsync(");
             var startProcess = ExtractMethod(source, "private void StartProcess(");
 
             Assert.Contains("await _gate.WaitAsync(ct);", ensureStarted);
-            Assert.Contains("ShouldStartChatService(", ensureStarted);
-            Assert.Contains("ChatServiceStartDecision.RestartBecauseNonceMissing", ensureStarted);
-            Assert.Contains("StartProcess(manifest);", ensureStarted);
+            Assert.Contains("EnsureStartedUnderGateAsync(ct)", ensureStarted);
+            Assert.Contains("await _gate.WaitAsync(ct);", acquireConnection);
+            Assert.Contains("EnsureStartedUnderGateAsync(ct)", acquireConnection);
+            Assert.Contains("health.ServiceAvailable", acquireConnection);
+            Assert.Contains("health.BaseUri", acquireConnection);
+            Assert.Contains("SessionNonce", acquireConnection);
+            Assert.Contains("new ChatServiceConnectionSnapshot", acquireConnection);
+            Assert.Contains("ShouldStartChatService(", ensureUnderGate);
+            Assert.Contains(
+                "ChatServiceStartDecision.RestartBecauseNonceMissing",
+                ensureUnderGate);
+            Assert.Contains("StartProcess(manifest);", ensureUnderGate);
             Assert.Contains("FileName = manifest.PythonPath", startProcess);
             Assert.Contains("ShouldStartChatService(", startProcess);
             Assert.DoesNotContain("DiscoverPython()", startProcess);

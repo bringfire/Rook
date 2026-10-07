@@ -176,6 +176,18 @@ function Test-GoogleAuthReleaseDependencyIsExactlyPinned {
     Assert-NotContains -Text $validator -Expected '103 wheels' -Message 'The release guard must not freeze a historical wheel count.'
 }
 
+function Test-MsalReleaseDependencyIsExactlyPinned {
+    $pyproject = Get-Content -LiteralPath (Join-Path $RepoRoot 'mcp_server\pyproject.toml') -Raw
+    $uvLock = Get-Content -LiteralPath (Join-Path $RepoRoot 'mcp_server\uv.lock') -Raw
+    $inputs = Get-Content -LiteralPath (Join-Path $RepoRoot 'installer\python-runtime\requirements-third-party-lock.txt') -Raw
+    Assert-Contains -Text $pyproject -Expected '"msal==1.39.0"' -Message 'Firm sign-in requires pinned MSAL.'
+    Assert-True -Condition ([regex]::IsMatch($uvLock, '(?ms)^name = "msal"\r?\nversion = "1\.39\.0"')) -Message 'Development lock must admit exactly MSAL 1.39.0.'
+    Assert-Contains -Text $inputs -Expected 'msal==1.39.0 --hash=sha256:2d2577886906cd7293850dffa2da29119966c213bfc6ec0cecf8bf7621e1ca77' -Message 'Packaged MSAL wheel must retain the approved digest.'
+    foreach ($forbidden in @('msal-extensions==', 'pymsalruntime==')) {
+        Assert-NotContains -Text $inputs -Expected $forbidden -Message 'Broker dependencies are outside the exception.'
+    }
+}
+
 function Test-StagedGoogleAuthPayloadWhenPresent {
     $manifestPath = Join-Path $StagedRuntimeRoot 'python-runtime-manifest.json'
     if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
@@ -213,6 +225,7 @@ function Test-StagedGoogleAuthPayloadWhenPresent {
     }
 }
 
+Test-MsalReleaseDependencyIsExactlyPinned
 Test-PythonRuntimeConfigIsPinned
 Test-PythonRuntimeStagerExistsAndNeverRunsAtInstallTime
 Test-PythonRuntimeStagerStagesRuntimeIntoTempRoots

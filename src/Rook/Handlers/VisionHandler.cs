@@ -596,6 +596,17 @@ namespace Rook.Handlers
                 ["reference_count"] = work.Request.ReferenceImages?.Count ?? 0,
             };
 
+            cancellationToken.ThrowIfCancellationRequested();
+            var publicationGuard = work.ResolvedModel.Provider as IGenerationPublicationGuard;
+            if (publicationGuard is not null)
+            {
+                var error = await publicationGuard.ValidatePublicationAsync(
+                    success.Envelope.EnvelopeMetadata, cancellationToken).ConfigureAwait(false);
+                if (error is not null) return Fail(error.Message);
+            }
+            if (success.Envelope.EnvelopeMetadata.TryGetValue("vertex_binding", out var binding))
+                metadata["vertex_binding"] = binding.DeepClone();
+
             var blob = new BlobInput("image", imageBytes, extension);
             var artifact = _artifactStore.Create(
                 kind: ArtifactKindGeneratedImage,
@@ -603,7 +614,26 @@ namespace Rook.Handlers
                 parentIds: work.ParentArtifactIds,
                 metadata: metadata);
 
-            return Ok(ArtifactEnvelope(artifact));
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (publicationGuard is not null)
+                {
+                    var error = await publicationGuard.ValidatePublicationAsync(
+                        success.Envelope.EnvelopeMetadata, cancellationToken).ConfigureAwait(false);
+                    if (error is not null)
+                    {
+                        _artifactStore.Delete(artifact.Id);
+                        return Fail(error.Message);
+                    }
+                }
+                return Ok(ArtifactEnvelope(artifact));
+            }
+            catch
+            {
+                _artifactStore.Delete(artifact.Id);
+                throw;
+            }
         }
 
         internal ImageGenerationWorkItemResult BuildImageGenerationWorkItem(
@@ -629,6 +659,8 @@ namespace Rook.Handlers
 
             if (!_imageProviderRegistry.TryResolve(model, out var resolvedModel))
             {
+                if (model.StartsWith("vertex_ai/", StringComparison.Ordinal))
+                    return ImageGenerationWorkItemResult.Fail(Fail($"Unknown image model '{model}'."));
                 // Preserve the legacy Gemini UI short names only after
                 // registered providers get first chance at exact model IDs.
                 model = GeminiImageCapabilities.ResolveShortName(modelInput);

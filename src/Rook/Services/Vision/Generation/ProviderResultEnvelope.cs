@@ -42,9 +42,8 @@ namespace Rook.Services.Vision.Generation
             // List<>/Dictionary<> remains externally mutable behind the
             // IReadOnlyX interface — a Clear() would invalidate the
             // "at least one artifact" invariant after construction.
-            // JsonNode values are NOT deep-copied (mutating a node value
-            // doesn't change cardinality and deep-cloning JSON trees is
-            // expensive); the container shape is what we lock down.
+            // Deep-copy metadata so an original authorization binding cannot
+            // be changed by a caller mutating the input JSON after construction.
             var artifactsCopy = new ResultArtifact[Artifacts.Count];
             for (int i = 0; i < Artifacts.Count; i++)
             {
@@ -65,7 +64,7 @@ namespace Rook.Services.Vision.Generation
             IReadOnlyDictionary<string, JsonNode> source)
         {
             var copy = new Dictionary<string, JsonNode>(source.Count);
-            foreach (var kvp in source) copy[kvp.Key] = kvp.Value;
+            foreach (var kvp in source) copy[kvp.Key] = kvp.Value?.DeepClone()!;
             return copy;
         }
 

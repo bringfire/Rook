@@ -14,6 +14,17 @@ $TestRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $TestRoot)
 $ValidatorScript = Join-Path $RepoRoot 'scripts\validate-python-wheelhouse.ps1'
 $TestVersion = '1.5.12'
+# These policy fixtures require the actual approved MSAL wheel because the
+# release guard checks its fixed digest. Tests never download or install it.
+# Override with ROOK_TEST_MSAL_WHEEL when the staged payload is elsewhere.
+$TestMsalWheel = $env:ROOK_TEST_MSAL_WHEEL
+if ([string]::IsNullOrWhiteSpace($TestMsalWheel)) {
+    $TestMsalWheel = Join-Path $RepoRoot 'installer/runtime/python-wheelhouse/msal-1.39.0-py3-none-any.whl'
+}
+if (-not (Test-Path -LiteralPath $TestMsalWheel -PathType Leaf) -or
+    (Get-FileHash -LiteralPath $TestMsalWheel -Algorithm SHA256).Hash -ne '2D2577886906CD7293850DFFA2DA29119966C213BFC6EC0CECF8BF7621E1CA77') {
+    throw 'Set ROOK_TEST_MSAL_WHEEL to the hash-verified approved MSAL 1.39.0 wheel.'
+}
 
 function Assert-True {
     param([bool]$Condition, [string]$Message)
@@ -71,6 +82,7 @@ function Build-TestManifest {
         rook_git_sha = '0123456789abcdef0123456789abcdef01234567'
         chirp_git_sha = 'fedcba9876543210fedcba9876543210fedcba98'
         python = [ordered]@{ version = '3.11.9'; abi = 'cp311'; platform = 'win_amd64' }
+        verification = [ordered]@{ rook = [ordered]@{ firm_auth_dependencies = [ordered]@{ msal = '1.39.0'; 'google-auth' = '2.56.3' } } }
         wheelhouse = [ordered]@{
             path = 'installer/runtime/python-wheelhouse'
             wheels = $wheelRecords
@@ -99,6 +111,7 @@ function New-TestPayload {
     Set-Content -Path (Join-Path $wheelhouse "rook_mcp-$TestVersion-py3-none-any.whl") -Value 'fake rook wheel' -Encoding ASCII
     Set-Content -Path (Join-Path $wheelhouse 'chirp-0.1.0-py3-none-any.whl') -Value 'fake chirp wheel' -Encoding ASCII
     Set-Content -Path (Join-Path $wheelhouse 'certifi-2024.1.1-py3-none-any.whl') -Value 'fake certifi wheel' -Encoding ASCII
+    Copy-Item -LiteralPath $TestMsalWheel -Destination (Join-Path $wheelhouse 'msal-1.39.0-py3-none-any.whl')
 
     $bootstrapLock = Join-Path $runtime 'requirements-bootstrap-lock.txt'
     $installerToolsLock = Join-Path $runtime 'requirements-installer-tools-lock.txt'
@@ -190,6 +203,32 @@ function Test-ValidPayloadPasses {
         param($payload)
         $output = Invoke-ValidationExpectPass -Payload $payload
         Assert-Contains -Text $output -Expected 'Python wheelhouse validation passed' -Message 'Valid payload should pass.'
+    }
+}
+
+function Test-MsalAdmissionFailsClosed {
+    Invoke-PayloadTest {
+        param($payload)
+        $manifest = Read-Manifest -Payload $payload
+        $manifest.verification.rook.firm_auth_dependencies.msal = '1.38.0'
+        Write-Manifest -Payload $payload -Manifest $manifest
+        $output = Invoke-ValidationExpectFailure -Payload $payload
+        Assert-Contains -Text $output -Expected 'installed firm-auth dependency verification is missing or inconsistent' -Message 'Wrong installed MSAL version must fail.'
+    }
+    Invoke-PayloadTest {
+        param($payload)
+        $manifest = Read-Manifest -Payload $payload
+        $manifest.wheelhouse.wheels = @($manifest.wheelhouse.wheels | Where-Object { $_.project -ne 'msal' })
+        Write-Manifest -Payload $payload -Manifest $manifest
+        $output = Invoke-ValidationExpectFailure -Payload $payload
+        Assert-Contains -Text $output -Expected 'MSAL 1.39.0 approved wheel is missing or inconsistent' -Message 'Missing MSAL admission must fail.'
+    }
+    Invoke-PayloadTest {
+        param($payload)
+        Set-Content -LiteralPath (Join-Path $payload.Wheelhouse 'pymsalruntime-1.0.0-py3-none-any.whl') -Value 'unapproved broker fixture'
+        Build-TestManifest -Payload $payload
+        $output = Invoke-ValidationExpectFailure -Payload $payload
+        Assert-Contains -Text $output -Expected 'unapproved MSAL broker dependency' -Message 'Broker extras are outside the exception.'
     }
 }
 
@@ -322,6 +361,7 @@ function Test-InstallerSkipIfSourceDoesNotExistFails {
 }
 
 Test-ValidPayloadPasses
+Test-MsalAdmissionFailsClosed
 Test-StaleReleaseVersionFails
 Test-MissingManifestFails
 Test-RookWheelVersionMismatchFails
