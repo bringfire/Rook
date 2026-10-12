@@ -13,6 +13,7 @@ using Rook.Handlers;
 using Rook.Services.Vision;
 using Rook.Services.Vision.CanvasDirector;
 using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Image;
 
 namespace Rook.InternalBridge
 {
@@ -51,7 +52,8 @@ namespace Rook.InternalBridge
                 generationSecrets: RookSubsystemRoot.Instance.SharedGenerationSecretStore,
                 enhancer: new PromptEnhancer(),
                 viewportHandler: new ViewportHandler(),
-                imageProviderRegistry: RookSubsystemRoot.Instance.ImageJobs.Registry);
+                imageProviderRegistry: RookSubsystemRoot.Instance.ImageJobs.Registry,
+                imageSubmissionExecutor: RookSubsystemRoot.Instance.ImageJobs.Executor);
         }
 
         // V2 video. Lazy so processes that never touch video (image-only,
@@ -1921,6 +1923,12 @@ namespace Rook.InternalBridge
                         reqJson => Vision.Dispatch(reqJson));
 
                 case "generate":
+                {
+                    var imageContext = new ImageExecutionContext();
+                    return ExecuteAsyncApiResponseCallback(responseJsonUtf8, responseJsonCapacity,
+                        responseJsonLength, httpStatusCode, requestJson,
+                        (reqJson, ct) => Vision.DispatchAsync(reqJson, ct, imageContext), 180, imageContext);
+                }
                 case "enhance_prompt":
                     // Off-UI async path — Gemini network call with
                     // cooperative cancellation on the 180 s timeout.
@@ -2274,15 +2282,34 @@ namespace Rook.InternalBridge
         /// Async variant of <see cref="ExecuteApiResponseCallback"/> —
         /// runs the operation on the threadpool (not the UI thread) and
         /// waits synchronously here (bridge callback signature is sync).
-        /// A <see cref="CancellationTokenSource"/> fires on timeout so
-        /// the outbound HttpClient request is cancelled rather than
-        /// continuing to spend API time past the deadline.
+        /// Timeout signals local cancellation and returns without waiting
+        /// for the operation. It does not establish a remote request's outcome.
         ///
         /// Does not use <c>DocumentContext.WithDocument</c> — the current
         /// async ops (generate, enhance_prompt) do not read the document.
         /// If a future async op needs document pinning, set the AsyncLocal
         /// before awaiting inside the operation delegate.
         /// </summary>
+        internal static ApiResponse RunVisionAsyncWithTimeout(string requestJson,
+            Func<string, CancellationToken, Task<ApiResponse>> operation, TimeSpan timeout,
+            ImageExecutionContext? imageContext = null)
+        {
+            using var cts = new CancellationTokenSource();
+            var token = cts.Token;
+            var task = Task.Run(async () =>
+            {
+                try { return await operation(requestJson, token).ConfigureAwait(false); }
+                catch (OperationCanceledException) { return ImageFailureProjection.Timeout("Vision callback cancelled (bridge timeout).", imageContext); }
+                catch (Exception ex) { return new ApiResponse { Success = false, Data = ex.Message }; }
+            });
+            if (!task.Wait(timeout))
+            {
+                cts.Cancel();
+                return ImageFailureProjection.Timeout("Vision callback request timed out.", imageContext);
+            }
+            return task.Result;
+        }
+
         private static int ExecuteAsyncApiResponseCallback(
             IntPtr responseJsonUtf8,
             int responseJsonCapacity,
@@ -2290,74 +2317,14 @@ namespace Rook.InternalBridge
             IntPtr httpStatusCode,
             string requestJson,
             Func<string, CancellationToken, Task<ApiResponse>> operation,
-            int timeoutSeconds)
+            int timeoutSeconds, ImageExecutionContext? imageContext = null)
         {
             try
             {
-                using var cts = new CancellationTokenSource();
-                var token = cts.Token;
-
-                var task = Task.Run(async () =>
-                {
-                    try
-                    {
-                        return await operation(requestJson, token).ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        return new ApiResponse
-                        {
-                            Success = false,
-                            Data = "Vision callback cancelled (bridge timeout).",
-                        };
-                    }
-                    catch (Exception ex)
-                    {
-                        return new ApiResponse
-                        {
-                            Success = false,
-                            Data = ex.Message,
-                        };
-                    }
-                });
-
-                string responseJson;
-                int statusCode;
-
-                if (!task.Wait(TimeSpan.FromSeconds(timeoutSeconds)))
-                {
-                    // Timeout: cancel the CTS so the outbound HttpClient
-                    // request is aborted (cooperative cancellation —
-                    // PostAsync/GetAsync respect the token). The Task
-                    // itself may continue running until the token is
-                    // observed, but the HTTP connection closes promptly
-                    // and API quota is not spent past the deadline.
-                    cts.Cancel();
-                    responseJson = JsonSerializer.Serialize(new
-                    {
-                        success = false,
-                        data = "Vision callback request timed out.",
-                    }, JsonOptions);
-                    statusCode = 400;
-                }
-                else
-                {
-                    var result = task.Result;
-                    responseJson = JsonSerializer.Serialize(new
-                    {
-                        success = result.Success,
-                        data = result.Data,
-                    }, JsonOptions);
-                    statusCode = MapBridgeStatus(result);
-                }
-
-                return WriteUtf8Response(
-                    responseJsonUtf8,
-                    responseJsonCapacity,
-                    responseJsonLength,
-                    httpStatusCode,
-                    responseJson,
-                    statusCode);
+                var result = RunVisionAsyncWithTimeout(requestJson, operation, TimeSpan.FromSeconds(timeoutSeconds), imageContext);
+                var json = JsonSerializer.Serialize(new { success = result.Success, data = result.Data }, JsonOptions);
+                return WriteUtf8Response(responseJsonUtf8, responseJsonCapacity, responseJsonLength,
+                    httpStatusCode, json, MapBridgeStatus(result));
             }
             catch (Exception ex)
             {

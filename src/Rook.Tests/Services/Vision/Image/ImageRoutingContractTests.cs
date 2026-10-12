@@ -169,5 +169,17 @@ namespace Rook.Tests.Services.Vision.Image
             Assert.Null(result.Routing!.Route);
             Assert.Equal(ImageCredentialFailureKind.Missing, result.Routing.CredentialFailure!.Kind);
         }
+
+        [Fact]
+        public void StaleRouteCannotRegressObservedDispatchOrPhase()
+        {
+            var prior = Record(Route() with { GenerationDispatchAttempted = true, Phase = ImageExecutionPhase.Materialization },
+                dispatch: ImageFalDispatchState.Attempted);
+            var next = ImageJobLedgerRecordFactory.WithState(prior, ImageJobState.Submitting, DateTimeOffset.UtcNow,
+                routing: new ImageRoutingContext(Route(), null), falDispatchState: ImageFalDispatchState.NotStarted);
+            Assert.True(next.ImageRoute!.GenerationDispatchAttempted);
+            Assert.Equal(ImageExecutionPhase.Materialization, next.ImageRoute.Phase);
+            Assert.Equal(ImageFalDispatchState.Attempted, next.FalDispatchState);
+        }
     }
 }

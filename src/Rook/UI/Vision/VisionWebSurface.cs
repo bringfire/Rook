@@ -9,6 +9,7 @@ using Rhino;
 using Rook.Artifacts;
 using Rook.Handlers;
 using Rook.Services.Vision;
+using Rook.Services.Vision.Image;
 using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video;
 using Rook.UI.Web;
@@ -403,7 +404,8 @@ p { margin: 8px 0; line-height: 1.4; }
                 generationSecrets: RookSubsystemRoot.Instance.SharedGenerationSecretStore,
                 enhancer: new PromptEnhancer(),
                 viewportHandler: new ViewportHandler(),
-                imageProviderRegistry: RookSubsystemRoot.Instance.ImageJobs.Registry);
+                imageProviderRegistry: RookSubsystemRoot.Instance.ImageJobs.Registry,
+                imageSubmissionExecutor: RookSubsystemRoot.Instance.ImageJobs.Executor);
         }
 
         // ─── Bridge handler ───────────────────────────────────────────
@@ -594,10 +596,12 @@ p { margin: 8px 0; line-height: 1.4; }
         /// in unit tests without a real <see cref="VisionHandler"/>.
         /// </summary>
         private Task<ApiResponse> DispatchAsyncWithTimeoutAsync(string op, string? body)
-            => DispatchWithTimeoutAsync(
-                op,
-                AsyncOpTimeout,
-                token => _handler.DispatchAsync(body, token));
+        {
+            var context = op == "generate" ? new ImageExecutionContext() : null;
+            return DispatchWithTimeoutAsync(op, AsyncOpTimeout,
+                token => context == null ? _handler.DispatchAsync(body, token) : _handler.DispatchAsync(body, token, context),
+                imageContext: context);
+        }
 
         /// <summary>
         /// Pure timeout-wrapper: run <paramref name="dispatch"/> under a
@@ -627,26 +631,24 @@ p { margin: 8px 0; line-height: 1.4; }
             string op,
             TimeSpan timeout,
             Func<CancellationToken, Task<ApiResponse>> dispatch,
-            string domainLabel = "Vision")
+            string domainLabel = "Vision", ImageExecutionContext? imageContext = null)
         {
             using var cts = new CancellationTokenSource(timeout);
             ApiResponse response;
             try
             {
-                response = await dispatch(cts.Token).ConfigureAwait(false);
+                var task = dispatch(cts.Token);
+                response = imageContext == null ? await task.ConfigureAwait(false)
+                    : await ImageSubmissionExecutor.AwaitAsync(task, cts.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cts.IsCancellationRequested)
             {
-                return new ApiResponse
-                {
-                    Success = false,
-                    Data = $"{domainLabel} op '{op}' timed out after {timeout.TotalSeconds:F0}s.",
-                };
+                return ImageFailureProjection.Timeout($"{domainLabel} op '{op}' timed out after {timeout.TotalSeconds:F0}s.", imageContext);
             }
 
             if (!response.Success && cts.IsCancellationRequested)
             {
-                response.Data = $"{domainLabel} op '{op}' timed out after {timeout.TotalSeconds:F0}s.";
+                return ImageFailureProjection.Timeout($"{domainLabel} op '{op}' timed out after {timeout.TotalSeconds:F0}s.", imageContext);
             }
             return response;
         }

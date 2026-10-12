@@ -29,7 +29,7 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
             }
             throw new TimeoutException("Image job did not settle.");
         }
-        private static async Task Settled(ImageJobManager manager)
+        internal static async Task Settled(ImageJobManager manager)
         {
             var field = typeof(ImageJobManager).GetField("_runningJobs", BindingFlags.Instance | BindingFlags.NonPublic)!;
             for (var i = 0; i < 500; i++)

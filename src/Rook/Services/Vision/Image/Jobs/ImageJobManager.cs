@@ -196,7 +196,14 @@ namespace Rook.Services.Vision.Image.Jobs
             return Task.FromResult(TranslateToStatus(record));
         }
 
-        public async Task<ImageJobCancelResult> CancelAsync(
+        public async Task<ImageJobCancelResult> CancelAsync(Guid jobId, CancellationToken ct)
+        {
+            var result = await CancelCoreAsync(jobId, ct).ConfigureAwait(false);
+            var record = FindLatestMergedRecord(jobId);
+            return record == null ? result : result.WithRouting(record.Provider, record.Model, record.Routing, record.FalDispatchState);
+        }
+
+        private async Task<ImageJobCancelResult> CancelCoreAsync(
             Guid jobId,
             CancellationToken ct)
         {
@@ -211,7 +218,11 @@ namespace Rook.Services.Vision.Image.Jobs
                     return ImageJobCancelResult.Ok(latest.State);
 
                 if (ImageSubmissionExecutor.UsesExecutionDeadline(running.Model) && latest.ProviderHandle == null)
+                {
+                    running.Context.SetCredentialFailure(null);
+                    running.Context.SetPhase(ImageExecutionPhase.Interruption);
                     try { running.Cts.Cancel(); } catch (ObjectDisposedException) { }
+                }
                 var freshest = FindLatestMergedRecord(jobId);
                 if (freshest is not null
                     && IsTerminal(freshest.State)
@@ -309,24 +320,31 @@ namespace Rook.Services.Vision.Image.Jobs
                 {
                     var latest = FindDurableRecord(record.JobId);
                     if (latest != null && IsTerminal(latest.State)) continue;
-                var interrupted = ImageJobLedgerRecordFactory.WithState(
-                    latest == null ? record : ToLedgerRecord(latest),
-                    ImageJobState.Interrupted,
-                    now,
-                    error: new GenerationError(
-                        GenerationErrorCode.Interrupted,
-                        record.FalDispatchState is ImageFalDispatchState.IntentRecorded or ImageFalDispatchState.Attempted
-                            ? "Image job interrupted after fal dispatch admission; submission outcome is unknown. A deliberately new request may create another billed generation."
-                            : "Image job interrupted by plugin reload.",
-                        Retryable: record.FalDispatchState is not (ImageFalDispatchState.IntentRecorded or ImageFalDispatchState.Attempted)),
-                    routing: record.ImageRoute == null ? null : new(record.ImageRoute with { Phase = ImageExecutionPhase.Interruption }, null));
-                _ledger.Append(interrupted);
+                    var interrupted = ImageJobLedgerRecordFactory.WithState(
+                        latest == null ? record : ToLedgerRecord(latest),
+                        ImageJobState.Interrupted,
+                        now,
+                        error: new GenerationError(
+                            GenerationErrorCode.Interrupted,
+                            record.FalDispatchState is ImageFalDispatchState.IntentRecorded or ImageFalDispatchState.Attempted
+                                ? "Image job interrupted after fal dispatch admission; submission outcome is unknown. A deliberately new request may create another billed generation."
+                                : "Image job interrupted by plugin reload.",
+                            Retryable: record.FalDispatchState is not (ImageFalDispatchState.IntentRecorded or ImageFalDispatchState.Attempted)),
+                        routing: record.ImageRoute == null ? null : new(record.ImageRoute with { Phase = ImageExecutionPhase.Interruption }, null));
+                    _ledger.Append(interrupted);
                     _records[record.JobId] = FromLedgerRecord(interrupted);
                 }
             }
         }
 
-        public Task<ImageJobFetchResult> FetchResultAsync(
+        public async Task<ImageJobFetchResult> FetchResultAsync(Guid jobId, CancellationToken ct)
+        {
+            var result = await FetchCoreAsync(jobId, ct).ConfigureAwait(false);
+            var record = FindLatestMergedRecord(jobId);
+            return record == null ? result : result.WithRouting(record.Provider, record.Model, record.Routing, record.FalDispatchState);
+        }
+
+        private Task<ImageJobFetchResult> FetchCoreAsync(
             Guid jobId,
             CancellationToken ct)
         {
@@ -752,6 +770,16 @@ namespace Rook.Services.Vision.Image.Jobs
             }
             running.Context.SetPhase(ImageExecutionPhase.Publication);
             var mimeType = materialized.MimeType ?? "image/png";
+            var metadata = new Dictionary<string, JsonNode?>
+                {
+                    ["prompt"] = running.Start.Request.Prompt,
+                    ["model"] = running.Model.ModelId,
+                    ["provider"] = running.Model.ProviderName,
+                    ["resolution"] = running.Request.Resolution,
+                    ["aspect_ratio"] = running.Request.AspectRatio,
+                    ["mime_type"] = mimeType,
+                };
+            ImageFailureProjection.AddArtifactRouting(metadata, running.Context.Snapshot());
             var artifact = _artifactStore.Create(
                 kind: VisionHandler.ArtifactKindGeneratedImage,
                 blobs: new[]
@@ -762,15 +790,7 @@ namespace Rook.Services.Vision.Image.Jobs
                         ExtensionForMime(mimeType)),
                 },
                 parentIds: running.Start.ParentArtifactIds,
-                metadata: new Dictionary<string, JsonNode?>
-                {
-                    ["prompt"] = running.Start.Request.Prompt,
-                    ["model"] = running.Model.ModelId,
-                    ["provider"] = running.Model.ProviderName,
-                    ["resolution"] = running.Request.Resolution,
-                    ["aspect_ratio"] = running.Request.AspectRatio,
-                    ["mime_type"] = mimeType,
-                });
+                metadata: metadata);
 
             BeforeCompleteTransitionForTests?.Invoke(current.JobId);
 
@@ -1099,17 +1119,17 @@ namespace Rook.Services.Vision.Image.Jobs
             {
                 var latest = FindLatestMergedRecord(record.JobId) ?? record;
                 if (latest.State != ImageJobState.Interrupted) return ImageJobCancelResult.Ok(latest.State);
-            var durable = ImageJobLedgerRecordFactory.WithState(
-                ToLedgerRecord(latest),
-                ImageJobState.Cancelled,
-                _clock.UtcNow(),
-                error: CancelledError());
-            if (!TryAppendLedger(durable, out var appendError))
-                return ImageJobCancelResult.Fail(appendError!);
+                var durable = ImageJobLedgerRecordFactory.WithState(
+                    ToLedgerRecord(latest),
+                    ImageJobState.Cancelled,
+                    _clock.UtcNow(),
+                    error: CancelledError());
+                if (!TryAppendLedger(durable, out var appendError))
+                    return ImageJobCancelResult.Fail(appendError!);
 
-            var cancelled = FromLedgerRecord(durable);
-            _records[record.JobId] = cancelled;
-            return ImageJobCancelResult.Ok(ImageJobState.Cancelled);
+                var cancelled = FromLedgerRecord(durable);
+                _records[record.JobId] = cancelled;
+                return ImageJobCancelResult.Ok(ImageJobState.Cancelled);
             }
         }
 
