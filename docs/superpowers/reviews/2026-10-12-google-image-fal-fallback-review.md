@@ -41,3 +41,5 @@ No second review was dispatched. Fix verification used the regression tests and 
 FalImageProvider.cs has one extra blank line at EOF. The branch-range whitespace check reports it; it has no runtime effect.
 
 The reviewer’s “Declined to judge” items were funded account/image-quality qualification and native build/deployment; rulings 7 and 8 above explicitly retain those scope limits.
+
+Cleanup of this plan's ignored execution workspace was rejected by automatic approval review with “blocked by policy.” Its execution logs remain in place; the committed implementation and review record are complete.
