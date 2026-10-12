@@ -113,6 +113,9 @@ test("restored intent survives job errors without retry or confirmation", async 
     assert.equal(error.fal_dispatch_state, "intent_recorded");
     assert.equal(error.image_route.generation_dispatch_attempted, false);
     assert.match(error.message, /submission outcome is unknown/); assert.equal(error.retryable, false);
+    h.context.restoredError = error;
+    assert.match(h.run("imageErrorMessage(restoredError)"), /fal\.ai.*submission outcome is unknown/);
+    assert.doesNotMatch(h.run("imageErrorMessage(restoredError)"), /before sending|not sent/i);
     assert.equal(h.calls.length, 2); assert.equal(h.confirms, 0);
 });
 test("job receipt drives fallback notice; provider alone does not", () => {
@@ -151,3 +154,25 @@ test("text credential warnings cannot disable a mapped image fallback", () => {
     assert.equal(h.run("shouldDisableGenerateModel(selectedImageModel(el.modelSelect))"), false);
     assert.equal(h.run("selectedImageModel(el.modelSelect).credential_availability"), "missing_required_secret");
 });
+test("model and settings displays disclose configured automatic fallback", () => {
+    const h = harness();
+    const rendered = h.run("buildImageModelOption(selectedImageModel(el.modelSelect), false)");
+    assert.match(rendered, /fal\.ai fallback/i);
+    assert.match(rendered, /configured/i);
+    assert.match(h.run('providerHelpText("gemini")'), /Nano Banana.*fal\.ai.*automatically/i);
+    h.run("modelCatalog = fixture.catalog_neither.data.models.map(normalizeImageModelDescriptor)");
+    assert.match(h.run("validateGenerateModelForSubmit(el.modelSelect)"), /Gemini or fal\.ai key/);
+    assert.match(h.run("validateStudioModelForSubmit(el.studioModelSelect)"), /Gemini or fal\.ai key/);
+});
+for (const response of ["incompatible", "materialization_failed"]) {
+    for (const surface of ["generateImage()", "studioGenerate()"]) {
+        test(surface + ": " + response + " displays effective fal attribution without claiming a send", async () => {
+            const h = harness("catalog_fal_only", undefined, { generate: response }); await h.run(surface);
+            const status = surface.startsWith("studio") ? h.nodes.studioStatusMessage : h.nodes.statusMessage;
+            assert.match(status.textContent, /fal\.ai/i);
+            if (response === "incompatible") assert.match(status.textContent, /before (sending|dispatch)/i);
+            assert.doesNotMatch(status.textContent, /Generated with fal.ai/);
+            assert.equal(h.run("sessionValidationBySecret.size"), 0);
+        });
+    }
+}

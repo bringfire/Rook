@@ -809,11 +809,25 @@ function primaryCredentialAvailability(model) {
     return base;
 }
 
-function hasAvailableImageFallback(model) {
+function hasImageFallback(model) {
     const fallback = model && model.fallback_available;
+    const targets = {
+        "gemini-3.1-flash-image-preview": "fal-ai/nano-banana-2",
+        "gemini-3-pro-image-preview": "fal-ai/nano-banana-pro",
+        "nano-banana-2": "fal-ai/nano-banana-2",
+        "nano-banana-pro": "fal-ai/nano-banana-pro"
+    };
     return !!fallback && model.provider_name === "gemini" && fallback.provider_name === "fal"
-        && ["fal-ai/nano-banana-2", "fal-ai/nano-banana-pro"].includes(fallback.model_id)
-        && fallback.credential_availability !== "missing_required_secret";
+        && targets[model.model_id] === fallback.model_id;
+}
+
+function hasAvailableImageFallback(model) {
+    return hasImageFallback(model) && model.fallback_available.credential_availability !== "missing_required_secret";
+}
+
+function imageModelCredentialGuidance(model) {
+    return hasImageFallback(model) ? "Configure a Gemini or fal.ai key before using this model."
+        : `${providerDisplayName(model.provider_name)} key is required before using this model.`;
 }
 
 function effectiveCredentialAvailability(model) {
@@ -855,6 +869,14 @@ function imageErrorMessage(error) {
     if (hasStructuredImageContext(error) && evidence && evidence.provider === error.provider && evidence.kind === "missing") {
         return providerDisplayName(evidence.provider) + " API key is not configured. Configure it in Settings.";
     }
+    if (hasStructuredImageContext(error)) {
+        const route = error.image_route;
+        const fallback = route && route.requested_provider === "gemini" && route.effective_provider === "fal";
+        const beforeSend = fallback && route.generation_dispatch_attempted === false && error.fal_dispatch_state === "not_started";
+        const context = beforeSend ? "fal.ai fallback failed before sending"
+            : fallback ? "fal.ai fallback" : providerDisplayName(error.provider);
+        return context + ": " + error.message;
+    }
     return error.message;
 }
 
@@ -891,7 +913,7 @@ function validateGenerateModelForSubmit(selectEl) {
     if (!model) return null;
     const availability = effectiveCredentialAvailability(model);
     if (availability === "missing_required_secret") {
-        return `${providerDisplayName(model.provider_name)} key is required before using this model.`;
+        return imageModelCredentialGuidance(model);
     }
     if (!(capturedViewport && capturedViewport.file_path)
         && !canRunPromptOnlyAsyncImageJob(model)) {
@@ -905,7 +927,7 @@ function validateStudioModelForSubmit(selectEl) {
     if (!model) return null;
     const availability = effectiveCredentialAvailability(model);
     if (availability === "missing_required_secret") {
-        return `${providerDisplayName(model.provider_name)} key is required before using this model.`;
+        return imageModelCredentialGuidance(model);
     }
     if (model.supports_image_to_image === false) {
         return "Selected model is incompatible with Studio source-image editing.";
@@ -934,10 +956,15 @@ function shouldDisableStudioModel(model) {
 
 function buildImageModelOption(model, disabled) {
     const availability = effectiveCredentialAvailability(model);
-    const provider = model.provider_name ? ` Â· ${providerDisplayName(model.provider_name)}` : "";
-    const warning = availability === "invalid_credential" ? " Â· credential warning" : "";
-    const blocker = availability === "missing_required_secret" ? " Â· configure key" : "";
-    return `<option value="${escapeAttr(imageModelOptionValue(model))}"${disabled ? " disabled" : ""}>${escapeHtml(model.label || model.model_id)}${escapeHtml(provider + warning + blocker)}</option>`;
+    const provider = model.provider_name ? ` · ${providerDisplayName(model.provider_name)}` : "";
+    const fallback = hasImageFallback(model)
+        ? hasAvailableImageFallback(model) ? " · fal.ai fallback configured" : " · fal.ai fallback not configured" : "";
+    const warningProvider = primaryCredentialAvailability(model) === "missing_required_secret" && hasAvailableImageFallback(model)
+        ? "fal.ai " : "";
+    const warning = availability === "invalid_credential" ? ` · ${warningProvider}credential warning` : "";
+    const blocker = availability === "missing_required_secret"
+        ? hasImageFallback(model) ? " · configure Gemini or fal.ai key" : " · configure key" : "";
+    return `<option value="${escapeAttr(imageModelOptionValue(model))}"${disabled ? " disabled" : ""}>${escapeHtml(model.label || model.model_id)}${escapeHtml(provider + fallback + warning + blocker)}</option>`;
 }
 
 function applyStudioModelCompatibility() {
@@ -1993,7 +2020,7 @@ function providerDisplayName(name) {
 
 function providerHelpText(name) {
     if (name === "gemini") {
-        return "Get your key from Google AI Studio. Stored encrypted under your Windows profile.";
+        return "Get your key from Google AI Studio. Stored encrypted under your Windows profile. Nano Banana images can use your fal.ai account automatically when the Gemini key is missing or rejected. Configure a fal.ai key to enable fallback.";
     }
     if (name === "fal") {
         return "Get your key from fal.ai. Settings tests avoid generation work by default.";

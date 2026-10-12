@@ -274,6 +274,45 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
         [Theory]
         [InlineData(false)]
         [InlineData(true)]
+        public async Task ConcurrentHeldRoutesStopOnlyTheirOwnJob(bool deadline)
+        {
+            using var f = new ImageFallbackFixture();
+            var original = f.GoogleHttp.OnSendAsync!;
+            f.GoogleHttp.OnSendAsync = (r, ct) => r.Content!.ReadAsStringAsync().Result.Contains("fallback job")
+                ? Task.FromResult(ImageFallbackFixture.Json(401, "{\"error\":{\"status\":\"UNAUTHENTICATED\"}}"))
+                : original(r, ct);
+            using var google = f.HoldNextResponse(f.GoogleHttp);
+            using var fal = f.HoldNextResponse(f.FalHttp);
+            var timers = new System.Collections.Concurrent.ConcurrentQueue<CancellationTokenSource>();
+            using var manager = Manager(f, timer: _ => { var timer = new CancellationTokenSource(); timers.Enqueue(timer); return timer; });
+            var direct = f.Start(GeminiImageCapabilities.NanoBanana2);
+            var switched = new ImageJobStartRequest(direct.Request.With(prompt: "fallback job"), direct.ResolvedMedia, direct.ParentArtifactIds);
+            var a = await manager.SubmitAsync(direct, CancellationToken.None);
+            await Bounded(google.Entered);
+            var b = await manager.SubmitAsync(switched, CancellationToken.None);
+            await Bounded(fal.Entered);
+            var sources = timers.ToArray(); Assert.Equal(2, sources.Length);
+            try
+            {
+                if (deadline) sources[1].Cancel();
+                else await manager.CancelAsync(b.JobId!.Value, CancellationToken.None);
+                var stopped = await Terminal(manager, b.JobId!.Value);
+                Assert.Equal(deadline ? ImageJobState.Interrupted : ImageJobState.Cancelled, stopped.State);
+                Assert.Equal("fal", stopped.Provider); Assert.True(stopped.Routing!.Route!.GenerationDispatchAttempted);
+                Assert.Equal(ImageJobState.Submitting, (await manager.GetStatusAsync(a.JobId!.Value, CancellationToken.None)).State);
+                Assert.False(sources[0].IsCancellationRequested);
+                google.Release();
+                var completed = await Terminal(manager, a.JobId.Value);
+                Assert.Equal(ImageJobState.Complete, completed.State);
+                Assert.Equal("gemini", completed.Provider); Assert.Null(completed.Routing);
+            }
+            finally { google.Release(); fal.Release(); }
+            await Settled(manager);
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
         public async Task CancellationOnEitherSideOfRouteCommitPreventsFal(bool appendStarted)
         {
             using var f = new ImageFallbackFixture(geminiKey: null);

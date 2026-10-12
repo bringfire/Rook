@@ -18,6 +18,28 @@ using Rook.Services.Vision.Image.Jobs;
 namespace Rook.Tests.Services.Vision.Image
 {
     internal sealed record RecordedHttpRequest(Uri Uri, string Method, string? Body);
+    internal sealed class HeldImageFallbackResponse : IDisposable
+    {
+        private readonly TaskCompletionSource<bool> _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _requests;
+        public HeldImageFallbackResponse(ImageFallbackHttpHandler handler)
+        {
+            var original = handler.OnSendAsync ?? throw new InvalidOperationException("Configure the transport before holding it.");
+            handler.OnSendAsync = async (request, ct) =>
+            {
+                if (Interlocked.Increment(ref _requests) == 1)
+                {
+                    _entered.TrySetResult(true);
+                    await _release.Task.ConfigureAwait(false);
+                }
+                return await original(request, ct).ConfigureAwait(false);
+            };
+        }
+        public Task Entered => _entered.Task;
+        public void Release() => _release.TrySetResult(true);
+        public void Dispose() => Release();
+    }
     internal sealed class ImageFallbackHttpHandler : HttpMessageHandler
     {
         private readonly ConcurrentQueue<RecordedHttpRequest> _requests = new();
@@ -77,6 +99,7 @@ namespace Rook.Tests.Services.Vision.Image
                 new[] { MediaRef.ForArtifact(ParentArtifactIds[1], ImageMediaRoles.ReferenceImage) },
                 model.StartsWith("fal-", StringComparison.Ordinal) ? new FalImageOptions() : new GeminiImageOptions());
         public ImageJobStartRequest Start(string model) => new(Request(model), Media, ParentArtifactIds);
+        public HeldImageFallbackResponse HoldNextResponse(ImageFallbackHttpHandler handler) => new(handler);
         public void Dispose()
         {
             GoogleHttp.Dispose(); FalHttp.Dispose(); DownloadHttp.Dispose();
