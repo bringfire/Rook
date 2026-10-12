@@ -40,7 +40,7 @@ namespace Rook.Tests.Services.Vision.Generation
         }
 
         [Fact]
-        public async Task GenerateAsync_withoutGeminiKey_preservesVerbatimMissingKeyMessage()
+        public async Task GenerateAsync_withoutEitherKey_projectsMissingFalWithGeminiFallbackReceipt()
         {
             var inputPath = Path.Combine(_tempDir, "input.png");
             File.WriteAllBytes(inputPath, new byte[] { 9, 8, 7 });
@@ -59,7 +59,11 @@ namespace Rook.Tests.Services.Vision.Generation
             var response = await handler.GenerateAsync(args, CancellationToken.None);
 
             Assert.False(response.Success);
-            Assert.Equal(MissingGeminiGenerateKeyMessage, response.Data);
+            var data = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(response.Data))!;
+            Assert.Equal("fal", data["provider"]!.GetValue<string>());
+            Assert.Equal("missing", data["credential_failure"]!["kind"]!.GetValue<string>());
+            Assert.Equal("gemini_key_missing", data["image_route"]!["fallback_reason"]!.GetValue<string>());
+            Assert.False(data["image_route"]!["generation_dispatch_attempted"]!.GetValue<bool>());
         }
 
         [Fact]

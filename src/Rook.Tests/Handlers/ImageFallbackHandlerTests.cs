@@ -270,5 +270,119 @@ namespace Rook.Tests.Handlers
             public bool HasSecret(string key) => !string.IsNullOrWhiteSpace(GetSecret(key));
             public string? GetPreview(string key) => HasSecret(key) ? "***" : null;
         }
+
+        [Fact]
+        public async Task WriteFallbackBridgeFixtureIfRequested()
+        {
+            var fixtures = new JsonObject();
+            using (var f = new ImageFallbackFixture(geminiKey: null))
+            {
+                var handler = Handler(f);
+                fixtures["catalog_fal_only"] = Json(handler.DispatchOffUi("{\"op\":\"list_image_models\"}"));
+                fixtures["fallback_success"] = Json(await handler.DispatchAsync(Body(f, "nano-banana-2")));
+                f.FalKey = null;
+                fixtures["catalog_neither"] = Json(handler.DispatchOffUi("{\"op\":\"list_image_models\"}"));
+                fixtures["fallback_missing"] = Json(await handler.DispatchAsync(Body(f, "nano-banana-2")));
+                f.GeminiKey = "fake-gemini"; f.FalKey = "fake-fal";
+                fixtures["catalog_google"] = Json(handler.DispatchOffUi("{\"op\":\"list_image_models\"}"));
+                fixtures["primary_success"] = Json(await handler.DispatchAsync(Body(f, "nano-banana-2")));
+            }
+            foreach (var direct in new[] { false, true })
+            foreach (var status in new[] { 401, 403 })
+            {
+                using var f = new ImageFallbackFixture(geminiKey: direct ? "key" : null);
+                f.FalHttp.OnSendAsync = (_, _) => Task.FromResult(ImageFallbackFixture.Json(status, "{}"));
+                fixtures[(direct ? "direct_" : "fallback_") + status] =
+                    Json(await Handler(f).DispatchAsync(Body(f, direct ? "fal-ai/nano-banana-2" : "nano-banana-2")));
+            }
+            using (var f = new ImageFallbackFixture(falKey: null))
+                fixtures["direct_missing"] = Json(await Handler(f).DispatchAsync(Body(f, "fal-ai/nano-banana-2")));
+            foreach (var status in new[] { 0, 401, 403 })
+            {
+                using var f = new ImageFallbackFixture(falKey: status == 0 ? null : "key");
+                f.FalHttp.OnSendAsync = (_, _) => Task.FromResult(ImageFallbackFixture.Json(status == 0 ? 200 : status, "{}"));
+                using var manager = new ImageJobManager(f.Registry, f.Store, null, null, null, 2,
+                    new ImageArtifactMaterializer(f.DownloadHttp), null,
+                    new JsonlImageJobLedger(System.IO.Path.Combine(f.Root, "ledger.jsonl")), f.Executor);
+                var submit = await manager.SubmitAsync(f.Start("fal-ai/nano-banana-2"), CancellationToken.None);
+                await ImageJobFallbackTests.Terminal(manager, submit.JobId!.Value);
+                await ImageJobFallbackTests.Settled(manager);
+                fixtures["direct_job_" + (status == 0 ? "missing" : status.ToString())] = Json(
+                    new ImageJobOpHandler(manager, Handler(f)).DispatchOffUi(
+                        "{\"op\":\"image_job_status\",\"job_id\":\"" + submit.JobId.Value.ToString("D") + "\"}"));
+            }
+            using (var f = new ImageFallbackFixture(geminiKey: null))
+            {
+                fixtures["incompatible"] = Json(await Handler(f).DispatchAsync(Body(f, "nano-banana-pro", aspect: "8:1")));
+                f.DownloadHttp.OnSendAsync = (_, _) => Task.FromResult(ImageFallbackFixture.Json(404, "{}"));
+                fixtures["materialization_failed"] = Json(await Handler(f).DispatchAsync(Body(f, "nano-banana-2")));
+            }
+            using (var f = new ImageFallbackFixture(geminiKey: null))
+            {
+                var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var original = f.FalHttp.OnSendAsync!;
+                f.FalHttp.OnSendAsync = async (r, ct) => { entered.TrySetResult(true); await release.Task; return await original(r, ct); };
+                var ledger = new JsonlImageJobLedger(System.IO.Path.Combine(f.Root, "ledger.jsonl"));
+                using var manager = new ImageJobManager(f.Registry, f.Store, null, null, null, 2,
+                    new ImageArtifactMaterializer(f.DownloadHttp), null, ledger, f.Executor);
+                var submit = await manager.SubmitAsync(f.Start(GeminiImageCapabilities.NanoBanana2), CancellationToken.None);
+                Assert.Same(entered.Task, await Task.WhenAny(entered.Task, Task.Delay(5000)));
+                var copy = System.IO.Path.Combine(f.Root, "snapshot.jsonl"); System.IO.File.Copy(ledger.FilePath, copy);
+                using (var fresh = new ImageJobManager(f.Registry, f.Store, null, null, null, 2,
+                    new ImageArtifactMaterializer(f.DownloadHttp), null, new JsonlImageJobLedger(copy), f.Executor))
+                {
+                    fresh.ReconcileInterruptedJobs();
+                    var ops = new ImageJobOpHandler(fresh, Handler(f));
+                    fixtures["restored_intent_status"] = Json(ops.DispatchOffUi(
+                        "{\"op\":\"image_job_status\",\"job_id\":\"" + submit.JobId!.Value.ToString("D") + "\"}"));
+                    fixtures["restored_intent_result"] = Json(ops.DispatchOffUi(
+                        "{\"op\":\"image_job_result\",\"job_id\":\"" + submit.JobId.Value.ToString("D") + "\"}"));
+                }
+                release.TrySetResult(true);
+                await ImageJobFallbackTests.Terminal(manager, submit.JobId!.Value);
+                await ImageJobFallbackTests.Settled(manager);
+                var completedOps = new ImageJobOpHandler(manager, Handler(f));
+                fixtures["job_fallback_result"] = Json(completedOps.DispatchOffUi(
+                    "{\"op\":\"image_job_result\",\"job_id\":\"" + submit.JobId.Value.ToString("D") + "\"}"));
+            }
+            NormalizeFixture(fixtures);
+            var dir = new System.IO.DirectoryInfo(AppContext.BaseDirectory);
+            while (dir != null && !System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "src", "Rook", "Rook.csproj"))) dir = dir.Parent;
+            Assert.NotNull(dir);
+            var path = System.IO.Path.Combine(dir!.FullName, "src", "Rook.Tests", "UI", "Vision", "Fixtures", "image-fallback-bridge.json");
+            if (Environment.GetEnvironmentVariable("ROOK_WRITE_IMAGE_FALLBACK_FIXTURE") == "1")
+            {
+                System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
+                System.IO.File.WriteAllText(path, fixtures.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
+            }
+            Assert.True(System.IO.File.Exists(path), "Generate the opt-in managed bridge fixture first.");
+            Assert.True(JsonNode.DeepEquals(fixtures, JsonNode.Parse(System.IO.File.ReadAllText(path))), "Managed bridge fixture differs from current projections.");
+        }
+
+        private static void NormalizeFixture(JsonNode node)
+        {
+            if (node is JsonObject obj)
+            {
+                foreach (var key in obj.Select(p => p.Key).ToArray())
+                {
+                    if (key is "created_at" or "updated_at" or "generated_at") { obj[key] = "<timestamp>"; continue; }
+                    if (key is "file_path") { obj[key] = "<local-file>"; continue; }
+                    var value = obj[key];
+                    if (value is JsonValue v && v.TryGetValue<string>(out var s))
+                        obj[key] = System.Text.RegularExpressions.Regex.Replace(s,
+                            "[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}",
+                            "11111111-1111-1111-1111-111111111111");
+                    else if (value != null) NormalizeFixture(value);
+                }
+            }
+            else if (node is JsonArray array)
+                for (var i = 0; i < array.Count; i++)
+                    if (array[i] is JsonValue v && v.TryGetValue<string>(out var s))
+                        array[i] = System.Text.RegularExpressions.Regex.Replace(s,
+                            "[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}",
+                            "11111111-1111-1111-1111-111111111111");
+                    else if (array[i] != null) NormalizeFixture(array[i]!);
+        }
     }
 }

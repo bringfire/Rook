@@ -46,6 +46,7 @@ async function bridgeCall(op, args) {
         err.code = data.code;
         err.field = data.field;
         err.retryable = data.retryable;
+        copyImageExecutionFields(err, data);
     } else {
         err = new Error("Vision op failed.");
     }
@@ -429,14 +430,12 @@ async function generateSyncImage(prompt, model) {
         }
 
         const artifact = await bridgeCall("generate", args);
-        renderGeneratedArtifact(artifact, "Image generated.");
+        renderGeneratedArtifact(artifact, imageResultNotice(artifact));
     } catch (e) {
         if (model && model.provider_name === "vertex_ai" && (e.message || "").includes("submission outcome is unknown"))
             window.rookUnknownGoogleImageSubmission = true;
-        if (model && isCredentialFailureMessage(e.message)) {
-            markProviderCredentialInvalid(model.provider_name);
-        }
-        showStatus(e.message, "error");
+        applyImageCredentialWarning(e, model);
+        showStatus(imageErrorMessage(e), "error");
     } finally {
         setGenerating(el.generateBtn, el.generateText, el.generateSpinner, false);
     }
@@ -473,12 +472,10 @@ async function generateImageJob(prompt, model, sourcePath) {
         }
 
         const result = await awaitImageJobResult(args, showImageJobStatus);
-        renderGeneratedArtifact({ artifact_id: result.result_artifact_id }, "Image generated.");
+        renderGeneratedArtifact({ artifact_id: result.result_artifact_id }, imageResultNotice(result));
     } catch (e) {
-        if (model && isCredentialFailureMessage(e.message)) {
-            markProviderCredentialInvalid(model.provider_name);
-        }
-        showStatus(e.message, "error");
+        applyImageCredentialWarning(e, model);
+        showStatus(imageErrorMessage(e), "error");
     } finally {
         setGenerating(el.generateBtn, el.generateText, el.generateSpinner, false);
     }
@@ -505,13 +502,17 @@ async function awaitImageJobResult(args, statusHandler) {
     }
     if (!terminal) throw new Error("Image job did not finish before the UI timeout.");
     if (terminal.state !== "complete") {
-        const err = terminal.error && terminal.error.message;
-        throw new Error(err || `Image job ended with state ${terminal.state}.`);
+        const data = terminal.error || {};
+        const error = new Error(data.message || `Image job ended with state ${terminal.state}.`);
+        error.code = data.code; error.field = data.field; error.retryable = data.retryable;
+        copyImageExecutionFields(error, data); copyImageExecutionFields(error, terminal);
+        throw error;
     }
     const result = await bridgeCall("image_job_result", { job_id: jobId });
     if (!result || !result.result_artifact_id) {
         throw new Error("Image job completed without an artifact.");
     }
+    copyImageExecutionFields(result, terminal);
     return result;
 }
 
@@ -721,6 +722,7 @@ function normalizeImageModelDescriptor(m) {
         pricing_kind: m.pricing_kind || null,
         credential_availability: m.credential_availability || "available_but_unverified",
         credential_message: m.credential_message || "",
+        fallback_available: m.fallback_available || null,
         credential_secret_key: m.credential_secret_key || "",
         submission_mode: m.submission_mode || "sync",
         supported_resolutions: cap.resolutions || m.supported_resolutions || [],
@@ -741,6 +743,7 @@ function normalizeLegacyAvailableModel(m) {
         pricing_kind: m.pricing_kind || null,
         credential_availability: m.credential_availability || "available_but_unverified",
         credential_message: m.credential_message || "",
+        fallback_available: m.fallback_available || null,
         credential_secret_key: m.credential_secret_key || "",
         submission_mode: m.submission_mode || "sync",
         supported_resolutions: m.supported_resolutions || [],
@@ -789,7 +792,7 @@ function rememberProviderSecretKeys(providers) {
     });
 }
 
-function effectiveCredentialAvailability(model) {
+function primaryCredentialAvailability(model) {
     const base = model.credential_availability || "available_but_unverified";
     if (base === "missing_required_secret") return base;
 
@@ -804,6 +807,66 @@ function effectiveCredentialAvailability(model) {
         return "available_with_inconclusive_validation";
     }
     return base;
+}
+
+function hasAvailableImageFallback(model) {
+    const fallback = model && model.fallback_available;
+    return !!fallback && model.provider_name === "gemini" && fallback.provider_name === "fal"
+        && ["fal-ai/nano-banana-2", "fal-ai/nano-banana-pro"].includes(fallback.model_id)
+        && fallback.credential_availability !== "missing_required_secret";
+}
+
+function effectiveCredentialAvailability(model) {
+    const primary = primaryCredentialAvailability(model);
+    if (primary === "missing_required_secret" && hasAvailableImageFallback(model)) {
+        return primaryCredentialAvailability(model.fallback_available);
+    }
+    return primary;
+}
+
+function copyImageExecutionFields(target, source) {
+    if (!source) return target;
+    for (const key of ["provider", "model", "image_route", "credential_failure", "fal_dispatch_state"]) {
+        if (Object.prototype.hasOwnProperty.call(source, key)) target[key] = source[key];
+    }
+    return target;
+}
+
+function hasStructuredImageContext(error) {
+    return !!error && ((error.provider === "fal"
+        && ["fal-ai/nano-banana-2", "fal-ai/nano-banana-pro"].includes(error.model))
+        || (error.provider === "gemini"
+        && ["gemini-3.1-flash-image-preview", "gemini-3-pro-image-preview"].includes(error.model)));
+}
+
+function applyImageCredentialWarning(error, model) {
+    if (hasStructuredImageContext(error)) {
+        const evidence = error.credential_failure;
+        if (evidence && evidence.provider === error.provider && evidence.kind === "rejected") {
+            markProviderCredentialInvalid(evidence.provider);
+        }
+        return;
+    }
+    if (model && isCredentialFailureMessage(error.message)) markProviderCredentialInvalid(model.provider_name);
+}
+
+function imageErrorMessage(error) {
+    const evidence = error && error.credential_failure;
+    if (hasStructuredImageContext(error) && evidence && evidence.provider === error.provider && evidence.kind === "missing") {
+        return providerDisplayName(evidence.provider) + " API key is not configured. Configure it in Settings.";
+    }
+    return error.message;
+}
+
+function imageResultNotice(result) {
+    const route = result && (result.image_route || (result.metadata && result.metadata.image_route));
+    const target = route && ({
+        "gemini-3.1-flash-image-preview": "fal-ai/nano-banana-2",
+        "gemini-3-pro-image-preview": "fal-ai/nano-banana-pro"
+    })[route.requested_model];
+    return route && route.requested_provider === "gemini" && route.effective_provider === "fal"
+        && target && route.effective_model === target && route.generation_dispatch_attempted === true
+        ? "Generated with fal.ai" : "Image generated.";
 }
 
 function markProviderCredentialInvalid(providerName) {
@@ -1300,18 +1363,16 @@ async function studioGenerate() {
             el.studioResultImage.src = `/blob/${encodeURIComponent(artifact.artifact_id)}/image?ts=${Date.now()}`;
             setStudioResultMode("generate");
             el.studioResultPanel.classList.remove("hidden");
-            showStudioStatus("Image generated.", "success");
+            showStudioStatus(imageResultNotice(artifact), "success");
         } else {
             showStudioStatus("Generation returned no artifact.", "error");
         }
     } catch (e) {
         const model = selectedImageModel(el.studioModelSelect);
-        if (model && isCredentialFailureMessage(e.message)) {
-            markProviderCredentialInvalid(model.provider_name);
-        }
+        applyImageCredentialWarning(e, model);
         if (model && model.provider_name === "vertex_ai" && (e.message || "").includes("submission outcome is unknown"))
             window.rookUnknownGoogleImageSubmission = true;
-        showStudioStatus(e.message, "error");
+        showStudioStatus(imageErrorMessage(e), "error");
     } finally {
         setGenerating(el.studioGenerateBtn, el.studioGenerateText, el.studioGenerateSpinner, false);
     }
@@ -1337,7 +1398,7 @@ async function studioGenerateImageJob(args, model) {
         el.studioResultImage.src = `/blob/${encodeURIComponent(result.result_artifact_id)}/image?ts=${Date.now()}`;
         setStudioResultMode("generate");
         el.studioResultPanel.classList.remove("hidden");
-        showStudioStatus("Image generated.", "success");
+        showStudioStatus(imageResultNotice(result), "success");
     } else {
         showStudioStatus("Generation returned no artifact.", "error");
     }

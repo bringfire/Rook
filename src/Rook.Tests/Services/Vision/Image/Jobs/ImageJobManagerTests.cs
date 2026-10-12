@@ -166,8 +166,8 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
             var status = await WaitForTerminalAsync(manager, submit.JobId!.Value);
             Assert.Equal(ImageJobState.Error, status.State);
             Assert.Null(status.ResultArtifactId);
-            await WaitForArtifactCountAsync(0);
             await WaitForRunningJobCountAsync(manager, 0);
+            await WaitForArtifactCountAsync(0);
         }
 
         [Fact]
