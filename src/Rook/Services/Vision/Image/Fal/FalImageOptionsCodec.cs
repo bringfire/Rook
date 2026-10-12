@@ -47,7 +47,9 @@ namespace Rook.Services.Vision.Image.Fal
             }
 
             var refCount = request.ReferenceImages?.Count ?? 0;
-            if (refCount > 0)
+            if (ImageRoutingCodec.IsFalModel(capability.Id) && refCount > capability.MaxReferenceImages)
+                return ValidationResult.Fail("Too many reference images.", "reference_image_paths");
+            if (refCount > 0 && !ImageRoutingCodec.IsFalModel(capability.Id))
             {
                 return ValidationResult.Fail(
                     "reference_image_paths are not supported for fal Flux Schnell.",

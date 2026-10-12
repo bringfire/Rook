@@ -10,7 +10,7 @@ using Rook.Services.Vision.Generation;
 
 namespace Rook.Services.Vision.Image.Fal
 {
-    public sealed class FalImageProvider : IModelAwareImageProvider
+    public sealed class FalImageProvider : IModelAwareImageProvider, IImageDispatchAwareProvider
     {
         private const int SourceMediaExpirationSeconds = 3600;
         private static readonly Uri FluxSchnellEndpoint =
@@ -33,10 +33,16 @@ namespace Rook.Services.Vision.Image.Fal
 
         public string ProviderName => FalImageCapabilities.ProviderName;
 
-        public async Task<ProviderSubmitOutcome> SubmitAsync(
+        public Task<ProviderSubmitOutcome> SubmitAsync(
             ImageGenerationRequest request,
             IReadOnlyDictionary<MediaRef, ResolvedMedia> media,
-            CancellationToken ct)
+            CancellationToken ct) =>
+            SubmitAsync(request, media, _ => Task.FromResult<GenerationError?>(null), () => { }, ct);
+
+        public async Task<ProviderSubmitOutcome> SubmitAsync(
+            ImageGenerationRequest request, IReadOnlyDictionary<MediaRef, ResolvedMedia> media,
+            Func<CancellationToken, Task<GenerationError?>> generationDispatchPreparing,
+            Action generationDispatchStarting, CancellationToken ct)
         {
             if (request is null)
                 return FailedSubmit(
@@ -50,6 +56,10 @@ namespace Rook.Services.Vision.Image.Fal
                     $"fal image provider requires {nameof(FalImageOptions)}; got " +
                     $"{request.Options?.GetType().Name ?? "null"}.",
                     "options");
+
+            if (ImageRoutingCodec.IsFalModel(request.Model))
+                return await SubmitNanoBananaAsync(request, media, generationDispatchPreparing, generationDispatchStarting, ct)
+                    .ConfigureAwait(false);
 
             var isGptImage2Edit = string.Equals(
                 request.Model,
@@ -159,6 +169,60 @@ namespace Rook.Services.Vision.Image.Fal
             }
 
             return ParseSuccess(response.Body);
+        }
+
+        private async Task<ProviderSubmitOutcome> SubmitNanoBananaAsync(
+            ImageGenerationRequest request, IReadOnlyDictionary<MediaRef, ResolvedMedia> media,
+            Func<CancellationToken, Task<GenerationError?>> preparing, Action starting, CancellationToken ct)
+        {
+            var validation = new FalImageOptionsCodec().Validate(request, request.Options,
+                FalImageCapabilities.Models[request.Model]);
+            if (!validation.Success)
+                return FailedSubmit(GenerationErrorCode.InvalidRequest, validation.Message!, validation.Field);
+            var key = _apiKeyProvider();
+            if (string.IsNullOrWhiteSpace(key))
+                return new FailedSubmitOutcome(new GenerationError(GenerationErrorCode.DependencyUnavailable,
+                    "fal API key is not configured.", false, ProviderErrorCode: ImageCredentialErrors.FalMissing));
+            string payload;
+            try { payload = FalNanoBananaPayload.Encode(request, media); }
+            catch (ArgumentException ex) { return FailedSubmit(GenerationErrorCode.InvalidRequest, ex.Message, ex.ParamName); }
+            try
+            {
+                ct.ThrowIfCancellationRequested();
+                var denied = await preparing(ct).ConfigureAwait(false);
+                if (denied != null) return new FailedSubmitOutcome(denied);
+                ct.ThrowIfCancellationRequested();
+                starting();
+                var response = await _client.PostJsonAsync(key!, new Uri("https://fal.run/" +
+                    FalNanoBananaPayload.EndpointId(request.Model, media.Count != 0)), payload, ct).ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode)
+                {
+                    var error = FalErrorMapper.MapHttpFailure(response);
+                    return new FailedSubmitOutcome(error with
+                    {
+                        ProviderErrorCode = response.StatusCode == 401
+                            ? ImageCredentialErrors.FalRejected
+                            : ImageCredentialErrors.IsReserved(error.ProviderErrorCode) ? "upstream." + error.ProviderErrorCode : error.ProviderErrorCode
+                    });
+                }
+                try
+                {
+                    var root = JsonNode.Parse(response.Body) as JsonObject;
+                    if (root?["images"] is not JsonArray images || images.Count != 1 ||
+                        images[0] is not JsonObject image || !TryGetString(image["url"], out var url) ||
+                        !Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps ||
+                        !string.IsNullOrEmpty(uri.UserInfo))
+                        return SyncFailed(GenerationErrorCode.ExecutionFailed, "fal response must contain exactly one HTTPS image.", "images");
+                }
+                catch (JsonException) { return SyncFailed(GenerationErrorCode.ExecutionFailed, "fal response was not valid JSON."); }
+                return ParseSuccess(response.Body);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            { return FailedSubmit(GenerationErrorCode.Interrupted, "Image execution stopped."); }
+            catch (TaskCanceledException)
+            { return FailedSubmit(GenerationErrorCode.DependencyUnavailable, "fal image request timed out.", retryable: true); }
+            catch (HttpRequestException)
+            { return FailedSubmit(GenerationErrorCode.DependencyUnavailable, "fal image transport failed.", retryable: true); }
         }
 
         public Task<ProviderStatusOutcome> GetStatusAsync(
@@ -830,3 +894,4 @@ namespace Rook.Services.Vision.Image.Fal
         }
     }
 }
+
