@@ -11,6 +11,14 @@ namespace Rook.Services.Vision.Image.Jobs
         public IReadOnlyList<ImageJobResultFile>? Files { get; }
         public GenerationError? Error { get; }
 
+        public string? Provider { get; private init; }
+        public string? Model { get; private init; }
+        public ImageRoutingContext? Routing { get; private init; }
+        public ImageFalDispatchState? FalDispatchState { get; private init; }
+        public ImageJobFetchResult WithRouting(string provider, string model,
+            ImageRoutingContext? routing, ImageFalDispatchState? falDispatchState = null) =>
+            this with { Provider = provider, Model = model, Routing = routing, FalDispatchState = falDispatchState };
+
         private ImageJobFetchResult(
             ImageJobState state,
             Guid? resultArtifactId,

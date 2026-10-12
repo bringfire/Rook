@@ -13,5 +13,8 @@ namespace Rook.Services.Vision.Image.Jobs
         Guid? ResultArtifactId,
         GenerationError? Error,
         DateTimeOffset CreatedAt,
-        DateTimeOffset UpdatedAt);
+        DateTimeOffset UpdatedAt,
+        ImageRouteReceipt? ImageRoute = null,
+        ImageCredentialFailure? CredentialFailure = null,
+        ImageFalDispatchState? FalDispatchState = null);
 }
