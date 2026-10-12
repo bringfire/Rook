@@ -14,6 +14,81 @@ namespace Rook.Tests.Services.Vision.Image
 {
     public class GeminiImageProviderTests
     {
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("   ")]
+        public async Task BlankKey_IsLocalMissing(string? key)
+        {
+            var (provider, http) = MakeProvider(_ => JsonResponse(HttpStatusCode.OK, "{}"), key);
+            var failed = Assert.IsType<FailedSubmitOutcome>(await provider.SubmitAsync(Request(),
+                ResolvedInputImage(), CancellationToken.None));
+            Assert.Equal(ImageCredentialErrors.GeminiMissing, failed.Error.ProviderErrorCode);
+            Assert.Empty(http.Requests);
+        }
+
+        [Theory]
+        [InlineData(400, "googleapis.com", "API_KEY_INVALID", null, true)]
+        [InlineData(401, "googleapis.com", "API_KEY_INVALID", "generativelanguage.googleapis.com", true)]
+        [InlineData(403, "googleapis.com", "API_KEY_INVALID", null, true)]
+        [InlineData(500, "googleapis.com", "API_KEY_INVALID", null, false)]
+        [InlineData(429, "googleapis.com", "API_KEY_INVALID", null, false)]
+        [InlineData(402, "googleapis.com", "API_KEY_INVALID", null, false)]
+        [InlineData(400, "other", "API_KEY_INVALID", null, false)]
+        [InlineData(400, "googleapis.com", "PERMISSION_DENIED", null, false)]
+        [InlineData(400, "googleapis.com", "API_KEY_INVALID", "other.googleapis.com", false)]
+        public async Task ErrorInfo_RequiresAdmittedStatusAndExactEvidence(int status, string domain,
+            string reason, string? service, bool admitted)
+        {
+            var info = new System.Text.Json.Nodes.JsonObject
+            {
+                ["@type"] = "type.googleapis.com/google.rpc.ErrorInfo",
+                ["domain"] = domain, ["reason"] = reason
+            };
+            if (service != null) info["metadata"] = new System.Text.Json.Nodes.JsonObject { ["service"] = service };
+            var body = new System.Text.Json.Nodes.JsonObject
+            {
+                ["error"] = new System.Text.Json.Nodes.JsonObject
+                { ["status"] = "INVALID_ARGUMENT", ["details"] = new System.Text.Json.Nodes.JsonArray(info) }
+            };
+            var (provider, http) = MakeProvider(_ => JsonResponse((HttpStatusCode)status, body.ToJsonString()));
+            var failure = Assert.IsType<FailedSubmitOutcome>(await provider.SubmitAsync(Request(),
+                ResolvedInputImage(), CancellationToken.None)).Error;
+            Assert.Equal(admitted, ImageCredentialErrors.FromError("gemini", failure) != null);
+            Assert.Single(http.Requests);
+        }
+
+        [Theory]
+        [InlineData(401, "{\"error\":{\"status\":\"UNAUTHENTICATED\"}}", true)]
+        [InlineData(403, "{\"error\":{\"status\":\"UNAUTHENTICATED\"}}", false)]
+        [InlineData(400, "{\"error\":{\"details\":[{\"@type\":\"other\",\"domain\":\"googleapis.com\",\"reason\":\"API_KEY_INVALID\"}]}}", false)]
+        [InlineData(400, "{\"error\":{\"details\":[{\"@type\":\"type.googleapis.com/google.rpc.ErrorInfo\",\"domain\":\"googleapis.com\",\"reason\":\"API_KEY_INVALID\",\"metadata\":[]}]}}", false)]
+        [InlineData(400, "{\"error\":{\"details\":[{\"@type\":\"type.googleapis.com/google.rpc.ErrorInfo\",\"domain\":\"googleapis.com\",\"reason\":\"API_KEY_INVALID\",\"metadata\":{\"service\":42}}]}}", false)]
+        [InlineData(400, "{\"error\":\"API_KEY_INVALID\"}", false)]
+        [InlineData(400, "broken-json", false)]
+        public async Task EnvelopeEvidence_IsStrict(int status, string body, bool admitted)
+        {
+            var (provider, _) = MakeProvider(_ => JsonResponse((HttpStatusCode)status, body));
+            var failure = Assert.IsType<FailedSubmitOutcome>(await provider.SubmitAsync(Request(),
+                ResolvedInputImage(), CancellationToken.None)).Error;
+            Assert.Equal(admitted, ImageCredentialErrors.FromError("gemini", failure) != null);
+        }
+
+        [Theory]
+        [InlineData("rook.gemini.key_missing")]
+        [InlineData("rook.gemini.key_rejected")]
+        [InlineData("rook.fal.key_missing")]
+        [InlineData("rook.fal.key_rejected")]
+        public async Task UpstreamStatus_CannotSpoofLocalCredentialMarker(string marker)
+        {
+            var (provider, _) = MakeProvider(_ => JsonResponse(HttpStatusCode.BadRequest,
+                "{\"error\":{\"status\":\"" + marker + "\"}}"));
+            var failure = Assert.IsType<FailedSubmitOutcome>(await provider.SubmitAsync(Request(),
+                ResolvedInputImage(), CancellationToken.None)).Error;
+            Assert.Null(ImageCredentialErrors.FromError("gemini", failure));
+            Assert.NotEqual(marker, failure.ProviderErrorCode);
+        }
+
         [Fact]
         public async Task SubmitAsync_success_returns_sync_inline_artifact_and_metadata()
         {

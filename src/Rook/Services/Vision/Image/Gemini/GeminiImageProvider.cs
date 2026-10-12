@@ -46,12 +46,13 @@ namespace Rook.Services.Vision.Image.Gemini
                     "options");
 
             var apiKey = _apiKeyProvider();
-            if (string.IsNullOrEmpty(apiKey))
+            if (string.IsNullOrWhiteSpace(apiKey))
             {
-                return Failed(
+                return new FailedSubmitOutcome(new GenerationError(
                     GenerationErrorCode.DependencyUnavailable,
                     "Gemini API key is not configured. Set it via the Vision settings " +
-                    "before calling /vision/generate.");
+                    "before calling /vision/generate.", false,
+                    ProviderErrorCode: ImageCredentialErrors.GeminiMissing));
             }
 
             try
@@ -335,6 +336,10 @@ namespace Rook.Services.Vision.Image.Gemini
             var providerCode = TryGetString(errorObject?["status"], out var statusText)
                 ? statusText
                 : errorObject?["code"]?.ToJsonString();
+            if (HasRejectedKeyEvidence(status, errorObject))
+                providerCode = ImageCredentialErrors.GeminiRejected;
+            else if (ImageCredentialErrors.IsReserved(providerCode))
+                providerCode = "upstream." + providerCode;
             var message = TryGetString(errorObject?["message"], out var messageText)
                 ? messageText
                 : null;
@@ -363,6 +368,31 @@ namespace Rook.Services.Vision.Image.Gemini
                 Message: message,
                 Retryable: retryable,
                 Field: field));
+
+        private static bool HasRejectedKeyEvidence(HttpStatusCode status, JsonObject? error)
+        {
+            if (error is null || status is not (HttpStatusCode.BadRequest or HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden))
+                return false;
+            if (status == HttpStatusCode.Unauthorized && TryGetString(error["status"], out var s) && s == "UNAUTHENTICATED")
+                return true;
+            if (error["details"] is not JsonArray details) return false;
+            foreach (var node in details)
+            {
+                if (node is not JsonObject info ||
+                    !TryGetString(info["@type"], out var type) || type != "type.googleapis.com/google.rpc.ErrorInfo" ||
+                    !TryGetString(info["domain"], out var domain) || domain != "googleapis.com" ||
+                    !TryGetString(info["reason"], out var reason) || reason != "API_KEY_INVALID") continue;
+                if (info.TryGetPropertyValue("metadata", out var metadata))
+                {
+                    if (metadata is not JsonObject m) continue;
+                    if (m.TryGetPropertyValue("service", out var service) &&
+                        (!TryGetString(service, out var serviceText) || serviceText != "generativelanguage.googleapis.com"))
+                        continue;
+                }
+                return true;
+            }
+            return false;
+        }
 
         private static ProviderSubmitOutcome SyncFailed(
             GenerationErrorCode code,
