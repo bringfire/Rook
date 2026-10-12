@@ -33,7 +33,7 @@ namespace Rook.Services.Vision.Image
                 var directFal = model.ProviderName == "fal" && ImageRoutingCodec.IsFalModel(model.ModelId);
                 if (!directFal)
                 {
-                    var primary = await model.Provider.SubmitAsync(request, media, ct).ConfigureAwait(false);
+                    var primary = await AwaitAsync(model.Provider.SubmitAsync(request, media, ct), ct).ConfigureAwait(false);
                     ct.ThrowIfCancellationRequested();
                     var error = Error(primary);
                     var credential = error == null ? null : ImageCredentialErrors.FromError(model.ProviderName, error);
@@ -65,10 +65,10 @@ namespace Rook.Services.Vision.Image
                 ct.ThrowIfCancellationRequested();
                 if (model.Provider is not IImageDispatchAwareProvider provider)
                     return Result(Fail("The fal image model cannot fence generation dispatch.", GenerationErrorCode.DependencyUnavailable));
-                var outcome = await provider.SubmitAsync(request, media,
+                var outcome = await AwaitAsync(provider.SubmitAsync(request, media,
                     token => prepareGenerationDispatchAsync == null ? Task.FromResult<GenerationError?>(null)
                         : prepareGenerationDispatchAsync(context, token),
-                    context.MarkGenerationDispatchAttempted, ct).ConfigureAwait(false);
+                    context.MarkGenerationDispatchAttempted, ct), ct).ConfigureAwait(false);
                 ct.ThrowIfCancellationRequested();
                 var failure = Error(outcome);
                 context.SetCredentialFailure(failure == null ? null : ImageCredentialErrors.FromError("fal", failure));
@@ -93,5 +93,18 @@ namespace Rook.Services.Vision.Image
             SyncSubmitOutcome { Result: FailedResultOutcome f } => f.Error,
             _ => null
         };
+        internal static async Task<T> AwaitAsync<T>(Task<T> task, CancellationToken ct)
+        {
+            if (!ct.CanBeCanceled) return await task.ConfigureAwait(false);
+            var stopped = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var registration = ct.Register(() => stopped.TrySetResult(true));
+            if (await Task.WhenAny(task, stopped.Task).ConfigureAwait(false) != task)
+            {
+                _ = task.ContinueWith(t => { _ = t.Exception; }, CancellationToken.None,
+                    TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                ct.ThrowIfCancellationRequested();
+            }
+            return await task.ConfigureAwait(false);
+        }
     }
 }

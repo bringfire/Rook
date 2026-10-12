@@ -23,6 +23,9 @@ namespace Rook.Services.Vision.Image.Jobs
 
         private const int MaxListLimit = 100;
 
+        public static readonly TimeSpan ExecutionDeadline = TimeSpan.FromSeconds(180);
+        private readonly ImageSubmissionExecutor _submissionExecutor;
+        private readonly Func<TimeSpan, CancellationTokenSource> _deadlineFactory;
         private readonly IImageProviderRegistry _registry;
         private readonly ArtifactStore _artifactStore;
         private readonly ImageArtifactMaterializer _materializer;
@@ -35,6 +38,8 @@ namespace Rook.Services.Vision.Image.Jobs
         private readonly CancellationTokenSource _shutdownCts = new();
         private readonly ConcurrentDictionary<Guid, RunningJob> _runningJobs = new();
         private readonly ConcurrentDictionary<Guid, ImageJobRecord> _records = new();
+        private int _disposeState;
+        private int _resourcesDisposed;
 
         private readonly ConcurrentDictionary<Guid, object> _transitionGates = new();
         private readonly ConcurrentDictionary<Guid, ImageJobRecord> _diagnostics = new();
@@ -90,7 +95,9 @@ namespace Rook.Services.Vision.Image.Jobs
             int maxConcurrentJobs,
             ImageArtifactMaterializer? materializer,
             ImageArtifactRequestFactorySelector? requestFactorySelector,
-            IImageJobLedger? ledger = null)
+            IImageJobLedger? ledger = null,
+            ImageSubmissionExecutor? submissionExecutor = null,
+            Func<TimeSpan, CancellationTokenSource>? deadlineFactory = null)
         {
             if (maxConcurrentJobs <= 0)
                 throw new ArgumentOutOfRangeException(
@@ -98,6 +105,8 @@ namespace Rook.Services.Vision.Image.Jobs
                     "Max concurrent jobs must be positive.");
 
             _registry = registry ?? throw new ArgumentNullException(nameof(registry));
+            _submissionExecutor = submissionExecutor ?? new ImageSubmissionExecutor(registry);
+            _deadlineFactory = deadlineFactory ?? (duration => new CancellationTokenSource(duration));
             _artifactStore = artifactStore ?? throw new ArgumentNullException(nameof(artifactStore));
             _materializer = materializer ?? new ImageArtifactMaterializer();
             _clock = clock ?? new SystemImageJobClock();
@@ -112,6 +121,9 @@ namespace Rook.Services.Vision.Image.Jobs
             ImageJobStartRequest start,
             CancellationToken ct)
         {
+            if (Volatile.Read(ref _disposeState) != 0)
+                return Task.FromResult(ImageJobSubmitResult.Fail(new GenerationError(
+                    GenerationErrorCode.DependencyUnavailable, "Image job manager is shutting down.", false)));
             if (start is null)
                 return Task.FromResult(ImageJobSubmitResult.Fail(InvalidRequest(
                     "Request is null.",
@@ -143,25 +155,27 @@ namespace Rook.Services.Vision.Image.Jobs
                 model.ModelId,
                 model.ProviderName,
                 createdAt: now,
-                updatedAt: now);
+                updatedAt: now,
+                falDispatchState: ImageSubmissionExecutor.UsesExecutionDeadline(model) ? ImageFalDispatchState.NotStarted : null);
             var durable = ImageJobLedgerRecordFactory.FromInitial(
                 jobId,
                 model.ProviderName,
                 model.ModelId,
                 ImageJobState.Queued,
-                now);
+                now) with { FalDispatchState = initial.FalDispatchState };
             if (!TryAppendLedger(durable, out var appendError))
                 return Task.FromResult(ImageJobSubmitResult.Fail(appendError!));
 
             _records[jobId] = initial;
 
-            var jobCts = CancellationTokenSource.CreateLinkedTokenSource(_shutdownCts.Token);
-            var running = new RunningJob(initial, jobCts, model, start);
+            var jobCts = new CancellationTokenSource();
+            var running = new RunningJob(initial, jobCts, model, start, _shutdownCts.Token);
             _runningJobs[jobId] = running;
 
             _ = Task.Run(() => RunJobAsync(jobId, running));
 
-            return Task.FromResult(ImageJobSubmitResult.Ok(jobId, ImageJobState.Queued));
+            return Task.FromResult(ImageJobSubmitResult.Ok(jobId, ImageJobState.Queued)
+                .WithRouting(initial.Provider, initial.Model, initial.Routing, initial.FalDispatchState));
         }
 
         public Task<ImageJobStatusResult> GetStatusAsync(
@@ -301,8 +315,11 @@ namespace Rook.Services.Vision.Image.Jobs
                     now,
                     error: new GenerationError(
                         GenerationErrorCode.Interrupted,
-                        "Image job interrupted by plugin reload.",
-                        Retryable: true));
+                        record.FalDispatchState is ImageFalDispatchState.IntentRecorded or ImageFalDispatchState.Attempted
+                            ? "Image job interrupted after fal dispatch admission; submission outcome is unknown. A deliberately new request may create another billed generation."
+                            : "Image job interrupted by plugin reload.",
+                        Retryable: record.FalDispatchState is not (ImageFalDispatchState.IntentRecorded or ImageFalDispatchState.Attempted)),
+                    routing: record.ImageRoute == null ? null : new(record.ImageRoute with { Phase = ImageExecutionPhase.Interruption }, null));
                 _ledger.Append(interrupted);
                     _records[record.JobId] = FromLedgerRecord(interrupted);
                 }
@@ -404,14 +421,25 @@ namespace Rook.Services.Vision.Image.Jobs
 
         public void Dispose()
         {
+            if (Interlocked.CompareExchange(ref _disposeState, 1, 0) != 0) return;
             try { _shutdownCts.Cancel(); } catch { }
-            _shutdownCts.Dispose();
-            _concurrency.Dispose();
+            Volatile.Write(ref _disposeState, 2);
+            DisposeSettledResources();
         }
 
+        private void DisposeSettledResources()
+        {
+            if (Volatile.Read(ref _disposeState) == 2 && _runningJobs.IsEmpty &&
+                Interlocked.Exchange(ref _resourcesDisposed, 1) == 0)
+            {
+                _shutdownCts.Dispose();
+                _concurrency.Dispose();
+            }
+        }
         private async Task RunJobAsync(Guid jobId, RunningJob running)
         {
-            var ct = running.Cts.Token;
+            var ct = running.QueueCts.Token;
+            ImageExecutionBudget? budget = null;
             var current = running.LatestRecord;
             var provider = running.Model.Provider;
 
@@ -420,6 +448,11 @@ namespace Rook.Services.Vision.Image.Jobs
                 await _concurrency.WaitAsync(ct).ConfigureAwait(false);
                 try
                 {
+                    if (ImageSubmissionExecutor.UsesExecutionDeadline(running.RequestedModel))
+                    {
+                        budget = new ImageExecutionBudget(running.Cts.Token, _shutdownCts.Token, _deadlineFactory(ExecutionDeadline));
+                        ct = budget.Token;
+                    }
                     if (!TryTransitionWithLedger(
                             current,
                             ImageJobState.Submitting,
@@ -433,11 +466,19 @@ namespace Rook.Services.Vision.Image.Jobs
                     }
                     running.LatestRecord = current;
 
-                    var submit = await provider.SubmitAsync(
-                            running.Start.Request,
-                            running.Start.ResolvedMedia,
-                            ct)
-                        .ConfigureAwait(false);
+                    ProviderSubmitOutcome submit;
+                    if (ImageSubmissionExecutor.UsesExecutionDeadline(running.RequestedModel))
+                    {
+                        var execution = await _submissionExecutor.SubmitAsync(running.Start.Request, running.RequestedModel,
+                            running.Start.ResolvedMedia, running.Context, ct,
+                            (snapshot, token) => PrepareEffectiveRouteAsync(jobId, snapshot, token),
+                            (context, token) => PrepareGenerationDispatchAsync(jobId, context, token)).ConfigureAwait(false);
+                        submit = execution.Outcome;
+                        provider = running.Model.Provider;
+                        current = LatestRecord(jobId, current);
+                        ct.ThrowIfCancellationRequested();
+                    }
+                    else submit = await provider.SubmitAsync(running.Start.Request, running.Start.ResolvedMedia, ct).ConfigureAwait(false);
 
                     switch (submit)
                     {
@@ -568,10 +609,17 @@ namespace Rook.Services.Vision.Image.Jobs
             {
                 if (!IsTerminal(current.State))
                 {
-                    var cancelled = TransitionOrMarkAppendFailure(
-                        current,
-                        ImageJobState.Cancelled,
-                        CancelledError());
+                    running.Context.SetCredentialFailure(null);
+                    running.Context.SetPhase(ImageExecutionPhase.Interruption);
+                    var reason = budget?.StopReason ?? (running.Cts.IsCancellationRequested ? ImageStopReason.UserCancellation : ImageStopReason.Shutdown);
+                    var affected = ImageSubmissionExecutor.UsesExecutionDeadline(running.RequestedModel);
+                    var error = affected && reason == ImageStopReason.Deadline
+                        ? new GenerationError(GenerationErrorCode.Interrupted, "Image generation execution deadline exceeded (180s).", false)
+                        : affected && reason == ImageStopReason.Shutdown
+                            ? new GenerationError(GenerationErrorCode.Interrupted, "Image job interrupted by plugin shutdown.", false)
+                            : CancelledError();
+                    var cancelled = TransitionOrMarkAppendFailure(current,
+                        error.Code == GenerationErrorCode.Interrupted ? ImageJobState.Interrupted : ImageJobState.Cancelled, error);
                     running.LatestRecord = cancelled;
                 }
             }
@@ -592,7 +640,10 @@ namespace Rook.Services.Vision.Image.Jobs
             finally
             {
                 _runningJobs.TryRemove(jobId, out _);
+                budget?.Dispose();
+                running.QueueCts.Dispose();
                 running.Cts.Dispose();
+                DisposeSettledResources();
             }
         }
 
@@ -658,13 +709,14 @@ namespace Rook.Services.Vision.Image.Jobs
                 running.LatestRecord = current;
             }
 
+            running.Context.SetPhase(ImageExecutionPhase.Materialization);
             var requestFactory = ResolveRequestFactory(
                 running.Model,
                 imageArtifact);
-            var materialized = await _materializer.MaterializeAsync(
+            var materialized = await ImageSubmissionExecutor.AwaitAsync(_materializer.MaterializeAsync(
                     imageArtifact,
                     ct,
-                    requestFactory)
+                    requestFactory), ct)
                 .ConfigureAwait(false);
             if (!materialized.Success || materialized.Bytes is null)
             {
@@ -698,6 +750,7 @@ namespace Rook.Services.Vision.Image.Jobs
                 { running.LatestRecord = TransitionOrMarkAppendFailure(current, ImageJobState.Interrupted, error); return; }
                 ct.ThrowIfCancellationRequested();
             }
+            running.Context.SetPhase(ImageExecutionPhase.Publication);
             var mimeType = materialized.MimeType ?? "image/png";
             var artifact = _artifactStore.Create(
                 kind: VisionHandler.ArtifactKindGeneratedImage,
@@ -714,8 +767,8 @@ namespace Rook.Services.Vision.Image.Jobs
                     ["prompt"] = running.Start.Request.Prompt,
                     ["model"] = running.Model.ModelId,
                     ["provider"] = running.Model.ProviderName,
-                    ["resolution"] = running.Start.Request.Resolution,
-                    ["aspect_ratio"] = running.Start.Request.AspectRatio,
+                    ["resolution"] = running.Request.Resolution,
+                    ["aspect_ratio"] = running.Request.AspectRatio,
                     ["mime_type"] = mimeType,
                 });
 
@@ -814,6 +867,13 @@ namespace Rook.Services.Vision.Image.Jobs
                 var latest = LatestRecord(prior.JobId, prior);
                 next = latest;
                 if (IsTerminal(latest.State) || completionAdmission != null && !completionAdmission()) return false;
+                if (_runningJobs.TryGetValue(latest.JobId, out var executing))
+                {
+                    var snapshot = executing.Context.Snapshot();
+                    effectiveModel ??= snapshot.EffectiveModel;
+                    routing ??= snapshot.Routing;
+                    falDispatchState ??= snapshot.FalDispatchState;
+                }
                 var durable = ImageJobLedgerRecordFactory.WithState(ToLedgerRecord(latest), state, _clock.UtcNow(),
                     providerHandle?.ProviderJobId, resultArtifactId, error, effectiveModel, routing, falDispatchState);
                 if (!TryAppendLedger(durable, out appendError)) return false;
@@ -1101,7 +1161,7 @@ namespace Rook.Services.Vision.Image.Jobs
 
         private static ImageJobStatusResult TranslateToStatus(ImageJobRecord record)
         {
-            return record.State switch
+            return (record.State switch
             {
                 ImageJobState.Complete when record.ResultArtifactId is { } id =>
                     ImageJobStatusResult.Complete(id),
@@ -1115,7 +1175,7 @@ namespace Rook.Services.Vision.Image.Jobs
                             Retryable: false)),
 
                 _ => ImageJobStatusResult.InFlight(record.State, progress: null),
-            };
+            }).WithRouting(record.Provider, record.Model, record.Routing, record.FalDispatchState);
         }
 
         private static bool IsTerminal(ImageJobState state) =>
@@ -1234,19 +1294,25 @@ namespace Rook.Services.Vision.Image.Jobs
         {
             public ImageJobRecord LatestRecord;
             public readonly CancellationTokenSource Cts;
-            public readonly ResolvedImageModel Model;
+            public readonly CancellationTokenSource QueueCts;
+            public readonly ResolvedImageModel RequestedModel;
+            public readonly ImageExecutionContext Context = new();
+            public ResolvedImageModel Model => Context.Snapshot().EffectiveModel ?? RequestedModel;
+            public ImageGenerationRequest Request => Context.Snapshot().EffectiveRequest ?? Start.Request;
             public readonly ImageJobStartRequest Start;
 
             public RunningJob(
                 ImageJobRecord initial,
                 CancellationTokenSource cts,
                 ResolvedImageModel model,
-                ImageJobStartRequest start)
+                ImageJobStartRequest start, CancellationToken shutdown)
             {
                 LatestRecord = initial;
                 Cts = cts;
-                Model = model;
+                RequestedModel = model;
                 Start = start;
+                QueueCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, shutdown);
+                Context.Initialize(start.Request, model);
             }
         }
 

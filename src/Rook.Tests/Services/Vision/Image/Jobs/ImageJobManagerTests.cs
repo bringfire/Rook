@@ -167,6 +167,7 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
             Assert.Equal(ImageJobState.Error, status.State);
             Assert.Null(status.ResultArtifactId);
             await WaitForArtifactCountAsync(0);
+            await WaitForRunningJobCountAsync(manager, 0);
         }
 
         [Fact]
