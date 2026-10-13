@@ -457,7 +457,7 @@ namespace Rook.Services.Vision.Image.Jobs
         private async Task RunJobAsync(Guid jobId, RunningJob running)
         {
             var ct = running.QueueCts.Token;
-            ImageExecutionBudget? budget = null;
+            var budget = running.ExecutionBudget;
             var current = running.LatestRecord;
             var provider = running.Model.Provider;
 
@@ -466,15 +466,10 @@ namespace Rook.Services.Vision.Image.Jobs
                 await _concurrency.WaitAsync(ct).ConfigureAwait(false);
                 try
                 {
-                    if (ImageSubmissionExecutor.UsesExecutionDeadline(running.RequestedModel))
+                    if (budget != null)
                     {
-                        // Publish the budget under the commit gate so Cancel cannot miss an observed stop.
-                        lock (TransitionGate(jobId))
-                        {
-                            budget = new ImageExecutionBudget(running.Cts.Token, _shutdownCts.Token, _deadlineFactory(ExecutionDeadline));
-                            running.ExecutionBudget = budget;
-                            ct = budget.Token;
-                        }
+                        budget.StartDeadline(_deadlineFactory(ExecutionDeadline));
+                        ct = budget.Token;
                     }
                     if (!TryTransitionWithLedger(
                             current,
@@ -1308,8 +1303,7 @@ namespace Rook.Services.Vision.Image.Jobs
             if (running == null || !ImageSubmissionExecutor.UsesExecutionDeadline(running.RequestedModel))
                 return CancelledError();
 
-            var reason = running.ExecutionBudget?.StopReason
-                ?? (running.Cts.IsCancellationRequested ? ImageStopReason.UserCancellation : ImageStopReason.Shutdown);
+            var reason = running.ExecutionBudget!.StopReason;
             return reason switch
             {
                 ImageStopReason.Deadline => new GenerationError(GenerationErrorCode.Interrupted,
@@ -1333,7 +1327,7 @@ namespace Rook.Services.Vision.Image.Jobs
             public ImageJobRecord LatestRecord;
             public readonly CancellationTokenSource Cts;
             public readonly CancellationTokenSource QueueCts;
-            public ImageExecutionBudget? ExecutionBudget;
+            public readonly ImageExecutionBudget? ExecutionBudget;
             public readonly ResolvedImageModel RequestedModel;
             public readonly ImageExecutionContext Context = new();
             public ResolvedImageModel Model => Context.Snapshot().EffectiveModel ?? RequestedModel;
@@ -1350,7 +1344,12 @@ namespace Rook.Services.Vision.Image.Jobs
                 Cts = cts;
                 RequestedModel = model;
                 Start = start;
-                QueueCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, shutdown);
+                // Latch provenance before queue cancellation can wake the worker.
+                ExecutionBudget = ImageSubmissionExecutor.UsesExecutionDeadline(model)
+                    ? new ImageExecutionBudget(cts.Token, shutdown, null) : null;
+                QueueCts = ExecutionBudget != null
+                    ? CancellationTokenSource.CreateLinkedTokenSource(ExecutionBudget.Token)
+                    : CancellationTokenSource.CreateLinkedTokenSource(cts.Token, shutdown);
                 Context.Initialize(start.Request, model);
             }
         }

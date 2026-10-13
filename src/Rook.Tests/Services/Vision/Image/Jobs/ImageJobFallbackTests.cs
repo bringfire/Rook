@@ -252,6 +252,85 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
         }
 
         [Theory]
+        [InlineData(GeminiImageCapabilities.NanoBanana2, true)]
+        [InlineData(GeminiImageCapabilities.NanoBananaPro, true)]
+        [InlineData("fal-ai/nano-banana-2", true)]
+        [InlineData("fal-ai/nano-banana-pro", true)]
+        [InlineData(GeminiImageCapabilities.NanoBanana2, false)]
+        [InlineData(GeminiImageCapabilities.NanoBananaPro, false)]
+        [InlineData("fal-ai/nano-banana-2", false)]
+        [InlineData("fal-ai/nano-banana-pro", false)]
+        public async Task QueuedStopsKeepFirstReasonAcrossCancelAndShutdown(string requested, bool shutdownFirst)
+        {
+            using var f = new ImageFallbackFixture(geminiKey: null);
+            var ledger = new JsonlImageJobLedger(Path.Combine(f.Root, "ledger.jsonl"));
+            var timers = 0;
+            using var manager = Manager(f, ledger, _ =>
+            { Interlocked.Increment(ref timers); return new CancellationTokenSource(); }, slots: 1);
+            // Occupy the slot without dispatching another job, so this job remains entirely queued.
+            var slots = (SemaphoreSlim)typeof(ImageJobManager)
+                .GetField("_concurrency", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(manager)!;
+            await slots.WaitAsync();
+            var submit = await manager.SubmitAsync(f.Start(requested), CancellationToken.None);
+            var id = submit.JobId!.Value;
+            Assert.Equal(ImageJobState.Queued, (await manager.GetStatusAsync(id, CancellationToken.None)).State);
+            using var releaseWorker = new ManualResetEventSlim();
+            var workerEntered = Signal();
+            var transitions = 0;
+            if (shutdownFirst) manager.BeforeTransitionGateForTests = _ =>
+            {
+                if (Interlocked.Increment(ref transitions) != 1) return;
+                workerEntered.TrySetResult(true);
+                Assert.True(releaseWorker.Wait(5000), "Queued worker terminal commit was not released.");
+            };
+            Task shutdown = Task.CompletedTask;
+            var expectedState = shutdownFirst ? ImageJobState.Interrupted : ImageJobState.Cancelled;
+            var expectedCode = shutdownFirst ? GenerationErrorCode.Interrupted : GenerationErrorCode.Cancelled;
+            var expectedMessage = shutdownFirst ? "Image job interrupted by plugin shutdown." : "Job cancelled.";
+            try
+            {
+                if (shutdownFirst)
+                {
+                    // Cancellation callbacks may run the worker inline; signal from a separate task.
+                    shutdown = Task.Run(() => manager.Dispose());
+                    await Bounded(workerEntered.Task);
+                    Assert.Equal(ImageJobState.Queued, (await manager.GetStatusAsync(id, CancellationToken.None)).State);
+                    Assert.Equal(expectedState, (await manager.CancelAsync(id, CancellationToken.None)).State);
+                }
+                else
+                {
+                    Assert.Equal(expectedState, (await manager.CancelAsync(id, CancellationToken.None)).State);
+                    shutdown = Task.Run(() => manager.Dispose());
+                }
+            }
+            finally
+            {
+                releaseWorker.Set();
+                await Bounded(shutdown);
+                await Settled(manager);
+            }
+            var status = await manager.GetStatusAsync(id, CancellationToken.None);
+            using var fresh = Manager(f, new JsonlImageJobLedger(ledger.FilePath));
+            var restored = await fresh.GetStatusAsync(id, CancellationToken.None);
+            foreach (var result in new[] { status, restored })
+            {
+                Assert.Equal(expectedState, result.State);
+                Assert.Equal(expectedCode, result.Error!.Code);
+                Assert.Equal(expectedMessage, result.Error.Message);
+                Assert.False(result.Error.Retryable);
+                Assert.Equal(requested, result.Model);
+                Assert.Null(result.Routing);
+                Assert.Equal(ImageFalDispatchState.NotStarted, result.FalDispatchState);
+                Assert.Null(result.ResultArtifactId);
+            }
+            var durable = Assert.Single(ledger.ReadAll().Records);
+            Assert.Equal(expectedState, durable.State); Assert.Equal(expectedMessage, durable.Error!.Message);
+            Assert.Equal(0, timers);
+            Assert.Empty(f.GoogleHttp.Requests); Assert.Empty(f.FalHttp.Requests); Assert.Empty(f.DownloadHttp.Requests);
+            Assert.DoesNotContain(f.Store.List(), a => a.Kind == "generated_image");
+        }
+
+        [Theory]
         [InlineData(false, false)]
         [InlineData(false, true)]
         [InlineData(true, false)]
