@@ -468,8 +468,13 @@ namespace Rook.Services.Vision.Image.Jobs
                 {
                     if (ImageSubmissionExecutor.UsesExecutionDeadline(running.RequestedModel))
                     {
-                        budget = new ImageExecutionBudget(running.Cts.Token, _shutdownCts.Token, _deadlineFactory(ExecutionDeadline));
-                        ct = budget.Token;
+                        // Publish the budget under the commit gate so Cancel cannot miss an observed stop.
+                        lock (TransitionGate(jobId))
+                        {
+                            budget = new ImageExecutionBudget(running.Cts.Token, _shutdownCts.Token, _deadlineFactory(ExecutionDeadline));
+                            running.ExecutionBudget = budget;
+                            ct = budget.Token;
+                        }
                     }
                     if (!TryTransitionWithLedger(
                             current,
@@ -629,13 +634,7 @@ namespace Rook.Services.Vision.Image.Jobs
                 {
                     running.Context.SetCredentialFailure(null);
                     running.Context.SetPhase(ImageExecutionPhase.Interruption);
-                    var reason = budget?.StopReason ?? (running.Cts.IsCancellationRequested ? ImageStopReason.UserCancellation : ImageStopReason.Shutdown);
-                    var affected = ImageSubmissionExecutor.UsesExecutionDeadline(running.RequestedModel);
-                    var error = affected && reason == ImageStopReason.Deadline
-                        ? new GenerationError(GenerationErrorCode.Interrupted, "Image generation execution deadline exceeded (180s).", false)
-                        : affected && reason == ImageStopReason.Shutdown
-                            ? new GenerationError(GenerationErrorCode.Interrupted, "Image job interrupted by plugin shutdown.", false)
-                            : CancelledError();
+                    var error = StopError(running);
                     var cancelled = TransitionOrMarkAppendFailure(current,
                         error.Code == GenerationErrorCode.Interrupted ? ImageJobState.Interrupted : ImageJobState.Cancelled, error);
                     running.LatestRecord = cancelled;
@@ -999,8 +998,10 @@ namespace Rook.Services.Vision.Image.Jobs
             {
                 var latest = LatestRecord(prior.JobId, prior);
                 if (IsTerminal(latest.State)) return new(latest, null);
-                var committed = TryTransitionWithLedger(latest, ImageJobState.Cancelled, out var cancelled,
-                    out var appendError, error: CancelledError());
+                var error = StopError(running);
+                var committed = TryTransitionWithLedger(latest,
+                    error.Code == GenerationErrorCode.Interrupted ? ImageJobState.Interrupted : ImageJobState.Cancelled,
+                    out var cancelled, out var appendError, error: error);
                 if (!committed && appendError != null) cancelled = MarkAppendFailure(latest, appendError);
                 if (running != null) running.LatestRecord = cancelled;
                 return new(cancelled, appendError);
@@ -1302,6 +1303,23 @@ namespace Rook.Services.Vision.Image.Jobs
                 "Job cancelled.",
                 Retryable: false);
 
+        private static GenerationError StopError(RunningJob? running)
+        {
+            if (running == null || !ImageSubmissionExecutor.UsesExecutionDeadline(running.RequestedModel))
+                return CancelledError();
+
+            var reason = running.ExecutionBudget?.StopReason
+                ?? (running.Cts.IsCancellationRequested ? ImageStopReason.UserCancellation : ImageStopReason.Shutdown);
+            return reason switch
+            {
+                ImageStopReason.Deadline => new GenerationError(GenerationErrorCode.Interrupted,
+                    "Image generation execution deadline exceeded (180s).", false),
+                ImageStopReason.Shutdown => new GenerationError(GenerationErrorCode.Interrupted,
+                    "Image job interrupted by plugin shutdown.", false),
+                _ => CancelledError()
+            };
+        }
+
         private static GenerationError UnknownOutcomeError(
             string phase,
             string outcomeType) =>
@@ -1315,6 +1333,7 @@ namespace Rook.Services.Vision.Image.Jobs
             public ImageJobRecord LatestRecord;
             public readonly CancellationTokenSource Cts;
             public readonly CancellationTokenSource QueueCts;
+            public ImageExecutionBudget? ExecutionBudget;
             public readonly ResolvedImageModel RequestedModel;
             public readonly ImageExecutionContext Context = new();
             public ResolvedImageModel Model => Context.Snapshot().EffectiveModel ?? RequestedModel;

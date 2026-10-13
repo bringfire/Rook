@@ -956,14 +956,14 @@ function shouldDisableStudioModel(model) {
 
 function buildImageModelOption(model, disabled) {
     const availability = effectiveCredentialAvailability(model);
-    const provider = model.provider_name ? ` · ${providerDisplayName(model.provider_name)}` : "";
+    const provider = model.provider_name ? ` Â· ${providerDisplayName(model.provider_name)}` : "";
     const fallback = hasImageFallback(model)
-        ? hasAvailableImageFallback(model) ? " · fal.ai fallback configured" : " · fal.ai fallback not configured" : "";
+        ? hasAvailableImageFallback(model) ? " Â· fal.ai fallback configured" : " Â· fal.ai fallback not configured" : "";
     const warningProvider = primaryCredentialAvailability(model) === "missing_required_secret" && hasAvailableImageFallback(model)
         ? "fal.ai " : "";
-    const warning = availability === "invalid_credential" ? ` · ${warningProvider}credential warning` : "";
+    const warning = availability === "invalid_credential" ? ` Â· ${warningProvider}credential warning` : "";
     const blocker = availability === "missing_required_secret"
-        ? hasImageFallback(model) ? " · configure Gemini or fal.ai key" : " · configure key" : "";
+        ? hasImageFallback(model) ? " Â· configure Gemini or fal.ai key" : " Â· configure key" : "";
     return `<option value="${escapeAttr(imageModelOptionValue(model))}"${disabled ? " disabled" : ""}>${escapeHtml(model.label || model.model_id)}${escapeHtml(provider + fallback + warning + blocker)}</option>`;
 }
 

@@ -154,6 +154,22 @@ test("text credential warnings cannot disable a mapped image fallback", () => {
     assert.equal(h.run("shouldDisableGenerateModel(selectedImageModel(el.modelSelect))"), false);
     assert.equal(h.run("selectedImageModel(el.modelSelect).credential_availability"), "missing_required_secret");
 });
+for (const [catalog, selected, invalidProvider, expected] of [
+    ["catalog_fal_only", "gemini-3.1-flash-image-preview", null, ["Google AI", "fal.ai fallback configured"]],
+    ["catalog_neither", "gemini-3.1-flash-image-preview", null, ["Google AI", "fal.ai fallback not configured", "configure Gemini or fal.ai key"]],
+    ["catalog_fal_only", "gemini-3.1-flash-image-preview", "fal", ["Google AI", "fal.ai fallback configured", "fal.ai credential warning"]],
+    ["catalog_neither", "fal-ai/nano-banana-2", null, ["fal.ai", "configure key"]],
+    ["catalog_fal_only", "fal-ai/nano-banana-2", "fal", ["fal.ai", "credential warning"]]
+]) {
+    test("model label separators remain readable: " + catalog + "/" + selected + "/" + invalidProvider, () => {
+        const h = harness(catalog, selected);
+        if (invalidProvider) h.run('markProviderCredentialInvalid("' + invalidProvider + '")');
+        const rendered = h.run("buildImageModelOption(selectedImageModel(el.modelSelect), false)");
+        for (const label of expected) assert.ok(rendered.includes(" \u00b7 " + label), rendered);
+        assert.doesNotMatch(rendered, /\ufffd/);
+    });
+}
+
 test("model and settings displays disclose configured automatic fallback", () => {
     const h = harness();
     const rendered = h.run("buildImageModelOption(selectedImageModel(el.modelSelect), false)");

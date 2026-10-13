@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Image;
 using Rook.Services.Vision.Image.Gemini;
 using Rook.Services.Vision.Image.Jobs;
@@ -247,6 +248,66 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
                 status.State + ": " + status.Error?.Message);
             Assert.Null(status.Routing?.Route);
             Assert.Equal(ImageFalDispatchState.Attempted, status.FalDispatchState);
+            Assert.DoesNotContain(f.Store.List(), a => a.Kind == "generated_image");
+        }
+
+        [Theory]
+        [InlineData(false, false)]
+        [InlineData(false, true)]
+        [InlineData(true, false)]
+        [InlineData(true, true)]
+        public async Task LateCancelPreservesObservedStopWhileWorkerAwaitsTerminalCommit(bool shutdown, bool fallback)
+        {
+            using var f = new ImageFallbackFixture(geminiKey: null);
+            using var fal = f.HoldNextResponse(f.FalHttp);
+            using var releaseCommit = new ManualResetEventSlim();
+            var commitEntered = Signal();
+            var timer = new CancellationTokenSource();
+            var ledger = new JsonlImageJobLedger(Path.Combine(f.Root, "ledger.jsonl"));
+            using var manager = Manager(f, ledger, _ => timer);
+            var requested = fallback ? GeminiImageCapabilities.NanoBanana2 : "fal-ai/nano-banana-2";
+            var submit = await manager.SubmitAsync(f.Start(requested), CancellationToken.None);
+            await Bounded(fal.Entered);
+            var commits = 0;
+            manager.BeforeTransitionGateForTests = _ =>
+            {
+                if (Interlocked.Increment(ref commits) != 1) return;
+                commitEntered.TrySetResult(true);
+                Assert.True(releaseCommit.Wait(5000), "Worker terminal commit was not released.");
+            };
+            var expectedMessage = shutdown ? "Image job interrupted by plugin shutdown."
+                : "Image generation execution deadline exceeded (180s).";
+            try
+            {
+                if (shutdown) manager.Dispose(); else timer.Cancel();
+                await Bounded(commitEntered.Task);
+                Assert.Equal(ImageJobState.Submitting,
+                    (await manager.GetStatusAsync(submit.JobId!.Value, CancellationToken.None)).State);
+                // Cancel must preserve the stop already observed by the worker, even when it wins the commit.
+                var cancel = await manager.CancelAsync(submit.JobId!.Value, CancellationToken.None);
+                Assert.Equal(ImageJobState.Interrupted, cancel.State);
+            }
+            finally { releaseCommit.Set(); fal.Release(); }
+            await Settled(manager);
+            var status = await Terminal(manager, submit.JobId!.Value);
+            var durable = Assert.Single(ledger.ReadAll().Records);
+            using var fresh = Manager(f, new JsonlImageJobLedger(ledger.FilePath));
+            var restored = await fresh.GetStatusAsync(submit.JobId.Value, CancellationToken.None);
+            foreach (var result in new[] { status, restored })
+            {
+                Assert.Equal(ImageJobState.Interrupted, result.State);
+                Assert.Equal(GenerationErrorCode.Interrupted, result.Error!.Code);
+                Assert.Equal(expectedMessage, result.Error.Message);
+                Assert.False(result.Error.Retryable);
+                Assert.Equal("fal", result.Provider);
+                Assert.Equal(ImageFalDispatchState.Attempted, result.FalDispatchState);
+                Assert.Equal(fallback, result.Routing?.Route != null);
+                if (fallback) Assert.True(result.Routing!.Route!.GenerationDispatchAttempted);
+                Assert.Null(result.ResultArtifactId);
+            }
+            Assert.Equal(ImageJobState.Interrupted, durable.State);
+            Assert.Equal(expectedMessage, durable.Error!.Message);
+            Assert.Single(f.FalHttp.Requests);
             Assert.DoesNotContain(f.Store.List(), a => a.Kind == "generated_image");
         }
 
