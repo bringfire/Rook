@@ -78,6 +78,8 @@ namespace Rook.Services.Vision.Video
                     _filePath, FileMode.Append, FileAccess.Write, FileShare.Read);
                 using var writer = new StreamWriter(stream, new UTF8Encoding(false));
                 writer.WriteLine(line);
+                writer.Flush();
+                stream.Flush(flushToDisk: true);
             }
         }
 
