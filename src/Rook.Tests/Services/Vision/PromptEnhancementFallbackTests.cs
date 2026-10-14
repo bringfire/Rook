@@ -129,6 +129,10 @@ namespace Rook.Tests.Services.Vision
         [InlineData(200, "{\"output\":\"[]\"}")]
         [InlineData(200, "{\"output\":\"{}\"}")]
         [InlineData(200, "{\"output\":\"null\"}")]
+        [InlineData(200, "{\"output\":\"[{\\\"subject\\\":\\\"test\\\"}\"}")]
+        [InlineData(200, "{\"output\":\"[{\\\"subject\\\":\\\"test\\\"}]\"}")]
+        [InlineData(200, "{\"output\":\"Extra explanation {\\\"subject\\\":\\\"test\\\"}\"}")]
+        [InlineData(200, "{\"output\":\"```json\\n{\\\"subject\\\":\\\"test\\\"}\"}")]
         public async Task FalFailure_isSafeAndPublishesNothing(int status, string body)
         {
             using var f = new Fixture(null);
@@ -222,6 +226,38 @@ namespace Rook.Tests.Services.Vision
             Assert.Equal(Prompt, response.OriginalPrompt);
             Assert.Null(response.EnhancedPrompt);
             Assert.Single(f.Http.Requests);
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("null")]
+        [InlineData("123")]
+        [InlineData("{}")]
+        [InlineData("\"\"")]
+        public async Task GoogleWithoutCompletionEvidence_isNotPublishedOrRerouted(string? finishReasonJson)
+        {
+            using var f = new Fixture("fake-google");
+            var body = JsonNode.Parse(GoogleOutput)!;
+            var candidate = (JsonObject)body["candidates"]![0]!;
+            candidate.Remove("finishReason");
+            if (finishReasonJson != null) candidate["finishReason"] = JsonNode.Parse(finishReasonJson);
+            f.Http.Google = (200, body.ToJsonString());
+            var response = await f.Run();
+            Assert.False(response.Success);
+            Assert.Single(f.Http.Requests);
+            Assert.Empty(Directory.GetFiles(f.Root, "*.json", SearchOption.AllDirectories));
+        }
+
+        [Theory]
+        [InlineData("```json\n", "\n```")]
+        [InlineData("```\n", "\n```")]
+        [InlineData("", "")]
+        public async Task CompleteJsonOutput_acceptsWhitespaceAndCompleteEnclosingFences(string prefix, string suffix)
+        {
+            using var f = new Fixture(null);
+            f.Http.Fal = (200, JsonSerializer.Serialize(new { output = "  " + prefix + Output + suffix + "  " }));
+            var response = await f.Run();
+            Assert.True(response.Success, response.Data?.ToString());
         }
 
         [Fact]

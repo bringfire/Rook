@@ -240,8 +240,10 @@ Return ONLY valid JSON with NO markdown code blocks, NO explanations. Just the r
             }
             using var doc = JsonDocument.Parse(body);
             var root = doc.RootElement;
-            if (root.TryGetProperty("candidates", out var candidates) && candidates.ValueKind == JsonValueKind.Array &&
-                candidates.GetArrayLength() > 0 && candidates[0].TryGetProperty("finishReason", out var finish) &&
+            if (root.ValueKind != JsonValueKind.Object ||
+                !root.TryGetProperty("candidates", out var candidates) || candidates.ValueKind != JsonValueKind.Array ||
+                candidates.GetArrayLength() == 0 || candidates[0].ValueKind != JsonValueKind.Object ||
+                !candidates[0].TryGetProperty("finishReason", out var finish) || finish.ValueKind != JsonValueKind.String ||
                 finish.GetString() != "STOP")
                 return new(false, null, false, "Google AI returned an incomplete or blocked prompt.");
             var output = ExtractTextFromResponse(root);
@@ -315,24 +317,16 @@ Return ONLY valid JSON with NO markdown code blocks, NO explanations. Just the r
         internal static string CleanJsonResponse(string response)
         {
             response = response.Trim();
-
-            if (response.StartsWith("```json", StringComparison.Ordinal))
-                response = response.Substring(7);
-            else if (response.StartsWith("```", StringComparison.Ordinal))
-                response = response.Substring(3);
-
-            if (response.EndsWith("```", StringComparison.Ordinal))
-                response = response.Substring(0, response.Length - 3);
-
-            response = response.Trim();
-
-            var startIndex = response.IndexOf('{');
-            var endIndex = response.LastIndexOf('}');
-            if (startIndex >= 0 && endIndex > startIndex)
+            if (response.StartsWith("```", StringComparison.Ordinal))
             {
-                response = response.Substring(startIndex, endIndex - startIndex + 1);
+                var firstNewline = response.IndexOf('\n');
+                var header = firstNewline < 0 ? response : response.Substring(0, firstNewline).TrimEnd('\r');
+                if (firstNewline < 0 || (header != "```json" && header != "```") ||
+                    !response.EndsWith("\n```", StringComparison.Ordinal))
+                    throw new JsonException("Expected a complete enclosing JSON code fence.");
+                response = response.Substring(firstNewline + 1, response.Length - firstNewline - 4);
             }
-
+            // Parse the whole payload later; never salvage an object from malformed surrounding text.
             return response.Trim();
         }
 
