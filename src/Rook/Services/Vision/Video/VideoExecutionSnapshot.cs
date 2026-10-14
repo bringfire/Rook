@@ -12,6 +12,32 @@ namespace Rook.Services.Vision.Video
         public VideoExecutionSnapshot(int version, JsonObject data) { Version = version; _data = (JsonObject)data.DeepClone(); }
         public int Version { get; }
         public JsonObject Data => (JsonObject)_data.DeepClone();
+        public static VideoExecutionProjection Project(VideoJobRecord durable, VideoStopReason? localStop, VideoStopPersistence persistence)
+        {
+            var read = Read(durable);
+            if (read.Error != null) return new(new JsonObject { ["execution_evidence_invalid"] = true });
+            if (read.Snapshot is null) return new(new JsonObject());
+            var data = read.Snapshot.Data;
+            var attempts = data["attempts"]!.AsArray();
+            var last = attempts.LastOrDefault() as JsonObject;
+            var stop = durable.State == VideoJobState.Complete ? null : localStop?.ToString().ToLowerInvariant() ?? data["first_stop_reason"]?.GetValue<string>();
+            var fields = new JsonObject {
+                ["requested_provider"] = data["requested_provider"]?.DeepClone(), ["requested_model"] = data["requested_model"]?.DeepClone(),
+                ["effective_provider"] = durable.Provider, ["effective_model"] = durable.Model,
+                ["phase"] = data["phase"]?.DeepClone(), ["dispatch_state"] = last?["dispatch_state"]?.DeepClone(),
+                ["generation_dispatch_attempted"] = last?["generation_dispatch_attempted"]?.DeepClone() ?? JsonValue.Create(false),
+                ["submission_unknown"] = attempts.Any(a => a?["dispatch_state"]?.GetValue<string>() is "intent_recorded" or "unknown"),
+                ["execution_stopped"] = stop != null, ["first_stop_reason"] = stop,
+                ["stop_persistence"] = persistence == VideoStopPersistence.None ? data["stop_persistence"]?.DeepClone() : JsonValue.Create(persistence.ToString().ToLowerInvariant()),
+                ["durability_unknown"] = persistence == VideoStopPersistence.Failed,
+                ["deadline_utc"] = data["deadline_utc"]?.DeepClone(), ["cleanup"] = data["cleanup"]?.DeepClone(),
+                ["credential_failure"] = data["credential_failure"]?.DeepClone(), ["video_route"] = durable.Extensions?["video_route"]?.DeepClone(),
+                ["estimate_fingerprint"] = data["estimate_fingerprint"]?.DeepClone(), ["max_estimated_cost_usd"] = data["max_estimated_cost_usd"]?.DeepClone(),
+                ["accepted_quote"] = data["accepted_quote"]?.DeepClone(), ["effective_estimated_cost_usd"] = durable.Pricing.TotalUsd,
+                ["pricing_source"] = durable.Pricing.PricingSource, ["warnings"] = data["warnings"]?.DeepClone()
+            };
+            return new(fields);
+        }
         public static VideoJobRecord Write(VideoJobRecord record, VideoExecutionSnapshot snapshot)
         {
             var extension = (JsonObject?)record.Extensions?.DeepClone() ?? new JsonObject();

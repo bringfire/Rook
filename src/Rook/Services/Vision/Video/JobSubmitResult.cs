@@ -14,6 +14,7 @@ namespace Rook.Services.Vision.Video
     /// </summary>
     public sealed record JobSubmitResult
     {
+        internal VideoExecutionProjection? Execution { get; init; }
         public VideoJobState State { get; }
 
         /// <summary>

@@ -15,6 +15,7 @@ namespace Rook.Services.Vision.Video
     /// </summary>
     public sealed record JobStatusResult
     {
+        internal VideoExecutionProjection? Execution { get; init; }
         public VideoJobState State { get; }
         public VideoJobProgress? Progress { get; }
         public Guid? ResultArtifactId { get; }
