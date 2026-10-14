@@ -19,7 +19,7 @@ namespace Rook.Tests.Services.Vision.Generation
             "before calling /vision/generate.";
 
         internal const string MissingGeminiEnhancePromptKeyMessage =
-            "Gemini API key is not configured. Set it via the Vision settings " +
+            "Configure a Gemini or fal.ai API key in Vision settings " +
             "before calling /vision/enhance-prompt.";
 
         private readonly string _tempDir;
@@ -67,7 +67,7 @@ namespace Rook.Tests.Services.Vision.Generation
         }
 
         [Fact]
-        public async Task EnhancePromptAsync_withoutGeminiKey_preservesVerbatimMissingKeyMessage()
+        public async Task EnhancePromptAsync_withoutEitherKey_explainsBothSupportedCredentials()
         {
             var handler = NewHandler();
             var args = ParseArgs("""

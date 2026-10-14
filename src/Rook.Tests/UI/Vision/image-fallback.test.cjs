@@ -51,6 +51,34 @@ function harness(catalog = "catalog_fal_only", selected = "gemini-3.1-flash-imag
     ].join("\n"), context);
     return { context, nodes, calls, run: code => vm.runInContext(code, context), get confirms() { return confirms; } };
 }
+
+for (const [surface, promptKey, hintKey] of [
+    ["enhancePrompt()", "prompt", "enhanceHint"],
+    ["studioEnhancePrompt()", "studioPrompt", "studioEnhanceHint"]
+]) {
+    test(surface + ": attributes text fallback independently of the selected image model", async () => {
+        const h = harness("catalog_fal_only", "fal-ai/nano-banana-2", {
+            enhance_prompt: { success: true, data: { metadata: {
+                enhanced_prompt: '{"subject":"enhanced test prompt"}',
+                provider: "fal", model: "google/gemini-2.5-flash", fallback_used: true
+            } } }
+        });
+        await h.run(surface);
+        assert.equal(h.nodes[promptKey].dataset.originalPrompt, "test prompt");
+        assert.match(h.nodes[promptKey].value, /enhanced test prompt/);
+        assert.match(h.nodes[hintKey].textContent, /Prompt enhanced with fal\.ai/);
+        assert.equal(h.run("sessionValidationBySecret.size"), 0);
+    });
+    test(surface + ": failure preserves the editable prompt and credential state", async () => {
+        const h = harness("catalog_fal_only", undefined, {
+            enhance_prompt: { success: false, data: "fal.ai prompt enhancement failed (HTTP 403)." }
+        });
+        await h.run(surface);
+        assert.equal(h.nodes[promptKey].value, "test prompt");
+        assert.equal(h.nodes[promptKey].dataset.originalPrompt, undefined);
+        assert.equal(h.run("sessionValidationBySecret.size"), 0);
+    });
+}
 test("fal-only Gemini is selectable without declaring its key valid", () => {
     const h = harness();
     assert.equal(h.run("selectedImageModel(el.modelSelect).credential_availability"), "missing_required_secret");

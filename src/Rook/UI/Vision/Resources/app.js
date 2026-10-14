@@ -261,10 +261,10 @@ async function enhancePrompt() {
             el.prompt.dataset.originalPrompt = prompt;
             el.prompt.value = text;
             if (tryRenderEnhancedPromptAsJson(text)) {
-                el.enhanceHint.textContent = "Prompt enhanced. Click Edit to modify.";
+                el.enhanceHint.textContent = promptEnhancementLabel(artifact) + " Click Edit to modify.";
             } else {
                 showPromptAsTextarea();
-                el.enhanceHint.textContent = "Prompt enhanced. Original saved.";
+                el.enhanceHint.textContent = promptEnhancementLabel(artifact) + " Original saved.";
             }
         } else {
             el.enhanceHint.textContent = "Enhancement returned no text.";
@@ -278,7 +278,7 @@ async function enhancePrompt() {
 }
 
 // ─── Enhanced-prompt rendering ─────────────────────────────────────
-// After a successful enhance, Gemini returns a JSON string. Render it
+// After a successful enhance, the text provider returns a JSON string. Render it
 // as an indented, syntax-highlighted <pre> and hide the textarea. The
 // textarea still holds the raw text — it's the source-of-truth that
 // `generate` reads — so the swap is visual only.
@@ -384,6 +384,12 @@ function readEnhancedPromptFromArtifact(artifact) {
     if (!artifact || !artifact.metadata) return null;
     const text = artifact.metadata.enhanced_prompt;
     return typeof text === "string" && text.length > 0 ? text : null;
+}
+
+function promptEnhancementLabel(artifact) {
+    return artifact?.metadata?.provider === "fal"
+        ? "Prompt enhanced with fal.ai."
+        : "Prompt enhanced.";
 }
 
 async function generateImage() {
@@ -1336,7 +1342,7 @@ async function studioEnhancePrompt() {
         if (text) {
             el.studioPrompt.dataset.originalPrompt = prompt;
             el.studioPrompt.value = text;
-            el.studioEnhanceHint.textContent = "Prompt enhanced.";
+            el.studioEnhanceHint.textContent = promptEnhancementLabel(artifact);
         } else {
             el.studioEnhanceHint.textContent = "Enhancement returned no text.";
         }
@@ -2020,7 +2026,7 @@ function providerDisplayName(name) {
 
 function providerHelpText(name) {
     if (name === "gemini") {
-        return "Get your key from Google AI Studio. Stored encrypted under your Windows profile. Nano Banana images can use your fal.ai account automatically when the Gemini key is missing or rejected. Configure a fal.ai key to enable fallback.";
+        return "Get your key from Google AI Studio. Stored encrypted under your Windows profile. Nano Banana images and prompt enhancement can use your fal.ai account automatically when the Gemini key is missing or rejected. Configure a fal.ai key to enable fallback.";
     }
     if (name === "fal") {
         return "Get your key from fal.ai. Settings tests avoid generation work by default.";

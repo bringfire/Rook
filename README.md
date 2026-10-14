@@ -140,6 +140,7 @@ Rook can both *see* and *generate* visual content:
 
 - **Viewport capture** — Render any named view or display mode to an image the AI can reason over
 - **RookVision artifacts** — Generated and captured images stored in an artifact store with roles, approval workflow, and a gallery
+- **Prompt enhancement** — Generate and Studio use Gemini 2.5 Flash directly when a Gemini key is configured. A missing or definitively rejected Gemini key routes enhancement through fal.ai's `openrouter/router` using the existing fal key and `google/gemini-2.5-flash`. Both routes share the architecture instructions, enforced camera preservation, and one 30-second deadline. Errors leave the editable prompt intact; successful fallback is labeled “Prompt enhanced with fal.ai.” Quota, policy, server errors and timeouts do not trigger fallback.
 - **Video** — Render viewport/turntable video, manage generation jobs, and inspect status/estimate/cancel results
 - **Model-agnostic generation** — A provider framework routes image/video generation across backends rather than hard-coding a single model
 

@@ -1066,29 +1066,25 @@ namespace Rook.Handlers
                     $"context exceeds maximum length of {MaxContextLength}.");
             }
 
-            var apiKey = _secrets.GetGeminiApiKey();
-            if (string.IsNullOrEmpty(apiKey))
-            {
-                return Fail(
-                    "Gemini API key is not configured. Set it via the Vision settings " +
-                    "before calling /vision/enhance-prompt.");
-            }
-
-            var result = await _enhancer.EnhancePromptAsync(
-                apiKey!, prompt, context, cancellationToken).ConfigureAwait(false);
+            var result = await _enhancer.EnhanceWithFallbackAsync(
+                GetGeminiApiKey(), GetFalApiKey, prompt, context, cancellationToken).ConfigureAwait(false);
 
             if (!result.Success || string.IsNullOrEmpty(result.EnhancedPrompt))
             {
                 return Fail(
-                    "Prompt enhancement failed. " +
-                    GenericizeProviderError(result.Error));
+                    result.Error ?? "Prompt enhancement failed.");
             }
+
+            cancellationToken.ThrowIfCancellationRequested();
 
             var metadata = new Dictionary<string, JsonNode?>
             {
                 ["original_prompt"] = prompt,
                 ["context"] = context,
-                ["model"] = "gemini-2.5-flash",
+                ["provider"] = result.Provider,
+                ["model"] = result.Model,
+                ["fallback_used"] = result.FallbackUsed,
+                ["fallback_reason"] = result.FallbackReason,
                 // Surface the enhanced text in metadata so bridge consumers
                 // can read it without a secondary fetch against the blob
                 // (CSP `connect-src 'none'` blocks XHR/fetch against the
