@@ -40,6 +40,7 @@ namespace Rook.Services.Vision.Video
             if (Remaining <= TimeSpan.Zero) TryStop(VideoStopReason.Deadline);
             lock (_gate) { if (_decision != 0) return false; _decision = 2; return true; }
         }
+        internal void AbortExecution() { try { _cts.Cancel(); } catch (AggregateException) { } catch (ObjectDisposedException) { } }
         public void Dispose() { _timer.Dispose(); lock (_gate) { if (_decision == 0) _decision = 3; } _cts.Dispose(); }
     }
 }

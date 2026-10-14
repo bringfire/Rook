@@ -27,7 +27,7 @@ namespace Rook.Services.Vision.Video
                 ["phase"] = data["phase"]?.DeepClone(), ["dispatch_state"] = last?["dispatch_state"]?.DeepClone(),
                 ["generation_dispatch_attempted"] = last?["generation_dispatch_attempted"]?.DeepClone() ?? JsonValue.Create(false),
                 ["submission_unknown"] = attempts.Any(a => a?["dispatch_state"]?.GetValue<string>() is "intent_recorded" or "unknown"),
-                ["execution_stopped"] = stop != null, ["first_stop_reason"] = stop,
+                ["execution_stopped"] = stop != null || persistence == VideoStopPersistence.Failed, ["first_stop_reason"] = stop,
                 ["stop_persistence"] = persistence == VideoStopPersistence.None ? data["stop_persistence"]?.DeepClone() : JsonValue.Create(persistence.ToString().ToLowerInvariant()),
                 ["durability_unknown"] = persistence == VideoStopPersistence.Failed,
                 ["deadline_utc"] = data["deadline_utc"]?.DeepClone(), ["cleanup"] = data["cleanup"]?.DeepClone(),

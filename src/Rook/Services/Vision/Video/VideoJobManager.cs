@@ -36,7 +36,7 @@ namespace Rook.Services.Vision.Video
     /// persisted <c>provider_job_id</c> remains so explicit cancel can
     /// clean up remote provider jobs.
     /// </summary>
-    public sealed class VideoJobManager : IVideoJobManager, IDisposable
+    public sealed partial class VideoJobManager : IVideoJobManager, IVideoConfirmedJobManager, IDisposable
     {
         public static readonly TimeSpan DefaultPollInterval = TimeSpan.FromSeconds(10);
         public const int DefaultMaxConcurrentJobs = 2;
@@ -98,7 +98,10 @@ namespace Rook.Services.Vision.Video
             int maxConcurrentJobs,
             VideoArtifactMaterializer? materializer,
             IVideoPosterSidecarProducer? posterProducer = null,
-            IVideoFrameSidecarProducer? frameProducer = null)
+            IVideoFrameSidecarProducer? frameProducer = null,
+            VideoSubmissionCoordinator? coordinator = null,
+            VideoRouteQuoteService? routeQuotes = null,
+            IVideoDeadlineTimer? deadlineTimer = null)
         {
             _registry = registry ?? throw new ArgumentNullException(nameof(registry));
             _mediaResolver = mediaResolver ?? throw new ArgumentNullException(nameof(mediaResolver));
@@ -109,6 +112,10 @@ namespace Rook.Services.Vision.Video
             _posterProducer = posterProducer ?? new VideoPosterSidecarProducer(_artifactStore);
             _frameProducer = frameProducer ?? new VideoFrameSidecarProducer(_artifactStore);
             _clock = clock ?? new SystemVideoJobClock();
+            _routeCoordinator = coordinator;
+            _routeQuotes = routeQuotes;
+            _routeTimer = deadlineTimer ?? new SystemVideoDeadlineTimer(_clock);
+            if (coordinator != null) foreach (var record in _ledger.ReadAll().Records) _routeRecordCache[record.JobId] = record;
             _idGenerator = idGenerator ?? new GuidVideoJobIdGenerator();
             _pollInterval = pollInterval ?? DefaultPollInterval;
             _concurrency = new SemaphoreSlim(maxConcurrentJobs, maxConcurrentJobs);
@@ -119,6 +126,11 @@ namespace Rook.Services.Vision.Video
         public async Task<JobSubmitResult> SubmitAsync(
             VideoGenerationRequest request, CancellationToken ct)
         {
+            if (request != null && _routeQuotes != null && VideoSubmissionCoordinator.IsAffectedModel(request.Model))
+            {
+                var supplied = _registry.TryResolve(request.Model, out var requestedModel) ? requestedModel.OptionsCodec.Serialize(request.Options) : new JsonObject();
+                return await SubmitRoutedAsync(VideoRequestIntent.Normalize(request, supplied), new VideoSubmitConfirmation(null, null), ct).ConfigureAwait(false);
+            }
             if (request is null)
                 return JobSubmitResult.Fail(new VideoJobError(
                     Code: VideoErrorCode.InvalidRequest,
@@ -151,7 +163,7 @@ namespace Rook.Services.Vision.Video
                 jobId, request, model, estimate.Estimate!,
                 VideoJobState.Queued, now);
 
-            _ledger.Append(initial);
+            AppendCommittedSnapshot(initial);
 
             // Kick off background task. Caller returns immediately with
             // Queued state; the task drives the state machine.
@@ -169,6 +181,7 @@ namespace Rook.Services.Vision.Video
 
         public Task<JobStatusResult> GetStatusAsync(Guid jobId, CancellationToken ct)
         {
+            if (TryGetRoutedRecord(jobId, out var routedRecord)) return Task.FromResult(RoutedStatus(routedRecord!));
             if (jobId == Guid.Empty)
                 return Task.FromResult(JobStatusResult.Failed(
                     VideoJobState.Error,
@@ -256,6 +269,7 @@ namespace Rook.Services.Vision.Video
 
         public async Task<JobCancelResult> CancelAsync(Guid jobId, CancellationToken ct)
         {
+            if (TryGetRoutedRecord(jobId, out var routedRecord)) return await CancelRoutedAsync(routedRecord!, ct).ConfigureAwait(false);
             if (jobId == Guid.Empty)
                 return JobCancelResult.Fail(new VideoJobError(
                     Code: VideoErrorCode.InvalidRequest,
@@ -405,7 +419,7 @@ namespace Rook.Services.Vision.Video
                     var modelAwareCancelled = VideoJobRecordFactory.WithState(
                         record, modelAwareRemote.State == VideoJobState.Interrupted ? VideoJobState.Interrupted : VideoJobState.Cancelled, _clock.UtcNow(),
                         error: modelAwareRemote.State == VideoJobState.Interrupted ? new VideoJobError(VideoErrorCode.Interrupted, LocalStopOnlyOutcome.Message, false) : CancelledError());
-                    _ledger.Append(modelAwareCancelled);
+                    AppendCommittedSnapshot(modelAwareCancelled);
                     return modelAwareRemote;
                 }
 
@@ -433,7 +447,7 @@ namespace Rook.Services.Vision.Video
                 var cancelled = VideoJobRecordFactory.WithState(
                     record, remote.State == VideoJobState.Interrupted ? VideoJobState.Interrupted : VideoJobState.Cancelled, _clock.UtcNow(),
                     error: remote.State == VideoJobState.Interrupted ? new VideoJobError(VideoErrorCode.Interrupted, LocalStopOnlyOutcome.Message, false) : CancelledError());
-                _ledger.Append(cancelled);
+                AppendCommittedSnapshot(cancelled);
                 return remote;
             }
 
@@ -448,7 +462,7 @@ namespace Rook.Services.Vision.Video
             var localCancelled = VideoJobRecordFactory.WithState(
                 record, VideoJobState.Cancelled, _clock.UtcNow(),
                 error: CancelledError());
-            _ledger.Append(localCancelled);
+            AppendCommittedSnapshot(localCancelled);
             return JobCancelResult.Ok(VideoJobState.Cancelled);
         }
 
@@ -538,6 +552,7 @@ namespace Rook.Services.Vision.Video
 
         public Task<JobFetchResult> FetchResultAsync(Guid jobId, CancellationToken ct)
         {
+            if (TryGetRoutedRecord(jobId, out var routedRecord)) return Task.FromResult(FetchRouted(routedRecord!));
             if (jobId == Guid.Empty)
                 return Task.FromResult(JobFetchResult.Failed(
                     VideoJobState.Error,
@@ -605,7 +620,7 @@ namespace Rook.Services.Vision.Video
 
             var applied = limit > MaxListLimit ? MaxListLimit : limit;
 
-            var read = _ledger.ReadAll();
+            var read = ReadConsumerLedger();
             var warnings = ProjectWarnings(read.Errors);
 
             // Snapshot the in-memory running records. ConcurrentDictionary
@@ -637,7 +652,7 @@ namespace Rook.Services.Vision.Video
 
             var entries = new List<JobListEntry>(ordered.Count);
             foreach (var r in ordered)
-                entries.Add(ProjectEntry(r));
+                entries.Add(ProjectEntry(r) with { Execution = r.Extensions?.ContainsKey("video_execution") == true ? RouteProjection(r) : null });
 
             return Task.FromResult(new JobListResult(entries, warnings, applied));
         }
@@ -783,6 +798,12 @@ namespace Rook.Services.Vision.Video
 
             foreach (var record in read.Records)
             {
+                _routeRecordCache[record.JobId] = record;
+                if (record.Extensions?.ContainsKey("video_execution") == true)
+                {
+                    ReconcileRoutedRecord(record);
+                    continue;
+                }
                 if (IsTerminal(record.State)) continue;
 
                 // Mid-flight at last shutdown. Per v3.1 D4: append
@@ -796,7 +817,7 @@ namespace Rook.Services.Vision.Video
                         Code: VideoErrorCode.Interrupted,
                         Message: "Job interrupted by plugin reload.",
                         Retryable: true));
-                _ledger.Append(interrupted);
+                AppendCommittedSnapshot(interrupted);
             }
         }
 
@@ -804,6 +825,7 @@ namespace Rook.Services.Vision.Video
 
         public void Dispose()
         {
+            foreach (var routed in _routedJobs.Values) ObserveStop(routed, VideoStopReason.Shutdown);
             try { _shutdownCts.Cancel(); } catch { /* already cancelled */ }
             _shutdownCts.Dispose();
             _concurrency.Dispose();
@@ -1061,14 +1083,14 @@ namespace Rook.Services.Vision.Video
                     if (durable.State == VideoJobState.Interrupted && durable.ProviderHandle is null && providerHandle is not null)
                     {
                         durable = VideoJobRecordFactory.WithState(durable, VideoJobState.Interrupted, _clock.UtcNow(), providerHandle: providerHandle, error: durable.Error);
-                        _ledger.Append(durable);
+                        AppendCommittedSnapshot(durable);
                     }
                     return durable;
                 }
                 if (error?.Code == GenerationErrorCode.Interrupted) newState = VideoJobState.Interrupted;
                 var next = VideoJobRecordFactory.WithState(prior, newState, _clock.UtcNow(), providerJobId: providerJobId,
                     providerResultToken: providerResultToken, resultArtifactId: resultArtifactId, error: error, providerHandle: providerHandle);
-                _ledger.Append(next);
+                AppendCommittedSnapshot(next);
                 return next;
             }
         }
@@ -1425,6 +1447,7 @@ namespace Rook.Services.Vision.Video
 
         private VideoJobRecord? FindLatestRecord(Guid jobId)
         {
+            if (TryGetRoutedRecord(jobId, out var routedRecord)) return routedRecord;
             // Used by GetStatusAsync / FetchResultAsync where stale-by-one-
             // transition is acceptable (status is informational; fetch
             // checks state == Complete which is terminal so the in-memory

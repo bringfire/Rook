@@ -62,13 +62,18 @@ namespace Rook.Services.Vision.Video
             var mediaResolver = new ArtifactOnlyVideoMediaResolver(artifactStore);
             var actualLedger = ledger ?? new JsonlVideoJobLedger();
             var estimator = new VideoCostEstimator();
+            var clock = new SystemVideoJobClock();
+            var coordinator = new VideoSubmissionCoordinator(registry, new Fal.FalVeoBindingCatalog(), generationSecrets);
+            var routeQuotes = new VideoRouteQuoteService(coordinator, mediaResolver, clock);
 
             var manager = new VideoJobManager(
                 registry: registry,
                 mediaResolver: mediaResolver,
                 ledger: actualLedger,
                 estimator: estimator,
-                artifactStore: artifactStore);
+                artifactStore: artifactStore,
+                clock: clock, idGenerator: null, pollInterval: null, maxConcurrentJobs: VideoJobManager.DefaultMaxConcurrentJobs,
+                materializer: null, coordinator: coordinator, routeQuotes: routeQuotes);
 
             var actualSidecarBackfill = sidecarBackfill
                 ?? new VideoSidecarBackfillService(
