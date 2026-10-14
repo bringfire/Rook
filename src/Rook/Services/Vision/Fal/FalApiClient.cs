@@ -28,6 +28,9 @@ namespace Rook.Services.Vision.Fal
         public bool DisableFalRetry { get; }
         public bool IsSpecified { get; }
 
+        public static FalJsonPlatformHeaders ForVeoSubmit(int objectLifecyclePreferenceSeconds) =>
+            ForSeedanceSubmit(objectLifecyclePreferenceSeconds, disableStoreIo: true, disableFalRetry: true);
+
         public static FalJsonPlatformHeaders ForSeedanceSubmit(
             int objectLifecyclePreferenceSeconds,
             bool disableStoreIo,
@@ -84,7 +87,7 @@ namespace Rook.Services.Vision.Fal
 
         public FalApiClient(HttpClient? httpClient = null)
         {
-            _httpClient = httpClient ?? new HttpClient
+            _httpClient = httpClient ?? new HttpClient(new HttpClientHandler { AllowAutoRedirect = false })
             {
                 Timeout = TimeSpan.FromMinutes(5),
             };

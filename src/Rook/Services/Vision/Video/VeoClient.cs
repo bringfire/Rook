@@ -49,7 +49,7 @@ namespace Rook.Services.Vision.Video
             // Individual HTTP calls are short; videos can take 6+ minutes
             // but that's spread across many polls, not one request. 2 min
             // per call is plenty for start/poll/download chunks.
-            return new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
+            return new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromMinutes(2) };
         }
 
         public async Task<VeoStartResponse> StartGenerationAsync(
@@ -57,7 +57,7 @@ namespace Rook.Services.Vision.Video
             VideoGenerationRequest request,
             VeoOptions options,
             IReadOnlyDictionary<MediaRef, ResolvedMedia> resolvedMedia,
-            CancellationToken ct)
+            CancellationToken ct, Action? beforeDispatch = null)
         {
             var url = $"{BaseUrl}/models/{request.Model}:predictLongRunning";
             var body = BuildPredictBody(request, options, resolvedMedia);
@@ -67,6 +67,8 @@ namespace Rook.Services.Vision.Video
             using var httpRequest = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
             httpRequest.Headers.Add("x-goog-api-key", apiKey);
 
+            beforeDispatch?.Invoke();
+            ct.ThrowIfCancellationRequested();
             using var response = await _http.SendAsync(httpRequest, ct).ConfigureAwait(false);
             var responseJson = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
 

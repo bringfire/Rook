@@ -8,11 +8,35 @@ using Rook.Services.Vision.Image;
 
 namespace Rook.Services.Vision.Video.Fal
 {
-    internal sealed class FalSourceFrameTransport : IFalSourceFrameTransport
+    internal sealed class FalSourceFrameTransport : IFalSourceFrameTransport, IFalVeoSourceFrameTransport
     {
         public const int SourceMediaExpirationSeconds = 3600;
 
         private readonly FalApiClient _client;
+
+        public async Task<(FalVeoSourceUrls? Urls, GenerationError? Error)> ResolveAndUploadVeoAsync(FalVeoBinding binding, VideoGenerationRequest request, VideoPreparedMediaSnapshot preparedMedia, string apiKey, CancellationToken ct)
+        {
+            var error = FalVeoCompatibility.Validate(VideoRequestIntent.Normalize(request, new FalVeoOptionsCodec().Serialize(request.Options)), binding, preparedMedia.ToResolvedMedia());
+            if (error != null) return (null, error);
+            var uploaded = new Dictionary<string, string>();
+            string? start = null, end = null;
+            var references = new List<string>();
+            foreach (var slot in preparedMedia.Slots)
+            {
+                ct.ThrowIfCancellationRequested();
+                var contentKey = slot.MimeType + ":" + slot.Sha256;
+                if (!uploaded.TryGetValue(contentKey, out var url))
+                {
+                    var extension = slot.MimeType == "image/png" ? "png" : slot.MimeType == "image/jpeg" ? "jpg" : "webp";
+                    url = await _client.UploadFileToCdnAsync(apiKey, "rook-veo-source." + extension, slot.CopyBytes(), slot.MimeType, FalUploadPlatformHeaders.ForSourceUpload(SourceMediaExpirationSeconds), ct).ConfigureAwait(false);
+                    uploaded.Add(contentKey, url);
+                }
+                if (slot.Role == "start_frame") start = url;
+                else if (slot.Role == "end_frame") end = url;
+                else references.Add(url);
+            }
+            return (new FalVeoSourceUrls(start, end, references.AsReadOnly()), null);
+        }
 
         public FalSourceFrameTransport(FalApiClient client)
         {

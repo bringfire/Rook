@@ -24,7 +24,7 @@ namespace Rook.Services.Vision.Video
                 error.Message,
                 error.Retryable,
                 error.Field,
-                ProviderErrorCode: error.SubmissionOutcomeUnknown ? "vertex_submission_unknown" : null,
+                ProviderErrorCode: error.DetailCode ?? (error.SubmissionOutcomeUnknown ? "vertex_submission_unknown" : null),
                 ProviderDetail: providerDetail);
         }
 
@@ -38,8 +38,10 @@ namespace Rook.Services.Vision.Video
                 Message: error.Message,
                 Retryable: error.Retryable,
                 ProviderMessage: providerMessage,
-                Field: error.Field) { SubmissionOutcomeUnknown = error.ProviderErrorCode == "vertex_submission_unknown" };
+                Field: error.Field) { SubmissionOutcomeUnknown = error.ProviderErrorCode == "vertex_submission_unknown", DetailCode = IsSafeCode(error.ProviderErrorCode) ? error.ProviderErrorCode : null };
         }
+
+        private static bool IsSafeCode(string? code) => code is "rook.veo.key_missing" or "rook.veo.key_rejected" or "rook.fal.key_missing" or "rook.fal.key_rejected" or "secret_access_failed" or "submission_unknown" or "estimate_stale" or "cost_cap_exceeded" or "persistence_failed";
 
         private static GenerationErrorCode ToGenerationErrorCode(VideoErrorCode code) =>
             code switch

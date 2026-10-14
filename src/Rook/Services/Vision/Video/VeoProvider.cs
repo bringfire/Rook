@@ -16,7 +16,7 @@ namespace Rook.Services.Vision.Video
     /// <c>provider_result_token</c> are persisted by the manager and
     /// passed back as method arguments.
     /// </summary>
-    public sealed class VeoProvider : IVideoProvider
+    public sealed class VeoProvider : IVideoProvider, IPreparedMediaVideoProvider
     {
         private readonly Func<string?> _apiKeyProvider;
         private readonly VeoClient _client;
@@ -40,6 +40,24 @@ namespace Rook.Services.Vision.Video
         }
 
         public string ProviderName => VeoCapabilities.ProviderName;
+
+        async Task<ProviderSubmitOutcome> IPreparedMediaVideoProvider.SubmitPreparedAsync(VideoGenerationRequest request, VideoPreparedMediaSnapshot preparedMedia, Action beforeDispatch, CancellationToken ct)
+        {
+            string? key;
+            try { key = _apiKeyProvider(); } catch { return new FailedSubmitOutcome(VideoCredentialErrors.AccessFailed()); }
+            if (string.IsNullOrWhiteSpace(key)) return new FailedSubmitOutcome(VideoCredentialErrors.Missing("veo"));
+            bool admitted = false;
+            try
+            {
+                var response = await _client.StartGenerationAsync(key!, request, (VeoOptions)request.Options, preparedMedia.ToResolvedMedia(), ct, () => { beforeDispatch(); ct.ThrowIfCancellationRequested(); admitted = true; }).ConfigureAwait(false);
+                if (!response.Success) return new FailedSubmitOutcome(response.StatusCode is >= 200 and < 300 ? VideoCredentialErrors.Unknown() : VideoCredentialErrors.FromHttp("veo", response.StatusCode ?? 0, response.ErrorBody ?? ""));
+                if (string.IsNullOrWhiteSpace(response.OperationName)) return new FailedSubmitOutcome(VideoCredentialErrors.Unknown());
+                return new QueuedSubmitOutcome(new ProviderJobHandle(response.OperationName!));
+            }
+            catch (System.Text.Json.JsonException) { return new FailedSubmitOutcome(VideoCredentialErrors.Unknown()); }
+            catch (HttpRequestException) { return new FailedSubmitOutcome(admitted ? VideoCredentialErrors.Unknown() : new GenerationError(GenerationErrorCode.DependencyUnavailable, "Google preparation failed.", false)); }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested) { return new FailedSubmitOutcome(VideoCredentialErrors.Unknown()); }
+        }
 
         public async Task<ProviderSubmitOutcome> SubmitAsync(
             VideoGenerationRequest request,

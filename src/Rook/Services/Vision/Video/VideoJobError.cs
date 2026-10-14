@@ -11,6 +11,7 @@ namespace Rook.Services.Vision.Video
         string? ProviderMessage = null,
         string? Field = null)
     {
+        internal string? DetailCode { get; init; }
         /// <summary>Closed Rook marker for a dispatched Google submit whose outcome was lost.</summary>
         public bool SubmissionOutcomeUnknown { get; init; }
         public static implicit operator GenerationError(VideoJobError error)
@@ -28,7 +29,7 @@ namespace Rook.Services.Vision.Video
                 error.Message,
                 error.Retryable,
                 error.Field,
-                ProviderErrorCode: error.SubmissionOutcomeUnknown ? "vertex_submission_unknown" : null,
+                ProviderErrorCode: error.DetailCode ?? (error.SubmissionOutcomeUnknown ? "vertex_submission_unknown" : null),
                 ProviderDetail: providerDetail);
         }
 
