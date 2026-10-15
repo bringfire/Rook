@@ -47,6 +47,7 @@ async function bridgeCall(op, args) {
         err.field = data.field;
         err.retryable = data.retryable;
         copyImageExecutionFields(err, data);
+        copyVideoExecutionFields(err, data);
     } else {
         err = new Error("Vision op failed.");
     }
@@ -842,6 +843,33 @@ function effectiveCredentialAvailability(model) {
         return primaryCredentialAvailability(model.fallback_available);
     }
     return primary;
+}
+
+function copyVideoExecutionFields(target, source) {
+    if (!source) return target;
+    for (const key of ["detail_code", "requested_provider", "requested_model", "effective_provider", "effective_model", "video_route", "credential_failure", "submission_outcome_unknown", "stop_persistence", "execution_stopped", "cleanup", "cleanup_persistence", "warnings", "effective_estimated_cost_usd", "effective_pricing_source"]) {
+        if (Object.prototype.hasOwnProperty.call(source, key)) target[key] = source[key];
+    }
+    return target;
+}
+function applyVideoEvidence(data) {
+    if (!data || !data.credential_failure) return;
+    const evidence = data.credential_failure;
+    const expected = data.effective_provider === "veo" ? "gemini" : data.effective_provider;
+    if (evidence.provider === expected && evidence.kind === "rejected") markProviderCredentialInvalid(expected);
+}
+function videoExecutionNotice(data) {
+    if (!data) return "";
+    const parts = [];
+    if (data.effective_provider) parts.push(`${providerDisplayName(data.effective_provider === "veo" ? "gemini" : data.effective_provider)} · ${data.effective_model || ""}`);
+    if (typeof data.effective_estimated_cost_usd === "number") parts.push(`Estimated $${data.effective_estimated_cost_usd.toFixed(2)}`);
+    if (data.video_route) parts.push(`Fallback: ${data.video_route.reason || "Google credential unavailable"}`);
+    if (data.credential_failure && data.credential_failure.kind === "missing") parts.push(`${providerDisplayName(data.credential_failure.provider)} key missing; configure it in Settings.`);
+    if (data.execution_stopped && ["pending", "failed"].includes(data.stop_persistence)) parts.push(`Execution stopped · stop persistence ${data.stop_persistence}`);
+    if (data.submission_outcome_unknown) parts.push("Submission outcome unknown; inspect history before deliberately starting another job.");
+    if (data.cleanup) parts.push(`Remote cleanup: ${data.cleanup}; accepted work may still incur charges.`);
+    if ((data.warnings || []).includes("artifact_marker_pending")) parts.push("Video saved; publication marker repair pending.");
+    return parts.join(" · ");
 }
 
 function copyImageExecutionFields(target, source) {
@@ -2558,6 +2586,7 @@ const Video = (() => {
     let userPersonGenOverride = null;  // null = follow defaults; else sticky.
     let estimateTimer = null;
     let estimatePending = null;
+    let confirmedEstimate = null;
     let submitPending = false;
 
     // Frame-picker state.
@@ -2590,6 +2619,7 @@ const Video = (() => {
         ve.resolutionSelect = $("video-resolution-select");
         ve.aspectSelect = $("video-aspect-select");
         ve.personGenSelect = $("video-person-gen-select");
+        ve.peopleHint = $("video-people-hint");
         ve.modeRadios = document.querySelectorAll('input[name="video-mode"]');
         ve.prompt = $("video-prompt");
         ve.promptHint = $("video-prompt-hint");
@@ -2708,7 +2738,7 @@ const Video = (() => {
             catalogLoaded = true;
             populateModelDropdown();
             if (catalog.length > 0) {
-                ve.modelSelect.value = catalog[0].model_id;
+                ve.modelSelect.value = (catalog.find(m => m.new_submission_available !== false) || catalog[0]).model_id;
                 onModelChange();
             } else {
                 showVideoStatus("No video models registered.", "error");
@@ -2723,7 +2753,8 @@ const Video = (() => {
             const cap = m.capability || {};
             const label = cap.name || m.model_id;
             const status = cap.status ? ` (${cap.status})` : "";
-            return `<option value="${escapeAttr(m.model_id)}">${escapeHtml(label)}${escapeHtml(status)}</option>`;
+            const unavailable = m.new_submission_available === false;
+            return `<option value="${escapeAttr(m.model_id)}"${unavailable ? " disabled" : ""}>${escapeHtml(label)}${escapeHtml(status)}${unavailable ? " · endpoint unavailable" : ""}</option>`;
         }).join("");
     }
 
@@ -2736,7 +2767,7 @@ const Video = (() => {
         const m = currentModel();
         selectedCapability = m ? m.capability : null;
         ve.modelHint.textContent = m
-            ? `${m.provider_name} · ${m.pricing_kind.replace("_", " ")} · ${m.pricing_source}`
+            ? `${m.provider_name} · ${m.pricing_kind.replace("_", " ")} · ${m.pricing_source}${m.new_submission_available === false ? " · " + (m.availability_reason || "unavailable") : ""}`
             : "";
 
         if (!selectedCapability) {
@@ -2919,6 +2950,10 @@ const Video = (() => {
     function applyPersonGenDefault() {
         const selected = currentModel();
         const vertex = selected && selected.provider_name === "vertex_ai";
+        ve.personGenSelect.disabled = !!(selected && selected.provider_name === "fal");
+        if (ve.peopleHint) ve.peopleHint.textContent = selected && selected.provider_name === "fal"
+            ? "fal Veo uses fixed audio, safety, and people defaults. Explicit Google people settings cannot fall back."
+            : "Google defaults apply until you change People. An explicit choice is preserved and may prevent fal fallback.";
         if (![...ve.personGenSelect.options].some(option => option.value === "disallow")) {
             const option = document.createElement("option");
             option.value = "disallow"; option.textContent = "Disallow people";
@@ -3171,6 +3206,7 @@ const Video = (() => {
         if (m && m.provider_name === "fal") {
             return {};
         }
+        if (m && /^veo-3\.1-(generate|fast-generate|lite-generate)-preview$/.test(m.model_id) && userPersonGenOverride === null) return {};
         return { person_generation: ve.personGenSelect.value };
     }
 
@@ -3209,7 +3245,7 @@ const Video = (() => {
     }
 
     function isFormReady() {
-        if (!selectedCapability) return false;
+        if (!selectedCapability || currentModel()?.new_submission_available === false) return false;
         if (!ve.durationSelect.value) return false;
         if (!ve.resolutionSelect.value) return false;
         if (!ve.aspectSelect.value) return false;
@@ -3241,6 +3277,7 @@ const Video = (() => {
     }
 
     function clearCachedEstimate() {
+        confirmedEstimate = null;
         delete ve.costStrip.dataset.lastEstimate;
         delete ve.costStrip.dataset.lastEstimateArgs;
         // PR-V3 Codex review: also invalidate the in-flight estimate
@@ -3261,7 +3298,7 @@ const Video = (() => {
         estimatePending = token;
         try {
             const data = await bridgeCall("estimate_video_job", args);
-            if (estimatePending !== token) return;
+            if (estimatePending !== token || argsJson !== JSON.stringify(buildSubmitArgs())) return;
             ve.costAmount.textContent = videoPriceLabel(data);
             ve.costDetail.textContent =
                 `${data.resolution} · ${data.duration_seconds}s · ${data.number_of_videos}×`;
@@ -3326,15 +3363,20 @@ const Video = (() => {
             data.duration_seconds ? `${data.duration_seconds} s` : "—";
         ve.costModalSource.textContent =
             (data.pricing && data.pricing.pricing_source) || "—";
-        ve.costBreakdownBody.innerHTML = data.pricing && data.pricing.pricing_source === "vertex-project-billing-unpriced" ? "" : (data.breakdown || []).map(row => `
+        confirmedEstimate = { data: JSON.parse(raw), args: cachedArgs };
+        const routes = data.candidate_routes || [];
+        const routeRows = routes.map(route => `<tr><td>${escapeHtml(route.provider)} · ${escapeHtml(route.model)}${route.eligible ? "" : " · unavailable: " + escapeHtml(route.incompatible_field || "compatibility")}</td><td>${typeof route.total === "number" ? "$" + formatDollars(route.total) : "Unavailable"}</td></tr>`).join("");
+        ve.costBreakdownBody.innerHTML = routeRows || (data.pricing && data.pricing.pricing_source === "vertex-project-billing-unpriced" ? "" : (data.breakdown || []).map(row => `
             <tr>
                 <td>${escapeHtml(row.label || "")}</td>
                 <td class="video-cost-breakdown-amount">$${formatDollars(row.dollars_usd)}</td>
-            </tr>`).join("");
+            </tr>`).join(""));
+        if (typeof data.maximum_estimated_cost_usd === "number") ve.costModalAmount.textContent += ` · Maximum $${formatDollars(data.maximum_estimated_cost_usd)}`;
         ve.costModal.classList.remove("hidden");
     }
 
     function closeCostModal() {
+        confirmedEstimate = null;
         ve.costModal.classList.add("hidden");
     }
 
@@ -3346,13 +3388,18 @@ const Video = (() => {
         // before opening, recheck right before the bridge call. If the
         // user changed a field while the modal was open, fail closed.
         const cachedArgs = ve.costStrip.dataset.lastEstimateArgs;
-        if (cachedArgs !== JSON.stringify(args)) {
+        if (!confirmedEstimate || confirmedEstimate.args !== JSON.stringify(args) || cachedArgs !== JSON.stringify(args)) {
             closeCostModal();
             showVideoStatus(
                 "Form changed since estimate — re-running estimate.",
                 "error");
             scheduleEstimate();
             return;
+        }
+        const confirmed = confirmedEstimate.data;
+        if (confirmed.estimate_fingerprint) {
+            args.estimate_fingerprint = confirmed.estimate_fingerprint;
+            args.max_estimated_cost_usd = confirmed.maximum_estimated_cost_usd;
         }
         submitPending = true;
         updateGenerateEnablement();
@@ -3386,7 +3433,12 @@ const Video = (() => {
             // PR-V3 Codex review: surface the typed `field` from
             // structured server errors so the user sees e.g.
             // "options.person_generation: ..." not just the bare message.
-            showVideoStatus(`Submit failed: ${errorToText(e)}`, "error");
+            applyVideoEvidence(e);
+            closeCostModal();
+            clearCachedEstimate();
+            const uncertainty = !e.code || e.submission_outcome_unknown;
+            showVideoStatus(`Submit failed: ${errorToText(e)}${uncertainty ? " · Submission outcome may be unknown. Inspect history before deliberately starting another job." : " · Obtain a fresh estimate and confirm again."}`, "error");
+            if (uncertainty) await refreshQueue();
         } finally {
             submitPending = false;
             updateGenerateEnablement();
@@ -3405,6 +3457,7 @@ const Video = (() => {
             const serverIds = new Set();
             (data.jobs || []).forEach(j => {
                 serverIds.add(j.job_id);
+                applyVideoEvidence(j);
                 const existing = queue.get(j.job_id);
                 queue.set(j.job_id, {
                     entry: j,
@@ -3440,8 +3493,10 @@ const Video = (() => {
             if (!cur) return; // disappeared from queue
             try {
                 const data = await bridgeCall("get_video_job", { job_id: jobId });
+                applyVideoEvidence(data);
                 cur.entry = {
                     ...cur.entry,
+                    ...data,
                     state: data.state,
                     updated_at: new Date().toISOString(),
                     result_artifact_id: data.result_artifact_id || null,
@@ -3476,6 +3531,9 @@ const Video = (() => {
             const result = await bridgeCall("cancel_video_job", { job_id: jobId });
             if (localStop && result.state === "interrupted")
                 showVideoStatus("Local monitoring stopped. The Google operation may continue and incur charges.", "info");
+            applyVideoEvidence(result);
+            if (result.execution_stopped) showVideoStatus(videoExecutionNotice(result), "info");
+            await refreshQueue();
             // Server has flipped state; let the next poll surface it.
             // No optimistic write — the cancel race is handled domain-
             // side and we want to display the authoritative outcome.
@@ -3583,7 +3641,7 @@ const Video = (() => {
                 summary.mode || "",
                 summary.resolution ? `${summary.resolution} · ${summary.duration_seconds || "?"}s` : "",
             ].filter(Boolean).join(" · ");
-            const errMsg = j.error && j.error.message ? j.error.message : "";
+            const errMsg = [j.error && j.error.message ? j.error.message : "", videoExecutionNotice(j)].filter(Boolean).join(" · ");
 
             const actions = [];
             if (inFlight) {
