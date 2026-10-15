@@ -20,7 +20,7 @@ namespace Rook.Services.Vision.Video
             ct.ThrowIfCancellationRequested();
             if (result.Role != "video" || result.Body is RemoteArtifactBody remote && !SafeVideoUrl(remote.Url)) throw new InvalidOperationException("Video result URL or role is invalid.");
             var materialized = await _materializer.MaterializeAsync(result, ct).ConfigureAwait(false);
-            if (!materialized.Success || materialized.MimeType != "video/mp4" || materialized.Bytes is not { Length: >= 12 } bytes || bytes[4] != 'f' || bytes[5] != 't' || bytes[6] != 'y' || bytes[7] != 'p') throw new InvalidOperationException("Provider result is not a bounded MP4 video.");
+            if (!materialized.Success || materialized.MimeType != "video/mp4" || materialized.Bytes is not { } bytes || !Mp4VideoValidation.IsValid(bytes)) throw new InvalidOperationException("Provider result is not a bounded MP4 video.");
             var data = execution.Data;
             var inputs = data["prepared_media"] as JsonArray ?? data["accepted_quote"]?["media"] as JsonArray ?? new JsonArray();
             var parents = inputs.Select(n => Guid.TryParse(n?["artifact_id"]?.GetValue<string>(), out var id) ? id : Guid.Empty).Where(id => id != Guid.Empty).Distinct().ToArray();

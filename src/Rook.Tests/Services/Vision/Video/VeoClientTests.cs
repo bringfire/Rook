@@ -319,7 +319,7 @@ namespace Rook.Tests.Services.Vision.Video
             });
 
             var bytes = await client.DownloadVideoAsync(
-                ApiKey, "https://veo/r/x.mp4", CancellationToken.None);
+                ApiKey, "https://generativelanguage.googleapis.com/v1beta/files/test:download", CancellationToken.None);
 
             Assert.Equal(payload, bytes);
         }
@@ -330,9 +330,9 @@ namespace Rook.Tests.Services.Vision.Video
             var (client, _) = MakeClient(_ =>
                 new HttpResponseMessage(HttpStatusCode.Forbidden));
 
-            await Assert.ThrowsAsync<HttpRequestException>(
+            await Assert.ThrowsAnyAsync<HttpRequestException>(
                 async () => await client.DownloadVideoAsync(
-                    ApiKey, "https://veo/r/x.mp4", CancellationToken.None));
+                    ApiKey, "https://generativelanguage.googleapis.com/v1beta/files/test:download", CancellationToken.None));
         }
 
         // ─── Cancellation propagation ─────────────────────────────────

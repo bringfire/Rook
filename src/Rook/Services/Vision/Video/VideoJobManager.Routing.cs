@@ -27,6 +27,7 @@ namespace Rook.Services.Vision.Video
         private readonly VideoRouteQuoteService? _routeQuotes;
         private readonly IVideoDeadlineTimer _routeTimer;
         private readonly VideoPublicationService _publication;
+        internal Action<Guid>? AfterRollbackForTests;
         private readonly ConcurrentDictionary<Guid, RoutedJob> _routedJobs = new();
         private readonly ConcurrentDictionary<Guid, VideoJobRecord> _routeRecordCache = new();
         private IReadOnlyList<LedgerReadError> _routeReadErrors = Array.Empty<LedgerReadError>();
@@ -148,7 +149,9 @@ namespace Rook.Services.Vision.Video
                     var prepared = await AwaitRouted(job, () => _routeQuotes.QuotePreparedAsync(job.Intent, job.Media, job.Budget.Token)).ConfigureAwait(false);
                     if (prepared.Error != null) throw new RouteFailure(prepared.Error);
                     if (_routeQuotes.ValidateConfirmation(prepared.Quote!, job.Confirmation, job.Candidate) is { } stale) throw new RouteFailure(stale);
-                    var submit = Task.Run(() => _routeCoordinator!.SubmitAttemptAsync(job.Candidate, job.Media, () => AdmitGenerationDispatch(job, job.Candidate, job.Media), job.Budget.Token));
+                    var preparedMedia = job.Media!;
+                    var attempt = job.Candidate;
+                    var submit = Task.Run(() => _routeCoordinator!.SubmitAttemptAsync(attempt, preparedMedia, () => AdmitGenerationDispatch(job, attempt, preparedMedia), job.Budget.Token));
                     ProviderSubmitOutcome outcome;
                     try { outcome = await AwaitCancellation(submit, job.Budget.Token).ConfigureAwait(false); }
                     catch (OperationCanceledException) { _ = ObserveLateSubmitAsync(job, submit); throw; }
@@ -176,8 +179,8 @@ namespace Rook.Services.Vision.Video
                 }
                 while (true)
                 {
-                    var status = await AwaitRouted(job, () => GetProviderStatusAsync(job.Candidate.Model, job.KnownHandle!, job.Budget.Token)).ConfigureAwait(false);
-                    if (status is FailedStatusOutcome failed) throw new RouteFailure(failed.Error);
+                    var status = await AwaitRouted(job, () => job.Candidate.Model.Provider is VeoProvider googleStatus ? googleStatus.GetStatusSafeAsync(job.KnownHandle!, job.Budget.Token) : GetProviderStatusAsync(job.Candidate.Model, job.KnownHandle!, job.Budget.Token)).ConfigureAwait(false);
+                    if (status is FailedStatusOutcome failed) throw new RouteFailure(SafeLifecycleError(job.Candidate.Model.ProviderName, failed.Error, "status"));
                     if (status is ProviderCompleteStatusOutcome complete)
                     {
                         job.KnownHandle = complete.UpdatedHandle;
@@ -186,8 +189,8 @@ namespace Rook.Services.Vision.Video
                     }
                     await Task.Delay(_pollInterval, job.Budget.Token).ConfigureAwait(false);
                 }
-                var result = await AwaitRouted(job, () => FetchProviderResultAsync(job.Candidate.Model, job.KnownHandle!, job.Budget.Token)).ConfigureAwait(false);
-                if (result is FailedResultOutcome resultFailure) throw new RouteFailure(resultFailure.Error);
+                var result = await AwaitRouted(job, () => job.Candidate.Model.Provider is VeoProvider googleResult ? googleResult.FetchResultSafeAsync(job.KnownHandle!, job.Budget.Token) : FetchProviderResultAsync(job.Candidate.Model, job.KnownHandle!, job.Budget.Token)).ConfigureAwait(false);
+                if (result is FailedResultOutcome resultFailure) throw new RouteFailure(SafeLifecycleError(job.Candidate.Model.ProviderName, resultFailure.Error, "result"));
                 if (result is not SuccessResultOutcome success || success.Envelope.Artifacts.Count != 1 || success.Envelope.Artifacts[0].Role != "video") throw new RouteFailure(RoutingError("Provider did not return one video."));
                 await PublishRoutedResultAsync(job, success.Envelope.Artifacts[0]).ConfigureAwait(false);
             }
@@ -209,12 +212,19 @@ namespace Rook.Services.Vision.Video
             }
             finally
             {
+                job.Media = null;
                 if (job.KnownHandle != null && (job.PersistenceFailed || job.Budget.FirstStopReason != null)) await CleanupRoutedHandleAsync(job, job.KnownHandle).ConfigureAwait(false);
                 job.Finished.TrySetResult(true);
                 job.Budget.Dispose();
                 if (acquired) try { _concurrency.Release(); } catch (ObjectDisposedException) { }
                 AfterRunForTests?.Invoke(job.Durable.JobId);
             }
+        }
+        private static GenerationError SafeLifecycleError(string provider, GenerationError error, string phase)
+        {
+            if (VideoCredentialErrors.FromError(provider, error) is { } credential)
+                return credential.Kind == "missing" ? VideoCredentialErrors.Missing(provider) : new GenerationError(GenerationErrorCode.DependencyUnavailable, "Video provider rejected its API credential.", false, "credentials", error.ProviderErrorCode);
+            return new GenerationError(error.Code, "Video provider " + phase + " request failed.", error.Retryable);
         }
         private void PrepareRoutedBinding(RoutedJob job, VideoRouteCandidate candidate, string? fallbackReason = null)
         {
@@ -362,7 +372,7 @@ namespace Rook.Services.Vision.Video
                     {
                         // A failed write may have reached disk. Verify before deleting; unknown IO quarantines.
                         var owned = artifact;
-                        _ = Task.Run(() => { try { var durable = _ledger.ReadAll().Records.FirstOrDefault(r => r.JobId == job.Durable.JobId); if (durable != null) _publication.RemoveOwnedProvisional(owned, durable); } catch { } });
+                        _ = Task.Run(() => { try { var durable = _ledger.ReadAll().Records.FirstOrDefault(r => r.JobId == job.Durable.JobId); if (durable != null) _publication.RemoveOwnedProvisional(owned, durable); } catch { } finally { AfterRollbackForTests?.Invoke(job.Durable.JobId); } });
                     }
                     else try { _publication.RemoveOwnedProvisional(artifact, job.Durable); } catch { }
                 }

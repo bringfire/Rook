@@ -16,6 +16,12 @@ namespace Rook.Tests.Services.Vision.Video
 {
     public class VideoFalFallbackManagerTests
     {
+        internal static byte[] ValidVideoBytes()
+        {
+            var root = new DirectoryInfo(AppContext.BaseDirectory);
+            while (root != null && !File.Exists(Path.Combine(root.FullName, "Rook.sln"))) root = root.Parent;
+            return File.ReadAllBytes(Path.Combine(root!.FullName, "third_party/ffmpeg/fixtures/sidecar-smoke-h264.mp4"));
+        }
         internal static TaskCompletionSource<T> Signal<T>() => new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal static async Task<T> Limit<T>(Task<T> task) { if (await Task.WhenAny(task, Task.Delay(10000)) != task) throw new TimeoutException("Test barrier was not reached."); return await task; }
         internal sealed class Provider : IVideoProvider, IPreparedMediaVideoProvider
@@ -30,7 +36,7 @@ namespace Rook.Tests.Services.Vision.Video
             public Task<ProviderSubmitOutcome> SubmitAsync(VideoGenerationRequest r, IReadOnlyDictionary<MediaRef, ResolvedMedia> m, CancellationToken ct) => throw new InvalidOperationException("Mutable submit seam used.");
             public Task<ProviderStatusOutcome> GetStatusAsync(ProviderJobHandle h, CancellationToken ct) { Interlocked.Increment(ref Polls); return Poll(h, ct); }
             public Task<ProviderCancelOutcome> CancelAsync(ProviderJobHandle h, CancellationToken ct) { Interlocked.Increment(ref Cancels); return Task.FromResult<ProviderCancelOutcome>(new CanceledOutcome()); }
-            public Task<ProviderResultOutcome> FetchResultAsync(ProviderJobHandle h, CancellationToken ct) => Fetch?.Invoke(h, ct) ?? Task.FromResult<ProviderResultOutcome>(new SuccessResultOutcome(new ProviderResultEnvelope(new[] { new ResultArtifact("video", new InlineArtifactBody(new byte[] { 0,0,0,20,102,116,121,112,105,115,111,109,0,0,0,0,105,115,111,109 }), "video/mp4", new Dictionary<string, JsonNode>()) }, new Dictionary<string, JsonNode>())));
+            public Task<ProviderResultOutcome> FetchResultAsync(ProviderJobHandle h, CancellationToken ct) => Fetch?.Invoke(h, ct) ?? Task.FromResult<ProviderResultOutcome>(new SuccessResultOutcome(new ProviderResultEnvelope(new[] { new ResultArtifact("video", new InlineArtifactBody(ValidVideoBytes()), "video/mp4", new Dictionary<string, JsonNode>()) }, new Dictionary<string, JsonNode>())));
         }
         internal sealed class Ledger : IVideoJobLedger
         {

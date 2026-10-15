@@ -118,8 +118,9 @@ namespace Rook.Services.Vision.Video
             }
         }
 
-        public async Task<ProviderStatusOutcome> GetStatusAsync(
-            ProviderJobHandle handle, CancellationToken ct)
+        public Task<ProviderStatusOutcome> GetStatusAsync(ProviderJobHandle handle, CancellationToken ct) => GetStatusCoreAsync(handle, ct, false);
+        internal Task<ProviderStatusOutcome> GetStatusSafeAsync(ProviderJobHandle handle, CancellationToken ct) => GetStatusCoreAsync(handle, ct, true);
+        private async Task<ProviderStatusOutcome> GetStatusCoreAsync(ProviderJobHandle handle, CancellationToken ct, bool safe)
         {
             if (handle is null)
                 return new FailedStatusOutcome(new GenerationError(
@@ -128,10 +129,11 @@ namespace Rook.Services.Vision.Video
                     Retryable: false,
                     Field: nameof(handle)));
 
-            var apiKey = _apiKeyProvider();
+            string? apiKey;
+            try { apiKey = _apiKeyProvider(); } catch when (safe) { return new FailedStatusOutcome(VideoCredentialErrors.AccessFailed()); }
             if (string.IsNullOrEmpty(apiKey))
                 return new FailedStatusOutcome(
-                    VideoProviderOutcomeAdapters.ToGenerationError(VeoErrorMapper.MissingApiKey()));
+                    safe ? VideoCredentialErrors.Missing("veo") : VideoProviderOutcomeAdapters.ToGenerationError(VeoErrorMapper.MissingApiKey()));
 
             try
             {
@@ -158,14 +160,14 @@ namespace Rook.Services.Vision.Video
                 }
 
                 return new FailedStatusOutcome(
-                    VideoProviderOutcomeAdapters.ToGenerationError(
+                    safe ? VideoCredentialErrors.FromHttp("veo", resp.StatusCode ?? 0, resp.ErrorBody ?? "") : VideoProviderOutcomeAdapters.ToGenerationError(
                         VeoErrorMapper.MapPollFailure(resp.StatusCode, resp.ErrorBody)));
             }
             catch (OperationCanceledException) { throw; }
             catch (HttpRequestException ex)
             {
                 return new FailedStatusOutcome(
-                    VideoProviderOutcomeAdapters.ToGenerationError(
+                    safe ? new GenerationError(GenerationErrorCode.DependencyUnavailable, "Google video status request failed.", true) : VideoProviderOutcomeAdapters.ToGenerationError(
                         VeoErrorMapper.NetworkError("poll", ex.Message)));
             }
         }
@@ -206,9 +208,9 @@ namespace Rook.Services.Vision.Video
             }
         }
 
-        public async Task<ProviderResultOutcome> FetchResultAsync(
-            ProviderJobHandle handle,
-            CancellationToken ct)
+        public Task<ProviderResultOutcome> FetchResultAsync(ProviderJobHandle handle, CancellationToken ct) => FetchResultCoreAsync(handle, ct, false);
+        internal Task<ProviderResultOutcome> FetchResultSafeAsync(ProviderJobHandle handle, CancellationToken ct) => FetchResultCoreAsync(handle, ct, true);
+        private async Task<ProviderResultOutcome> FetchResultCoreAsync(ProviderJobHandle handle, CancellationToken ct, bool safe)
         {
             if (handle is null)
                 return new FailedResultOutcome(new GenerationError(
@@ -226,10 +228,11 @@ namespace Rook.Services.Vision.Video
                     Retryable: false,
                     Field: "providerResultToken"));
 
-            var apiKey = _apiKeyProvider();
+            string? apiKey;
+            try { apiKey = _apiKeyProvider(); } catch when (safe) { return new FailedResultOutcome(VideoCredentialErrors.AccessFailed()); }
             if (string.IsNullOrEmpty(apiKey))
                 return new FailedResultOutcome(
-                    VideoProviderOutcomeAdapters.ToGenerationError(VeoErrorMapper.MissingApiKey()));
+                    safe ? VideoCredentialErrors.Missing("veo") : VideoProviderOutcomeAdapters.ToGenerationError(VeoErrorMapper.MissingApiKey()));
 
             try
             {
@@ -257,9 +260,14 @@ namespace Rook.Services.Vision.Video
             catch (OperationCanceledException) { throw; }
             catch (HttpRequestException ex)
             {
-                return new FailedResultOutcome(
-                    VideoProviderOutcomeAdapters.ToGenerationError(
-                        VeoErrorMapper.NetworkError("download", ex.Message)));
+                if (safe)
+                {
+                    var error = ex is VeoDownloadException { ApiCredentialResponse: true } download
+                        ? VideoCredentialErrors.FromHttp("veo", download.HttpStatus, "")
+                        : new GenerationError(GenerationErrorCode.DependencyUnavailable, "Google video download failed.", true);
+                    return new FailedResultOutcome(error);
+                }
+                return new FailedResultOutcome(VideoProviderOutcomeAdapters.ToGenerationError(VeoErrorMapper.NetworkError("download", ex.Message)));
             }
         }
 

@@ -14,6 +14,15 @@ namespace Rook.Tests.Services.Vision.Video
             public IDisposable Schedule(DateTimeOffset when, Action callback) { Schedules++; Fire = callback; return new CancellationTokenSource(); }
         }
         [Fact]
+        public void DisposeBetweenStopSelectionAndSignallingDoesNotLoseCancellation()
+        {
+            var clock = new FakeVideoJobClock(); var timer = new Timer();
+            var budget = new VideoExecutionBudget(clock.Now.AddMinutes(20), clock, timer);
+            budget.AfterStopSelectedForTests = budget.Dispose;
+            timer.Fire();
+            Assert.True(budget.Token.IsCancellationRequested); Assert.Equal(VideoStopReason.Deadline, budget.FirstStopReason);
+        }
+        [Fact]
         public void StopSignalsBeforePersistenceCanRun()
         {
             var clock = new FakeVideoJobClock();

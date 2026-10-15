@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Net.Http;
+using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Rook.Services.Vision.Generation;
@@ -12,6 +13,30 @@ namespace Rook.Tests.Services.Vision.Video
 {
     public class VeoCredentialRoutingTests
     {
+        [Theory]
+        [InlineData(403)]
+        [InlineData(500)]
+        public async Task SafeGooglePollingDropsRawBodiesAndNetworkExceptionText(int status)
+        {
+            const string sentinel = "RAW_PROVIDER_SENTINEL_signed_url_key";
+            var http = new FalVeoQueueAdapterTests.Http { Send = _ => Task.FromResult(FalVeoQueueAdapterTests.Http.Json(status, sentinel)) };
+            var provider = new VeoProvider(() => "test-only", new VeoClient(new HttpClient(http)));
+            var failure = Assert.IsType<FailedStatusOutcome>(await provider.GetStatusSafeAsync(new ProviderJobHandle("operations/test"), default));
+            Assert.DoesNotContain(sentinel, failure.Error.Message); Assert.Null(failure.Error.ProviderDetail);
+            http.Send = _ => throw new HttpRequestException(sentinel);
+            failure = Assert.IsType<FailedStatusOutcome>(await provider.GetStatusSafeAsync(new ProviderJobHandle("operations/test"), default));
+            Assert.DoesNotContain(sentinel, failure.Error.Message); Assert.Null(failure.Error.ProviderDetail);
+        }
+        [Fact]
+        public void Mp4ValidatorRequiresCompleteVideoTrackAndMedia()
+        {
+            var bytes = VideoFalFallbackManagerTests.ValidVideoBytes();
+            Assert.True(Mp4VideoValidation.IsValid(bytes));
+            Assert.False(Mp4VideoValidation.IsValid(bytes.Take(bytes.Length - 1).ToArray()));
+            var hugeBox = bytes.ToArray(); hugeBox[0] = 127;
+            Assert.False(Mp4VideoValidation.IsValid(hugeBox));
+            Assert.False(Mp4VideoValidation.IsValid(bytes.Concat(new byte[] { 1, 2 }).ToArray()));
+        }
         [Theory]
         [InlineData(401, "{\"error\":{\"status\":\"UNAUTHENTICATED\"}}", true)]
         [InlineData(403, "{\"error\":{\"details\":[{\"@type\":\"type.googleapis.com/google.rpc.ErrorInfo\",\"reason\":\"API_KEY_INVALID\",\"domain\":\"googleapis.com\"}]}}", true)]

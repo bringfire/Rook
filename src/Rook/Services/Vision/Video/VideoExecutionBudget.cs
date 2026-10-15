@@ -20,7 +20,9 @@ namespace Rook.Services.Vision.Video
         private readonly DateTimeOffset _deadline;
         private readonly IDisposable _timer;
         private int _decision;
+        private bool _signalling, _disposed;
         private VideoStopReason? _stop;
+        internal Action? AfterStopSelectedForTests;
         public VideoExecutionBudget(DateTimeOffset deadlineUtc, IVideoJobClock clock, IVideoDeadlineTimer timer)
         {
             _deadline = deadlineUtc; _clock = clock; Token = _cts.Token;
@@ -31,8 +33,10 @@ namespace Rook.Services.Vision.Video
         public TimeSpan Remaining => _deadline > _clock.UtcNow() ? _deadline - _clock.UtcNow() : TimeSpan.Zero;
         public bool TryStop(VideoStopReason reason)
         {
-            lock (_gate) { if (_decision != 0) return false; _decision = 1; _stop = reason; }
+            lock (_gate) { if (_decision != 0) return false; _decision = 1; _stop = reason; _signalling = true; }
+            AfterStopSelectedForTests?.Invoke();
             try { _cts.Cancel(); } catch (AggregateException) { /* A transport callback cannot undo the selected stop. */ }
+            finally { lock (_gate) { _signalling = false; if (_disposed) _cts.Dispose(); } }
             return true;
         }
         public bool TryAdmitCompletion()
@@ -41,6 +45,6 @@ namespace Rook.Services.Vision.Video
             lock (_gate) { if (_decision != 0) return false; _decision = 2; return true; }
         }
         internal void AbortExecution() { try { _cts.Cancel(); } catch (AggregateException) { } catch (ObjectDisposedException) { } }
-        public void Dispose() { _timer.Dispose(); lock (_gate) { if (_decision == 0) _decision = 3; } _cts.Dispose(); }
+        public void Dispose() { _timer.Dispose(); lock (_gate) { _disposed = true; if (_decision == 0) _decision = 3; if (!_signalling) _cts.Dispose(); } }
     }
 }

@@ -21,6 +21,41 @@ namespace Rook.Tests.Services.Vision.Video
             public Task<VideoPosterSidecarResult> TryPublishPosterAsync(Guid id, CancellationToken ct) { Entered.TrySetResult(id); return Signal<VideoPosterSidecarResult>().Task; }
         }
         [Fact]
+        public async Task HeaderOnlyMp4NeverCompletes()
+        {
+            using var rig = new Rig();
+            rig.Google.Fetch = (h, ct) => Task.FromResult<ProviderResultOutcome>(new SuccessResultOutcome(new ProviderResultEnvelope(new[] { new ResultArtifact("video", new InlineArtifactBody(new byte[] { 0,0,0,20,102,116,121,112,105,115,111,109,0,0,0,0,105,115,111,109 }), "video/mp4", new Dictionary<string, JsonNode>()) }, new Dictionary<string, JsonNode>())));
+            var submit = await rig.Submit(); await Limit(rig.Done.Task);
+            Assert.Equal(VideoJobState.Error, rig.Record(submit.JobId!.Value).State); Assert.Empty(rig.Store.List());
+        }
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public async Task FinishedJobsReleasePreparedSourceBuffers(bool fail)
+        {
+            using var rig = new Rig(); var input = MediaRef.ForArtifact(Guid.NewGuid(), "image"); rig.Media.Values[input] = Rook.Tests.Services.Vision.Video.Fal.FalVeoCompatibilityTests.Image(1280, 720);
+            var intent = VideoRequestIntent.Normalize(TestVideoFixtures.DefaultT2vRequest(model: "veo-3.1-generate-preview", mode: VideoMode.I2V, startFrame: input), new JsonObject());
+            if (fail) rig.Google.Poll = (h, ct) => Task.FromResult<ProviderStatusOutcome>(new FailedStatusOutcome(new GenerationError(GenerationErrorCode.ExecutionFailed, "Failed test provider.", false)));
+            await rig.Submit(intent); await Limit(rig.Done.Task);
+            var jobs = (System.Collections.IDictionary)typeof(VideoJobManager).GetField("_routedJobs", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(rig.Manager)!;
+            foreach (var job in jobs.Values) Assert.Null(job.GetType().GetField("Media", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(job));
+        }
+        [Theory]
+        [InlineData("poll", 403)]
+        [InlineData("poll", 500)]
+        [InlineData("fetch", 500)]
+        public async Task LifecycleErrorsDoNotPublishRawProviderText(string phase, int status)
+        {
+            using var rig = new Rig(); const string sentinel = "RAW_PROVIDER_SENTINEL_signed_url_key";
+            var error = VideoProviderOutcomeAdapters.ToGenerationError(VeoErrorMapper.MapPollFailure(status, sentinel));
+            if (phase == "poll") rig.Google.Poll = (h, ct) => Task.FromResult<ProviderStatusOutcome>(new FailedStatusOutcome(error));
+            else rig.Google.Fetch = (h, ct) => Task.FromResult<ProviderResultOutcome>(new FailedResultOutcome(error));
+            var submit = await rig.Submit(); await Limit(rig.Done.Task);
+            var handler = new Rook.Handlers.VideoOpHandler(rig.Manager, rig.Coordinator.Registry, new VideoCostEstimator());
+            var response = handler.DispatchOffUi(new JsonObject { ["op"] = "get_video_job", ["job_id"] = submit.JobId!.Value.ToString("D") }.ToJsonString());
+            Assert.DoesNotContain(sentinel, System.Text.Json.JsonSerializer.Serialize(response)); Assert.DoesNotContain(sentinel, File.ReadAllText(Path.Combine(rig.DirectoryPath, "ledger.jsonl"))); Assert.Equal(0, rig.Fal.Submits);
+        }
+        [Fact]
         public async Task CancelAfterCompletionAdmissionWaitsForDurableCompletion()
         {
             using var rig = new Rig(); var entered = Signal<bool>(); var release = Signal<bool>();
@@ -102,9 +137,12 @@ namespace Rook.Tests.Services.Vision.Video
         public async Task StopOrTerminalAppendFailureRemovesOnlyOwnedProvisional()
         {
             using var rig = new Rig();
+            var rolledBack = Signal<Guid>(); rig.Manager.AfterRollbackForTests = id => rolledBack.TrySetResult(id);
             rig.Ledger.BeforeAppend = record => { if (record.State == VideoJobState.Complete) throw new IOException("complete commit failed"); };
             var result = await rig.Submit(); await Limit(rig.Done.Task);
+            await Limit(rolledBack.Task);
             Assert.NotEqual(VideoJobState.Complete, rig.Record(result.JobId!.Value).State);
+            Assert.Empty(rig.Store.List());
             Assert.DoesNotContain(rig.Store.List(), rig.Manager.IsArtifactVisible);
         }
     }
