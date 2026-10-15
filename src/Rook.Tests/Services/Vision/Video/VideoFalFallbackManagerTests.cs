@@ -23,13 +23,14 @@ namespace Rook.Tests.Services.Vision.Video
             public string ProviderName { get; set; } = "veo";
             internal int Submits, Cancels, Polls;
             internal Func<VideoPreparedMediaSnapshot, Task>? Prepare;
+            internal Func<ProviderJobHandle, CancellationToken, Task<ProviderResultOutcome>>? Fetch;
             internal Func<VideoGenerationRequest, CancellationToken, Task<ProviderSubmitOutcome>> Submit = (r, ct) => Task.FromResult<ProviderSubmitOutcome>(new QueuedSubmitOutcome(new ProviderJobHandle(r.Prompt ?? "handle")));
             internal Func<ProviderJobHandle, CancellationToken, Task<ProviderStatusOutcome>> Poll = (h, ct) => Task.FromResult<ProviderStatusOutcome>(new ProviderCompleteStatusOutcome(h));
             public async Task<ProviderSubmitOutcome> SubmitPreparedAsync(VideoGenerationRequest request, VideoPreparedMediaSnapshot media, Action beforeDispatch, CancellationToken ct) { if (Prepare != null) await Prepare(media); beforeDispatch(); Interlocked.Increment(ref Submits); return await Submit(request, ct); }
             public Task<ProviderSubmitOutcome> SubmitAsync(VideoGenerationRequest r, IReadOnlyDictionary<MediaRef, ResolvedMedia> m, CancellationToken ct) => throw new InvalidOperationException("Mutable submit seam used.");
             public Task<ProviderStatusOutcome> GetStatusAsync(ProviderJobHandle h, CancellationToken ct) { Interlocked.Increment(ref Polls); return Poll(h, ct); }
             public Task<ProviderCancelOutcome> CancelAsync(ProviderJobHandle h, CancellationToken ct) { Interlocked.Increment(ref Cancels); return Task.FromResult<ProviderCancelOutcome>(new CanceledOutcome()); }
-            public Task<ProviderResultOutcome> FetchResultAsync(ProviderJobHandle h, CancellationToken ct) => Task.FromResult<ProviderResultOutcome>(new SuccessResultOutcome(new ProviderResultEnvelope(new[] { new ResultArtifact("video", new InlineArtifactBody(new byte[] { 0,0,0,20,102,116,121,112,105,115,111,109,0,0,0,0,105,115,111,109 }), "video/mp4", new Dictionary<string, JsonNode>()) }, new Dictionary<string, JsonNode>())));
+            public Task<ProviderResultOutcome> FetchResultAsync(ProviderJobHandle h, CancellationToken ct) => Fetch?.Invoke(h, ct) ?? Task.FromResult<ProviderResultOutcome>(new SuccessResultOutcome(new ProviderResultEnvelope(new[] { new ResultArtifact("video", new InlineArtifactBody(new byte[] { 0,0,0,20,102,116,121,112,105,115,111,109,0,0,0,0,105,115,111,109 }), "video/mp4", new Dictionary<string, JsonNode>()) }, new Dictionary<string, JsonNode>())));
         }
         internal sealed class Ledger : IVideoJobLedger
         {
@@ -64,14 +65,14 @@ namespace Rook.Tests.Services.Vision.Video
             internal readonly VideoJobManager Manager;
             internal readonly VideoRouteQuoteService Quotes;
             internal readonly VideoSubmissionCoordinator Coordinator;
-            internal Rig()
+            internal Rig(Func<ArtifactStore, VideoPublicationService>? publication = null, IVideoPosterSidecarProducer? poster = null)
             {
                 Ledger = new(Path.Combine(DirectoryPath, "ledger.jsonl")); Store = new(Path.Combine(DirectoryPath, "artifacts"));
                 var catalog = FalVeoCompatibilityTests.ActiveCatalog();
                 var registry = new DefaultVideoProviderRegistry(new IVideoProviderRegistration[] { new VeoProviderRegistration(Google), new Registration(Fal, catalog) });
                 var coordinator = Coordinator = new VideoSubmissionCoordinator(registry, catalog, Secrets);
                 Quotes = new(coordinator, Media, Clock);
-                Manager = new(registry, Media, Ledger, new VideoCostEstimator(), Store, Clock, null, TimeSpan.Zero, 2, null, coordinator: coordinator, routeQuotes: Quotes, deadlineTimer: Timer);
+                Manager = new(registry, Media, Ledger, new VideoCostEstimator(), Store, Clock, null, TimeSpan.Zero, 2, null, posterProducer: poster, coordinator: coordinator, routeQuotes: Quotes, deadlineTimer: Timer, publication: publication?.Invoke(Store));
                 Manager.AfterRunForTests = id => Done.TrySetResult(id);
             }
             internal Task<JobSubmitResult> Submit(VideoRequestIntent? intent = null, VideoSubmitConfirmation? confirmation = null) => ((IVideoConfirmedJobManager)Manager).SubmitConfirmedAsync(intent ?? VideoRouteQuoteTests.Intent(), confirmation ?? new(null, null), default);

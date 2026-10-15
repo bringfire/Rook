@@ -53,7 +53,8 @@ namespace Rook.InternalBridge
                 enhancer: new PromptEnhancer(),
                 viewportHandler: new ViewportHandler(),
                 imageProviderRegistry: RookSubsystemRoot.Instance.ImageJobs.Registry,
-                imageSubmissionExecutor: RookSubsystemRoot.Instance.ImageJobs.Executor);
+                imageSubmissionExecutor: RookSubsystemRoot.Instance.ImageJobs.Executor,
+                videoArtifactIsVisible: artifact => RookSubsystemRoot.Instance.Video.Manager.IsArtifactVisible(artifact));
         }
 
         // V2 video. Lazy so processes that never touch video (image-only,

@@ -101,7 +101,8 @@ namespace Rook.Services.Vision.Video
             IVideoFrameSidecarProducer? frameProducer = null,
             VideoSubmissionCoordinator? coordinator = null,
             VideoRouteQuoteService? routeQuotes = null,
-            IVideoDeadlineTimer? deadlineTimer = null)
+            IVideoDeadlineTimer? deadlineTimer = null,
+            VideoPublicationService? publication = null)
         {
             _registry = registry ?? throw new ArgumentNullException(nameof(registry));
             _mediaResolver = mediaResolver ?? throw new ArgumentNullException(nameof(mediaResolver));
@@ -111,6 +112,7 @@ namespace Rook.Services.Vision.Video
             _materializer = materializer ?? new VideoArtifactMaterializer();
             _posterProducer = posterProducer ?? new VideoPosterSidecarProducer(_artifactStore);
             _frameProducer = frameProducer ?? new VideoFrameSidecarProducer(_artifactStore);
+            _publication = publication ?? new VideoPublicationService(_artifactStore, _materializer);
             _clock = clock ?? new SystemVideoJobClock();
             _routeCoordinator = coordinator;
             _routeQuotes = routeQuotes;
@@ -819,6 +821,7 @@ namespace Rook.Services.Vision.Video
                         Retryable: true));
                 AppendCommittedSnapshot(interrupted);
             }
+            RepairRoutedArtifacts();
         }
 
         // ─── Disposal ─────────────────────────────────────────────────

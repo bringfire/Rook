@@ -79,7 +79,8 @@ namespace Rook.Services.Vision.Video
                 ?? new VideoSidecarBackfillService(
                     artifactStore,
                     new VideoPosterSidecarProducer(artifactStore),
-                    new VideoFrameSidecarProducer(artifactStore));
+                    new VideoFrameSidecarProducer(artifactStore),
+                    videoArtifactIsVisible: manager.IsArtifactVisible);
 
             return new VideoSubsystemBundle(
                 manager,

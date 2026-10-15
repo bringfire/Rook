@@ -17,6 +17,7 @@ namespace Rook.Services.Vision.Video
         private readonly VideoSubmissionCoordinator? _routeCoordinator;
         private readonly VideoRouteQuoteService? _routeQuotes;
         private readonly IVideoDeadlineTimer _routeTimer;
+        private readonly VideoPublicationService _publication;
         private readonly ConcurrentDictionary<Guid, RoutedJob> _routedJobs = new();
         private readonly ConcurrentDictionary<Guid, VideoJobRecord> _routeRecordCache = new();
 
@@ -36,6 +37,8 @@ namespace Rook.Services.Vision.Video
             internal int CleanupRunning;
             internal volatile string? CleanupOutcome;
             internal volatile string? CleanupPersistence;
+            internal volatile string? PublicationWarning;
+            internal bool CompletionCommitAttempted;
             internal readonly TaskCompletionSource<bool> Finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
             internal RoutedJob(VideoJobRecord record, VideoRequestIntent intent, VideoRouteQuote quote, VideoSubmitConfirmation confirmation, VideoExecutionBudget budget, VideoRouteCandidate candidate)
             { Durable = record; Intent = intent; Quote = quote; Confirmation = confirmation; Budget = budget; Candidate = candidate; }
@@ -190,7 +193,9 @@ namespace Rook.Services.Vision.Video
             catch
             {
                 if (!job.PersistenceFailed && !IsTerminal(job.Durable.State))
-                    try { CommitRouted(job, r => UpdateRouted(r, data => data["phase"] = "failed", VideoJobState.Interrupted, VideoCredentialErrors.Unknown())); } catch (RouteFailure) { }
+                    try { CommitRouted(job, r => UpdateRouted(r, data => data["phase"] = "failed",
+                        job.KnownHandle == null ? VideoJobState.Interrupted : VideoJobState.Error,
+                        job.KnownHandle == null ? VideoCredentialErrors.Unknown() : new GenerationError(GenerationErrorCode.ExecutionFailed, "The accepted video job could not produce a valid local video.", false))); } catch (RouteFailure) { }
             }
             finally
             {
@@ -213,7 +218,7 @@ namespace Rook.Services.Vision.Video
                     extensions["video_route"] = new JsonObject { ["version"] = 1, ["requested_provider"] = "veo", ["requested_model"] = job.Intent.Request.Model, ["effective_provider"] = "fal", ["effective_model"] = candidate.Model.ModelId, ["provider_endpoint"] = candidate.Binding?.SubmitEndpoint, ["fallback_reason"] = fallbackReason ?? "gemini_key_missing" };
                     next = next with { Extensions = extensions };
                 }
-                return UpdateRouted(next, data => { data["phase"] = "preparation"; data["effective_binding"] = candidate.Binding?.SubmitEndpoint; data["profile_revision"] = candidate.Binding?.ProfileRevision; }, VideoJobState.Submitting);
+                return UpdateRouted(next, data => { data["phase"] = "preparation"; data["effective_binding"] = candidate.Binding?.SubmitEndpoint; data["profile_revision"] = candidate.Binding?.ProfileRevision; data["effective_provider"] = candidate.Model.ProviderName; data["effective_model"] = candidate.Model.ModelId; data["effective_options"] = candidate.Model.OptionsCodec.Serialize(candidate.Request.Options); data["effective_pricing"] = new JsonObject { ["estimated_cost_usd"] = candidate.Estimate!.DollarsUsd, ["currency"] = candidate.Estimate.Pricing.Currency, ["source"] = candidate.Estimate.Pricing.PricingSource }; data["route_receipt"] = next.Extensions?["video_route"]?.DeepClone(); }, VideoJobState.Submitting);
             });
         }
         private void AdmitGenerationDispatch(RoutedJob job, VideoRouteCandidate candidate, VideoPreparedMediaSnapshot preparedMedia)
@@ -257,6 +262,7 @@ namespace Rook.Services.Vision.Video
             if (_routedJobs.TryGetValue(record.JobId, out var job))
             {
                 if (record.State == VideoJobState.Complete) return JobCancelResult.Ok(record.State) with { Execution = RouteProjection(record) };
+                if (job.PersistenceFailed && job.Budget.FirstStopReason == null) return JobCancelResult.Fail(VideoProviderOutcomeAdapters.ToVideoJobError(PersistenceError())) with { Execution = RouteProjection(record) };
                 ObserveStop(job, VideoStopReason.User);
                 if (job.Budget.FirstStopReason == null) { await AwaitCancellation(job.Finished.Task, ct).ConfigureAwait(false); return JobCancelResult.Ok(job.Durable.State) with { Execution = RouteProjection(job.Durable) }; }
                 var result = await AwaitCancellation(PersistObservedStopAsync(job), ct).ConfigureAwait(false);
@@ -301,35 +307,53 @@ namespace Rook.Services.Vision.Video
             _ = Task.Run(() => CommitRoutedMetadata(job, r => VideoJobRecordFactory.WithState(UpdateRouted(r, data => data["cleanup"] = outcome), r.State, _clock.UtcNow(), providerHandle: handle)));
             Interlocked.Exchange(ref job.CleanupRunning, 0);
         }
-        private void CommitRoutedMetadata(RoutedJob job, Func<VideoJobRecord, VideoJobRecord> update)
+        private void CommitRoutedMetadata(RoutedJob job, Func<VideoJobRecord, VideoJobRecord> update, bool cleanupMetadata = true)
         {
             lock (job.Gate)
             {
-                try { var next = update(job.Durable); _ledger.Append(next); job.Durable = next; _routeRecordCache[next.JobId] = next; job.CleanupPersistence = "durable"; }
-                catch { job.CleanupPersistence = "failed"; }
+                try { var next = update(job.Durable); _ledger.Append(next); job.Durable = next; _routeRecordCache[next.JobId] = next; if (cleanupMetadata) job.CleanupPersistence = "durable"; }
+                catch { if (cleanupMetadata) job.CleanupPersistence = "failed"; }
             }
         }
         private async Task PublishRoutedResultAsync(RoutedJob job, ResultArtifact result)
         {
-            var materialized = await AwaitRouted(job, () => _materializer.MaterializeAsync(result, job.Budget.Token)).ConfigureAwait(false);
-            if (!materialized.Success) throw new RouteFailure(materialized.Error!);
             Artifact? artifact = null;
             try
             {
                 CheckRouted(job);
-                artifact = _artifactStore.Create("generated_video", new[] { new BlobInput("video", materialized.Bytes!, "mp4") }, parentIds: CollectMediaParents(job.Intent.Request), metadata: new Dictionary<string, JsonNode?> { ["video_job_id"] = JsonValue.Create(job.Durable.JobId.ToString("D")) }, flags: new Dictionary<string, JsonNode?> { ["video_publication"] = JsonValue.Create("provisional") });
-                try { await AwaitRouted(job, () => _posterProducer.TryPublishPosterAsync(artifact.Id, job.Budget.Token)).ConfigureAwait(false); } catch (OperationCanceledException) { throw; } catch { }
-                try { await AwaitRouted(job, () => _frameProducer.TryPublishFrameSidecarsAsync(artifact.Id, job.Budget.Token)).ConfigureAwait(false); } catch (OperationCanceledException) { throw; } catch { }
+                var preparation = Task.Run(() => _publication.PrepareAsync(job.Durable.JobId, result, VideoExecutionSnapshot.Read(job.Durable).Snapshot!, job.Budget.Token));
+                try { artifact = await AwaitCancellation(preparation, job.Budget.Token).ConfigureAwait(false); }
+                catch { _ = preparation.ContinueWith(t => { if (t.Status == TaskStatus.RanToCompletion) _publication.RemoveOwnedProvisional(t.Result, job.Durable); else _ = t.Exception; }); throw; }
+                var warnings = new JsonArray();
+                try { if (!(await AwaitRouted(job, () => _posterProducer.TryPublishPosterAsync(artifact.Id, job.Budget.Token)).ConfigureAwait(false)).Success) warnings.Add("poster_unavailable"); } catch (OperationCanceledException) { throw; } catch { warnings.Add("poster_unavailable"); }
+                try { if ((await AwaitRouted(job, () => _frameProducer.TryPublishFrameSidecarsAsync(artifact.Id, job.Budget.Token)).ConfigureAwait(false)).RoleResults.Any(r => !r.Success)) warnings.Add("frames_unavailable"); } catch (OperationCanceledException) { throw; } catch { warnings.Add("frames_unavailable"); }
                 CommitRouted(job, r => {
                     CheckRouted(job);
                     if (!job.Budget.TryAdmitCompletion()) throw new OperationCanceledException(job.Budget.Token);
-                    return UpdateRouted(r with { ResultArtifactId = artifact.Id, Error = null }, data => data["phase"] = "complete", VideoJobState.Complete);
+                    job.CompletionCommitAttempted = true;
+                    return UpdateRouted(r with { ResultArtifactId = artifact.Id, Error = null }, data => { data["phase"] = "complete"; data["warnings"] = warnings.DeepClone(); }, VideoJobState.Complete);
                 });
-                try { _artifactStore.SetFlag(artifact.Id, "video_publication", JsonValue.Create("complete")!); } catch { /* The completed ledger owns this artifact now. */ }
+                var finalize = Task.Run(() => _publication.FinalizeMarker(artifact));
+                var remaining = job.Budget.Remaining;
+                var warning = remaining <= TimeSpan.Zero || await Task.WhenAny(finalize, Task.Delay(remaining)).ConfigureAwait(false) != finalize ? true : await finalize.ConfigureAwait(false) != null;
+                if (warning)
+                {
+                    job.PublicationWarning = "artifact_marker_pending";
+                    _ = Task.Run(() => CommitRoutedMetadata(job, r => UpdateRouted(r, data => data["warnings"] = new JsonArray("artifact_marker_pending")), cleanupMetadata: false));
+                }
             }
             catch
             {
-                if (artifact != null && !(job.Durable.State == VideoJobState.Complete && job.Durable.ResultArtifactId == artifact.Id)) try { _artifactStore.Delete(artifact.Id); } catch { }
+                if (artifact != null && !(job.Durable.State == VideoJobState.Complete && job.Durable.ResultArtifactId == artifact.Id))
+                {
+                    if (job.CompletionCommitAttempted && job.PersistenceFailed)
+                    {
+                        // A failed write may have reached disk. Verify before deleting; unknown IO quarantines.
+                        var owned = artifact;
+                        _ = Task.Run(() => { try { var durable = _ledger.ReadAll().Records.FirstOrDefault(r => r.JobId == job.Durable.JobId); if (durable != null) _publication.RemoveOwnedProvisional(owned, durable); } catch { } });
+                    }
+                    else try { _publication.RemoveOwnedProvisional(artifact, job.Durable); } catch { }
+                }
                 throw;
             }
         }
@@ -346,9 +370,35 @@ namespace Rook.Services.Vision.Video
                 var fields = VideoExecutionSnapshot.Project(record, job.Budget.FirstStopReason, job.StopPersistence).Fields;
                 if (job.CleanupOutcome != null) fields["cleanup"] = job.CleanupOutcome;
                 if (job.CleanupPersistence != null) fields["cleanup_persistence"] = job.CleanupPersistence;
+                if (job.PublicationWarning != null) fields["warnings"] = new JsonArray(job.PublicationWarning);
+                AddMarkerWarning(record, fields);
                 return new VideoExecutionProjection(fields);
             }
-            return VideoExecutionSnapshot.Project(record, null, VideoStopPersistence.None);
+            var projection = VideoExecutionSnapshot.Project(record, null, VideoStopPersistence.None).Fields;
+            AddMarkerWarning(record, projection);
+            return new VideoExecutionProjection(projection);
+        }
+        private void AddMarkerWarning(VideoJobRecord record, JsonObject fields)
+        {
+            if (record.State != VideoJobState.Complete || record.ResultArtifactId is not { } id) return;
+            try { if (_artifactStore.Get(id) is { } artifact && VideoPublicationService.MarkerPending(artifact)) fields["warnings"] = new JsonArray("artifact_marker_pending"); } catch { }
+        }
+        internal bool IsArtifactVisible(Artifact artifact)
+        {
+            if (!VideoPublicationService.IsAffectedArtifact(artifact)) return true;
+            if (!artifact.Metadata.TryGetValue("video_job_id", out var owner) || owner is not JsonValue value || !value.TryGetValue<string>(out var text) || !Guid.TryParse(text, out var jobId)) return false;
+            return _publication.IsVisible(artifact, _routeRecordCache.TryGetValue(jobId, out var record) ? record : null);
+        }
+        private void RepairRoutedArtifacts()
+        {
+            foreach (var artifact in _artifactStore.List())
+            {
+                if (!VideoPublicationService.IsAffectedArtifact(artifact)) continue;
+                VideoJobRecord? record = null;
+                if (artifact.Metadata.TryGetValue("video_job_id", out var owner) && owner is JsonValue value && value.TryGetValue<string>(out var text) && Guid.TryParse(text, out var id)) _routeRecordCache.TryGetValue(id, out record);
+                var warning = _publication.RepairFromLedger(artifact, record);
+                if (warning != null) System.Diagnostics.Trace.WriteLine("Rook video artifact " + artifact.Id.ToString("D") + ": " + warning.ProviderErrorCode);
+            }
         }
         private JobStatusResult RoutedStatus(VideoJobRecord record) => TranslateToStatus(record) with { Execution = RouteProjection(record) };
         private JobFetchResult FetchRouted(VideoJobRecord record)
@@ -356,7 +406,7 @@ namespace Rook.Services.Vision.Video
             var projection = RouteProjection(record);
             if (record.State != VideoJobState.Complete || record.ResultArtifactId is not { } id) return JobFetchResult.Failed(record.State, VideoProviderOutcomeAdapters.ToVideoJobError(record.Error ?? RoutingError("Video job has no completed result."))) with { Execution = projection };
             var artifact = _artifactStore.Get(id);
-            if (artifact == null) return JobFetchResult.Failed(VideoJobState.Error, VideoProviderOutcomeAdapters.ToVideoJobError(RoutingError("Completed video artifact is unavailable."))) with { Execution = projection };
+            if (artifact == null || !IsArtifactVisible(artifact)) return JobFetchResult.Failed(VideoJobState.Error, VideoProviderOutcomeAdapters.ToVideoJobError(RoutingError("Completed video artifact is unavailable."))) with { Execution = projection };
             return JobFetchResult.Complete(id, artifact.Files.Select(f => new JobResultFile(f.Role, f.Path)).ToArray()) with { Execution = projection };
         }
         private VideoJobLedgerReadResult ReadConsumerLedger() => _routeCoordinator is null ? _ledger.ReadAll() : new VideoJobLedgerReadResult(_routeRecordCache.Values.ToArray(), Array.Empty<LedgerReadError>());

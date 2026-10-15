@@ -322,7 +322,8 @@ p { margin: 8px 0; line-height: 1.4; }
             BuildSharedVideoHandler(),
             BuildSharedImageJobHandler(),
             BuildSharedMediaImportHandler(),
-            RookSubsystemRoot.Instance.SharedArtifactStore)
+            RookSubsystemRoot.Instance.SharedArtifactStore,
+            artifact => RookSubsystemRoot.Instance.Video.Manager.IsArtifactVisible(artifact))
         { }
 
         /// <summary>
@@ -346,13 +347,15 @@ p { margin: 8px 0; line-height: 1.4; }
             VideoOpHandler? videoHandler,
             ImageJobOpHandler? imageJobHandler,
             MediaImportOpHandler? mediaImportHandler,
-            ArtifactStore artifactStore)
+            ArtifactStore artifactStore,
+            Func<Artifact, bool>? videoArtifactIsVisible = null)
         {
             _handler = handler ?? throw new ArgumentNullException(nameof(handler));
             _videoHandler = videoHandler;
             _imageJobHandler = imageJobHandler;
             _mediaImportHandler = mediaImportHandler;
             _artifactStore = artifactStore ?? throw new ArgumentNullException(nameof(artifactStore));
+            _videoArtifactIsVisible = videoArtifactIsVisible;
 
             // Register the single op-discriminated bridge method. Must
             // happen in the constructor so the handler is attached
@@ -381,6 +384,8 @@ p { margin: 8px 0; line-height: 1.4; }
             return new VideoOpHandler(bundle.Manager, bundle.Registry, bundle.Estimator);
         }
 
+        private readonly Func<Artifact, bool>? _videoArtifactIsVisible;
+
         private static ImageJobOpHandler BuildSharedImageJobHandler()
         {
             var handler = BuildSharedVisionHandler();
@@ -405,7 +410,8 @@ p { margin: 8px 0; line-height: 1.4; }
                 enhancer: new PromptEnhancer(),
                 viewportHandler: new ViewportHandler(),
                 imageProviderRegistry: RookSubsystemRoot.Instance.ImageJobs.Registry,
-                imageSubmissionExecutor: RookSubsystemRoot.Instance.ImageJobs.Executor);
+                imageSubmissionExecutor: RookSubsystemRoot.Instance.ImageJobs.Executor,
+                videoArtifactIsVisible: artifact => RookSubsystemRoot.Instance.Video.Manager.IsArtifactVisible(artifact));
         }
 
         // ─── Bridge handler ───────────────────────────────────────────
@@ -787,6 +793,9 @@ p { margin: 8px 0; line-height: 1.4; }
             string absPath;
             try
             {
+                var artifact = _artifactStore.Get(artifactId);
+                if (artifact is null || VideoPublicationService.IsAffectedArtifact(artifact) && !(_videoArtifactIsVisible?.Invoke(artifact) ?? false))
+                    return BuildPlainText404("Artifact unavailable.");
                 absPath = _artifactStore.GetBlobAbsolutePath(artifactId, role);
             }
             catch (KeyNotFoundException)

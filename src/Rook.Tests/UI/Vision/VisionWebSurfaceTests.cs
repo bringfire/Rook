@@ -1480,6 +1480,32 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
+        public void BlobStreamRejectsProvisionalOrUnknownOwnership()
+        {
+            var id = Guid.NewGuid();
+            var artifact = _store.Create("generated_video", new[] { new BlobInput("video", new byte[] { 1, 2, 3 }, "mp4"), new BlobInput("poster", new byte[] { 4 }, "png"), new BlobInput("start_frame", new byte[] { 4 }, "png"), new BlobInput("end_frame", new byte[] { 4 }, "png") }, metadata: new Dictionary<string, JsonNode?> { ["video_job_id"] = JsonValue.Create(id.ToString("D")) }, flags: new Dictionary<string, JsonNode?> { ["video_publication"] = JsonValue.Create("provisional") });
+            var surface = NewSurface();
+            foreach (var role in new[] { "video", "poster", "start_frame", "end_frame" }) Assert.Equal(404, surface.ResolveVirtualResourceForTest(new Uri($"https://app.rook.invalid/blob/{artifact.Id:D}/{role}"))!.StatusCode);
+        }
+
+        [Fact]
+        public void BlobStreamAllowsDurablyCompletedArtifactWithPendingMarker()
+        {
+            var record = Rook.Tests.Services.Vision.Video.VideoExecutionSnapshotTests.Record();
+            var artifact = _store.Create("generated_video", new[] { new BlobInput("video", new byte[] { 1, 2, 3 }, "mp4"), new BlobInput("poster", new byte[] { 4 }, "png"), new BlobInput("start_frame", new byte[] { 4 }, "png"), new BlobInput("end_frame", new byte[] { 4 }, "png") }, metadata: new Dictionary<string, JsonNode?> { ["video_job_id"] = JsonValue.Create(record.JobId.ToString("D")) }, flags: new Dictionary<string, JsonNode?> { ["video_publication"] = JsonValue.Create("provisional") });
+            record = record with { State = Rook.Services.Vision.Video.VideoJobState.Complete, ResultArtifactId = artifact.Id };
+            var service = new Rook.Services.Vision.Video.VideoPublicationService(_store, new Rook.Services.Vision.Video.VideoArtifactMaterializer());
+            var surface = new VisionWebSurface(new VisionHandler(), null, null, null, _store, a => service.IsVisible(a, record));
+            foreach (var role in new[] { "video", "poster", "start_frame", "end_frame" })
+            {
+                var resource = surface.ResolveVirtualResourceForTest(new Uri($"https://app.rook.invalid/blob/{artifact.Id:D}/{role}"))!;
+                Assert.Equal(200, resource.StatusCode); Assert.Contains("Cache-Control: no-store", resource.ExtraHeaders);
+                using var body = new MemoryStream(); resource.Content.CopyTo(body); resource.Content.Dispose();
+                Assert.Equal(role == "video" ? new byte[] { 1, 2, 3 } : new byte[] { 4 }, body.ToArray());
+            }
+        }
+
+        [Fact]
         public void ResolveVirtualResource_NonBlobPath_FallsThrough()
         {
             var surface = NewSurface();

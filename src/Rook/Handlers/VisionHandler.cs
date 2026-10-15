@@ -19,6 +19,7 @@ using Rook.Services.Vision.Image;
 using Rook.Services.Vision.Image.Fal;
 using Rook.Services.Vision.Image.Gemini;
 using Rook.Services.Vision.Image.Replicate;
+using Rook.Services.Vision.Video;
 
 namespace Rook.Handlers
 {
@@ -103,6 +104,12 @@ namespace Rook.Handlers
     /// </summary>
     public class VisionHandler
     {
+        private readonly Func<Artifact, bool>? _videoArtifactIsVisible;
+        private bool IsPublishedVideoVisible(Artifact artifact)
+        {
+            if (!VideoPublicationService.IsAffectedArtifact(artifact)) return true;
+            try { return _videoArtifactIsVisible?.Invoke(artifact) ?? false; } catch { return false; }
+        }
         internal sealed class ImageGenerationWorkItemOptions
         {
             public static readonly ImageGenerationWorkItemOptions SyncGenerate = new(
@@ -212,7 +219,8 @@ namespace Rook.Handlers
             ViewportHandler viewportHandler,
             IImageProviderRegistry? imageProviderRegistry = null,
             ImageArtifactMaterializer? imageArtifactMaterializer = null,
-            ImageSubmissionExecutor? imageSubmissionExecutor = null)
+            ImageSubmissionExecutor? imageSubmissionExecutor = null,
+            Func<Artifact, bool>? videoArtifactIsVisible = null)
             : this(
                 artifactStore,
                 secrets,
@@ -220,7 +228,7 @@ namespace Rook.Handlers
                 enhancer,
                 viewportHandler,
                 imageProviderRegistry,
-                imageArtifactMaterializer, imageSubmissionExecutor: imageSubmissionExecutor)
+                imageArtifactMaterializer, imageSubmissionExecutor: imageSubmissionExecutor, videoArtifactIsVisible: videoArtifactIsVisible)
         { }
 
         internal VisionHandler(
@@ -230,7 +238,8 @@ namespace Rook.Handlers
             ViewportHandler viewportHandler,
             IImageProviderRegistry? imageProviderRegistry = null,
             ImageArtifactMaterializer? imageArtifactMaterializer = null,
-            ImageSubmissionExecutor? imageSubmissionExecutor = null)
+            ImageSubmissionExecutor? imageSubmissionExecutor = null,
+            Func<Artifact, bool>? videoArtifactIsVisible = null)
             : this(
                 artifactStore,
                 new VisionSecretStore(generationSecrets),
@@ -238,7 +247,7 @@ namespace Rook.Handlers
                 enhancer,
                 viewportHandler,
                 imageProviderRegistry,
-                imageArtifactMaterializer, imageSubmissionExecutor: imageSubmissionExecutor)
+                imageArtifactMaterializer, imageSubmissionExecutor: imageSubmissionExecutor, videoArtifactIsVisible: videoArtifactIsVisible)
         { }
 
         private VisionHandler(
@@ -250,9 +259,11 @@ namespace Rook.Handlers
             IImageProviderRegistry? imageProviderRegistry,
             ImageArtifactMaterializer? imageArtifactMaterializer,
             ProviderCredentialMetadataCatalog? credentialMetadata = null,
-            ImageSubmissionExecutor? imageSubmissionExecutor = null)
+            ImageSubmissionExecutor? imageSubmissionExecutor = null,
+            Func<Artifact, bool>? videoArtifactIsVisible = null)
         {
             _artifactStore = artifactStore ?? throw new ArgumentNullException(nameof(artifactStore));
+            _videoArtifactIsVisible = videoArtifactIsVisible;
             _secrets = secrets ?? throw new ArgumentNullException(nameof(secrets));
             _generationSecrets = generationSecrets;
             _enhancer = enhancer ?? throw new ArgumentNullException(nameof(enhancer));
@@ -1764,7 +1775,7 @@ namespace Rook.Handlers
                 appliedLimit = rawLimit.Value;
             }
 
-            IEnumerable<Artifact> results = _artifactStore.List();
+            IEnumerable<Artifact> results = _artifactStore.List().Where(IsPublishedVideoVisible);
 
             if (kindFilter != null)
             {
@@ -1834,7 +1845,7 @@ namespace Rook.Handlers
         {
             var id = RequireArtifactId(args);
             var artifact = _artifactStore.Get(id);
-            if (artifact is null)
+            if (artifact is null || !IsPublishedVideoVisible(artifact))
             {
                 throw new KeyNotFoundException($"Artifact '{id:D}' not found.");
             }
