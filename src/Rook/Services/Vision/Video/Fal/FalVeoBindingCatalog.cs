@@ -14,7 +14,7 @@ namespace Rook.Services.Vision.Video.Fal
 
     internal sealed class FalVeoBindingCatalog
     {
-        public FalVeoBindingCatalog(IEnumerable<FalVeoBinding>? bindings = null) => All = Array.AsReadOnly((bindings ?? Candidates()).ToArray());
+        public FalVeoBindingCatalog(IEnumerable<FalVeoBinding>? bindings = null) => All = Array.AsReadOnly((bindings ?? Candidates()).Select(b => b with { RatesUsdPerSecond = new ReadOnlyDictionary<string, decimal>(b.RatesUsdPerSecond.ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal)) }).ToArray());
         public IReadOnlyList<FalVeoBinding> All { get; }
         public (FalVeoBinding? Binding, GenerationError? Error) GetCandidate(VideoGenerationRequest request)
         {

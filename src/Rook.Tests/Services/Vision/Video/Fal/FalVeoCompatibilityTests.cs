@@ -60,6 +60,14 @@ namespace Rook.Tests.Services.Vision.Video.Fal
         }
 
         [Fact]
+        public void TruncatedImageHeaderIsNotAnUploadableSource()
+        {
+            var source = MediaRef.ForArtifact(Guid.NewGuid(), "image");
+            var intent = VideoRequestIntent.Normalize(TestVideoFixtures.DefaultT2vRequest(model: "veo-3.1-generate-preview", mode: VideoMode.I2V, startFrame: source), new JsonObject());
+            var header = Image(1280, 720).Bytes.Take(24).ToArray();
+            Assert.NotNull(FalVeoCompatibility.Validate(intent, ActiveCatalog().GetCandidate(intent.Request).Binding!, new Dictionary<MediaRef, ResolvedMedia> { [source] = new(header, "image/png") }));
+        }
+        [Fact]
         public void AllInputsValidateBeforeFirstUpload()
         {
             var first = MediaRef.ForArtifact(Guid.NewGuid(), "image");

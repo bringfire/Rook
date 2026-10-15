@@ -19,7 +19,7 @@ namespace Rook.Tests.Handlers
         public async Task BridgeFixtureMatchesActualHandlers()
         {
             var fixtures = new JsonObject();
-            using (var rig = new Rig()) fixtures["estimate"] = JsonSerializer.SerializeToNode(Handler(rig).DispatchOffUi(Request().ToJsonString()));
+            using (var rig = new Rig()) { var response = Handler(rig).DispatchOffUi(Request().ToJsonString()); fixtures["estimate"] = new JsonObject { ["success"] = response.Success, ["data"] = Data(response) }; }
             foreach (var scenario in new[] { "missing", "rejected", "403" })
             {
                 using var rig = new Rig(); var marker = scenario == "403" ? null : "rook.fal.key_" + scenario;

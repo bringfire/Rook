@@ -21,6 +21,17 @@ namespace Rook.Tests.Services.Vision.Video
             public Task<VideoPosterSidecarResult> TryPublishPosterAsync(Guid id, CancellationToken ct) { Entered.TrySetResult(id); return Signal<VideoPosterSidecarResult>().Task; }
         }
         [Fact]
+        public async Task CancelAfterCompletionAdmissionWaitsForDurableCompletion()
+        {
+            using var rig = new Rig(); var entered = Signal<bool>(); var release = Signal<bool>();
+            rig.Ledger.BeforeAppend = r => { if (r.State == VideoJobState.Complete) { entered.TrySetResult(true); release.Task.GetAwaiter().GetResult(); } };
+            var submit = await rig.Submit(); await Limit(entered.Task);
+            var cancellation = rig.Manager.CancelAsync(submit.JobId!.Value, default);
+            Assert.False(cancellation.IsCompleted); release.TrySetResult(true);
+            Assert.Equal(VideoJobState.Complete, (await Limit(cancellation)).State); await Limit(rig.Done.Task);
+            Assert.NotNull(rig.Store.Get(rig.Record(submit.JobId.Value).ResultArtifactId!.Value));
+        }
+        [Fact]
         public async Task SidecarWaitCannotExtendWholeJobBudget()
         {
             var poster = new HeldPoster(); using var rig = new Rig(poster: poster);

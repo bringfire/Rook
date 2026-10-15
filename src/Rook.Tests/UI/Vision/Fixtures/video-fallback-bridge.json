@@ -1,7 +1,7 @@
 {
   "estimate": {
-    "Success": true,
-    "Data": {
+    "success": true,
+    "data": {
       "dollars_usd": 1.60,
       "model": "veo-3.1-generate-preview",
       "resolution": "720p",
@@ -15,7 +15,7 @@
         "total_usd": 1.60,
         "pricing_source": "veo-rate-card-v1"
       },
-      "estimate_fingerprint": "v1:9b13cf6b65de385bec33a2d8a6ecbb77abf89fdc6e0fedd9e92f2a645c34d573",
+      "estimate_fingerprint": "v1:fb9068ee74abe95d483e67c345b3dc1ffb8b1dbb4859272b1ddd0cbb683927bf",
       "maximum_estimated_cost_usd": 1.60,
       "candidate_routes": [
         {
@@ -24,6 +24,8 @@
           "endpoint": null,
           "lifecycle_root": null,
           "capability": {
+            "id": "veo-3.1-generate-preview",
+            "status": "preview",
             "resolutions": [
               "720p",
               "1080p",
@@ -34,7 +36,26 @@
               6,
               8
             ],
-            "references": 3
+            "aspects": [
+              "16:9",
+              "9:16"
+            ],
+            "modes": [
+              "T2V",
+              "I2V",
+              "Interp"
+            ],
+            "supports_references": true,
+            "references": 3,
+            "must_8s_with": [
+              "1080p",
+              "4k",
+              "referenceImages"
+            ]
+          },
+          "supports_seed": null,
+          "effective_options": {
+            "person_generation": "allow_all"
           },
           "profile": null,
           "framing": null,
@@ -57,6 +78,8 @@
           "endpoint": "fal-ai/veo3.1",
           "lifecycle_root": "fal-ai/veo3.1",
           "capability": {
+            "id": "fal-ai/veo3.1",
+            "status": "preview",
             "resolutions": [
               "720p",
               "1080p",
@@ -67,7 +90,28 @@
               6,
               8
             ],
-            "references": 3
+            "aspects": [
+              "16:9",
+              "9:16"
+            ],
+            "modes": [
+              "T2V",
+              "I2V",
+              "Interp"
+            ],
+            "supports_references": true,
+            "references": 3,
+            "must_8s_with": [
+              "1080p",
+              "4k",
+              "referenceImages"
+            ]
+          },
+          "supports_seed": true,
+          "effective_options": {
+            "generate_audio": true,
+            "auto_fix": false,
+            "safety_tolerance": "4"
           },
           "profile": "fal-veo-candidate-v1",
           "framing": "exact-selected-ratio-v1",
@@ -86,9 +130,7 @@
         }
       ],
       "primary_provider": "veo"
-    },
-    "HttpStatus": 200,
-    "Diagnostic": null
+    }
   },
   "direct_missing": {
     "success": true,
@@ -106,10 +148,12 @@
       "effective_model": "fal-ai/veo3.1",
       "credential_failure": {
         "provider": "fal",
-        "kind": "missing"
+        "kind": "missing",
+        "secret_key": "fal.api_key",
+        "source": "local_configuration"
       },
       "video_route": null,
-      "submission_outcome_unknown": null,
+      "submission_outcome_unknown": false,
       "execution_stopped": false,
       "stop_persistence": null
     }
@@ -130,10 +174,12 @@
       "effective_model": "fal-ai/veo3.1",
       "credential_failure": {
         "provider": "fal",
-        "kind": "rejected"
+        "kind": "rejected",
+        "secret_key": "fal.api_key",
+        "source": "provider_response"
       },
       "video_route": null,
-      "submission_outcome_unknown": null,
+      "submission_outcome_unknown": false,
       "execution_stopped": false,
       "stop_persistence": null
     }
@@ -154,7 +200,7 @@
       "effective_model": "fal-ai/veo3.1",
       "credential_failure": null,
       "video_route": null,
-      "submission_outcome_unknown": null,
+      "submission_outcome_unknown": false,
       "execution_stopped": false,
       "stop_persistence": null
     }

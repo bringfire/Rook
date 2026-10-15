@@ -117,7 +117,6 @@ namespace Rook.Services.Vision.Video
             _routeCoordinator = coordinator;
             _routeQuotes = routeQuotes;
             _routeTimer = deadlineTimer ?? new SystemVideoDeadlineTimer(_clock);
-            if (coordinator != null) foreach (var record in _ledger.ReadAll().Records) _routeRecordCache[record.JobId] = record;
             _idGenerator = idGenerator ?? new GuidVideoJobIdGenerator();
             _pollInterval = pollInterval ?? DefaultPollInterval;
             _concurrency = new SemaphoreSlim(maxConcurrentJobs, maxConcurrentJobs);
@@ -796,6 +795,7 @@ namespace Rook.Services.Vision.Video
         public void ReconcileInterruptedJobs()
         {
             var read = _ledger.ReadAll();
+            _routeReadErrors = read.Errors;
             var now = _clock.UtcNow();
 
             foreach (var record in read.Records)

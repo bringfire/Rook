@@ -29,6 +29,7 @@ namespace Rook.Services.Vision.Video
         private readonly VideoPublicationService _publication;
         private readonly ConcurrentDictionary<Guid, RoutedJob> _routedJobs = new();
         private readonly ConcurrentDictionary<Guid, VideoJobRecord> _routeRecordCache = new();
+        private IReadOnlyList<LedgerReadError> _routeReadErrors = Array.Empty<LedgerReadError>();
 
         private sealed class RoutedJob
         {
@@ -166,7 +167,7 @@ namespace Rook.Services.Vision.Video
                     var uncertain = failure.Error.ProviderErrorCode == "submission_unknown";
                     CommitRouted(job, record => UpdateRouted(record, data => {
                         if (data["attempts"]!.AsArray().Count > 0) LastAttempt(data)["dispatch_state"] = uncertain ? "unknown" : "rejected";
-                        if (credential != null) data["credential_failure"] = new JsonObject { ["provider"] = credential.Provider, ["kind"] = credential.Kind };
+                        if (credential != null) data["credential_failure"] = VideoCredentialErrors.Project(credential);
                     }));
                     if (uncertain) throw new RouteFailure(failure.Error);
                     var fallback = job.Candidate.Model.ProviderName == "veo" ? _routeCoordinator!.SelectFallback(job.Quote, failure.Error) : null;
@@ -197,7 +198,7 @@ namespace Rook.Services.Vision.Video
             catch (RouteFailure failure)
             {
                 if (!job.PersistenceFailed && job.Budget.FirstStopReason == null)
-                    try { CommitRouted(job, r => UpdateRouted(r, data => { data["phase"] = "failed"; var credential = VideoCredentialErrors.FromError(r.Provider, failure.Error); if (credential != null) data["credential_failure"] = new JsonObject { ["provider"] = credential.Provider, ["kind"] = credential.Kind }; }, failure.Error.Code == GenerationErrorCode.Interrupted ? VideoJobState.Interrupted : VideoJobState.Error, failure.Error)); } catch (RouteFailure) { }
+                    try { CommitRouted(job, r => UpdateRouted(r, data => { data["phase"] = "failed"; var credential = VideoCredentialErrors.FromError(r.Provider, failure.Error); if (credential != null) data["credential_failure"] = VideoCredentialErrors.Project(credential); }, failure.Error.Code == GenerationErrorCode.Interrupted ? VideoJobState.Interrupted : VideoJobState.Error, failure.Error)); } catch (RouteFailure) { }
             }
             catch
             {
@@ -238,10 +239,12 @@ namespace Rook.Services.Vision.Video
             if (prepared.Error != null || current.Error != null) throw new RouteFailure(prepared.Error ?? current.Error!);
             var invalid = _routeQuotes.ValidatePreparedMedia(preparedMedia, job.Quote) ?? _routeQuotes.ValidatePreparedMedia(preparedMedia, current.Quote!) ?? _routeQuotes.ValidateConfirmation(prepared.Quote!, job.Confirmation, candidate) ?? _routeQuotes.ValidateConfirmation(current.Quote!, job.Confirmation, candidate);
             if (invalid != null) throw new RouteFailure(invalid);
+            var fresh = current.Quote!.Candidates.First(c => c.Model.ProviderName == candidate.Model.ProviderName && c.Model.ModelId == candidate.Model.ModelId && c.Binding?.SubmitEndpoint == candidate.Binding?.SubmitEndpoint);
             CommitRouted(job, record => {
                 CheckRouted(job);
+                record = record with { Pricing = fresh.Estimate!.Pricing };
                 if (candidate.Binding != null && _routeCoordinator!.Bindings.Resolve(candidate.Request, _clock.UtcNow()).Error is { } unavailable) throw new RouteFailure(unavailable);
-                return UpdateRouted(record, data => { data["phase"] = "submission"; data["prepared_media"] = VideoRouteQuoteService.ProjectMedia(preparedMedia); data["attempts"]!.AsArray().Add(new JsonObject { ["provider"] = candidate.Model.ProviderName, ["model"] = candidate.Model.ModelId, ["endpoint"] = candidate.Binding?.SubmitEndpoint, ["dispatch_state"] = "intent_recorded", ["generation_dispatch_attempted"] = false }); });
+                return UpdateRouted(record, data => { data["phase"] = "submission"; data["effective_pricing"] = new JsonObject { ["estimated_cost_usd"] = fresh.Estimate!.DollarsUsd, ["currency"] = fresh.Estimate.Pricing.Currency, ["source"] = fresh.Estimate.Pricing.PricingSource }; data["prepared_media"] = VideoRouteQuoteService.ProjectMedia(preparedMedia); data["attempts"]!.AsArray().Add(new JsonObject { ["provider"] = candidate.Model.ProviderName, ["model"] = candidate.Model.ModelId, ["endpoint"] = candidate.Binding?.SubmitEndpoint, ["dispatch_state"] = "intent_recorded", ["generation_dispatch_attempted"] = false }); });
             });
             CheckRouted(job);
         }
@@ -418,7 +421,7 @@ namespace Rook.Services.Vision.Video
             if (artifact == null || !IsArtifactVisible(artifact)) return JobFetchResult.Failed(VideoJobState.Error, VideoProviderOutcomeAdapters.ToVideoJobError(RoutingError("Completed video artifact is unavailable."))) with { Execution = projection };
             return JobFetchResult.Complete(id, artifact.Files.Select(f => new JobResultFile(f.Role, f.Path)).ToArray()) with { Execution = projection };
         }
-        private VideoJobLedgerReadResult ReadConsumerLedger() => _routeCoordinator is null ? _ledger.ReadAll() : new VideoJobLedgerReadResult(_routeRecordCache.Values.ToArray(), Array.Empty<LedgerReadError>());
+        private VideoJobLedgerReadResult ReadConsumerLedger() => _routeCoordinator is null ? _ledger.ReadAll() : new VideoJobLedgerReadResult(_routeRecordCache.Values.ToArray(), _routeReadErrors);
         private void AppendCommittedSnapshot(VideoJobRecord record) { _ledger.Append(record); _routeRecordCache[record.JobId] = record; }
         private void ReconcileRoutedRecord(VideoJobRecord record)
         {

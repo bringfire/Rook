@@ -9,6 +9,7 @@ namespace Rook.Services.Vision.Video
         public static VideoCredentialFailure? FromError(string provider, GenerationError error) => (provider, error.ProviderErrorCode) switch {
             ("veo", "rook.veo.key_missing") => new("gemini", "missing"), ("veo", "rook.veo.key_rejected") => new("gemini", "rejected"),
             ("fal", "rook.fal.key_missing") => new("fal", "missing"), ("fal", "rook.fal.key_rejected") => new("fal", "rejected"), _ => null };
+        internal static JsonObject Project(VideoCredentialFailure evidence) => new() { ["provider"] = evidence.Provider, ["kind"] = evidence.Kind, ["secret_key"] = evidence.Provider == "gemini" ? GenerationSecretKeys.GeminiApiKey : GenerationSecretKeys.FalApiKey, ["source"] = evidence.Kind == "missing" ? "local_configuration" : "provider_response" };
         public static GenerationError Missing(string provider) => new(GenerationErrorCode.DependencyUnavailable, (provider == "veo" ? "Gemini" : "fal.ai") + " API key is not configured. Set it in Vision Settings.", false, "credentials", "rook." + provider + ".key_missing");
         public static GenerationError AccessFailed() => new(GenerationErrorCode.DependencyUnavailable, "Generation credential store could not be read.", false, "credentials", "secret_access_failed");
         public static GenerationError FromHttp(string provider, int status, string body)

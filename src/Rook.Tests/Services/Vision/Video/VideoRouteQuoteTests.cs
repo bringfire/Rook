@@ -51,6 +51,17 @@ namespace Rook.Tests.Services.Vision.Video
         }
 
         [Fact]
+        public async Task CapUsesCurrentSelectedRouteAndFingerprintIncludesSeedSupport()
+        {
+            var original = (await Service().QuoteAsync(Intent(), default)).Quote!;
+            var oldFal = original.Candidates.Single(c => c.Model.ProviderName == "fal");
+            var catalog = new FalVeoBindingCatalog(FalVeoCompatibilityTests.ActiveCatalog().All.Select(b => b with { RatesUsdPerSecond = new Dictionary<string, decimal> { ["720p"] = 2m, ["1080p"] = 2m, ["4k"] = 2m } }));
+            var service = Service(catalog: catalog); var current = (await service.QuoteAsync(Intent(), default)).Quote!;
+            Assert.Equal("cost_cap_exceeded", service.ValidateConfirmation(current, new(null, 4m), oldFal)?.ProviderErrorCode);
+            var changedSeed = (await Service(catalog: new FalVeoBindingCatalog(FalVeoCompatibilityTests.ActiveCatalog().All.Select(b => b with { SupportsSeed = false }))).QuoteAsync(Intent(), default)).Quote!;
+            Assert.NotEqual(original.EstimateFingerprint, changedSeed.EstimateFingerprint);
+        }
+        [Fact]
         public async Task FingerprintChangesBelowCapAndForLowerPrices()
         {
             var original = (await Service().QuoteAsync(Intent(), default)).Quote!;

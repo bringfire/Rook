@@ -27,6 +27,7 @@ namespace Rook.Services.Vision.Video
                 ["phase"] = data["phase"]?.DeepClone(), ["dispatch_state"] = last?["dispatch_state"]?.DeepClone(),
                 ["generation_dispatch_attempted"] = last?["generation_dispatch_attempted"]?.DeepClone() ?? JsonValue.Create(false),
                 ["submission_unknown"] = attempts.Any(a => a?["dispatch_state"]?.GetValue<string>() is "intent_recorded" or "unknown"),
+                ["submission_outcome_unknown"] = attempts.Any(a => a?["dispatch_state"]?.GetValue<string>() is "intent_recorded" or "unknown"),
                 ["execution_stopped"] = stop != null || persistence == VideoStopPersistence.Failed, ["first_stop_reason"] = stop,
                 ["stop_persistence"] = persistence == VideoStopPersistence.None ? data["stop_persistence"]?.DeepClone() : JsonValue.Create(persistence.ToString().ToLowerInvariant()),
                 ["durability_unknown"] = persistence == VideoStopPersistence.Failed,
@@ -36,6 +37,10 @@ namespace Rook.Services.Vision.Video
                 ["accepted_quote"] = data["accepted_quote"]?.DeepClone(), ["effective_estimated_cost_usd"] = durable.Pricing.TotalUsd,
                 ["pricing_source"] = durable.Pricing.PricingSource, ["warnings"] = data["warnings"]?.DeepClone()
             };
+            fields["provider"] = durable.Provider; fields["model"] = durable.Model;
+            fields["execution_phase"] = data["phase"]?.DeepClone(); fields["stop_reason"] = stop;
+            fields["remote_cleanup"] = data["cleanup"]?.DeepClone();
+            fields["effective_pricing_source"] = durable.Pricing.PricingSource;
             return new(fields);
         }
         public static VideoJobRecord Write(VideoJobRecord record, VideoExecutionSnapshot snapshot)

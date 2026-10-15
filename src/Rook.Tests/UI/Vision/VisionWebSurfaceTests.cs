@@ -1489,6 +1489,24 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
+        public void BlobStreamRequiresMatchingDurableOwnerForEveryRole()
+        {
+            var record = Rook.Tests.Services.Vision.Video.VideoExecutionSnapshotTests.Record();
+            var artifact = _store.Create("generated_video", new[] { "video", "poster", "start_frame", "end_frame" }.Select(role => new BlobInput(role, new byte[] { 7, 8 }, role == "video" ? "mp4" : "png")).ToArray(), metadata: new Dictionary<string, JsonNode?> { ["video_job_id"] = JsonValue.Create(record.JobId.ToString("D")) }, flags: new Dictionary<string, JsonNode?> { ["video_publication"] = JsonValue.Create("provisional") });
+            var service = new Rook.Services.Vision.Video.VideoPublicationService(_store, new Rook.Services.Vision.Video.VideoArtifactMaterializer());
+            foreach (var state in new[] { Rook.Services.Vision.Video.VideoJobState.Queued, Rook.Services.Vision.Video.VideoJobState.Polling, Rook.Services.Vision.Video.VideoJobState.Interrupted, Rook.Services.Vision.Video.VideoJobState.Complete })
+            {
+                var durable = record with { State = state, ResultArtifactId = Guid.NewGuid() };
+                var surface = new VisionWebSurface(new VisionHandler(), null, null, null, _store, a => service.IsVisible(a, durable));
+                foreach (var role in new[] { "video", "poster", "start_frame", "end_frame" }) Assert.Equal(404, surface.ResolveVirtualResourceForTest(new Uri($"https://app.rook.invalid/blob/{artifact.Id:D}/{role}"))!.StatusCode);
+            }
+            var throwing = new VisionWebSurface(new VisionHandler(), null, null, null, _store, a => throw new IOException("unavailable"));
+            Assert.Equal(404, throwing.ResolveVirtualResourceForTest(new Uri($"https://app.rook.invalid/blob/{artifact.Id:D}/video"))!.StatusCode);
+            var malformed = _store.Create("generated_video", new[] { new BlobInput("video", new byte[] { 7 }, "mp4") }, metadata: new Dictionary<string, JsonNode?> { ["video_job_id"] = JsonValue.Create(7) });
+            var guarded = new VisionWebSurface(new VisionHandler(), null, null, null, _store, a => service.IsVisible(a, record with { State = Rook.Services.Vision.Video.VideoJobState.Complete, ResultArtifactId = malformed.Id }));
+            Assert.Equal(404, guarded.ResolveVirtualResourceForTest(new Uri($"https://app.rook.invalid/blob/{malformed.Id:D}/video"))!.StatusCode);
+        }
+        [Fact]
         public void BlobStreamAllowsDurablyCompletedArtifactWithPendingMarker()
         {
             var record = Rook.Tests.Services.Vision.Video.VideoExecutionSnapshotTests.Record();

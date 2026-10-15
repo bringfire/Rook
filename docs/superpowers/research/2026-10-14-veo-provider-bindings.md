@@ -37,3 +37,7 @@ The [Google Veo guide](https://ai.google.dev/gemini-api/docs/veo) documents the 
 ## Enabling a binding
 
 Require an authoritative continuity resolution, exact submit/lifecycle identities and trusted HTTPS origins, source-framing/preprocessing policy, current required schema fields, and per-endpoint pricing evidence with verification date/revisions. Revise and reapprove the design if identity or semantics change. Expired/unverified bindings cannot send uploads or generation; known historical handles retain separately validated lifecycle cleanup without enabling new work.
+
+## Offline implementation verification (2026-10-14)
+
+Managed Release build succeeded with zero errors (481 compiler/platform/analyzer warnings). The hermetic managed run passed 4,558 tests with the plan’s exact LiveSmoke and two fixture exclusions; Node passed 55 UI tests; Python passed 89 video contract/profile tests. Deterministic tests cover held-response JSONL restore, blocked/failed stop and intent commits, frozen-media A→B→A admission, actual fal upload bytes/repeated references, primary/fallback concurrency, completed-marker repair, and all-role direct blob visibility. Authenticated fal upload-initiation 401 carries credential evidence; a rejected signed CDN upload URL does not invalidate the API key. These are offline fixtures and are not production admission evidence. All continuity flags remain false; no live/billed requests, native builds, merge, or deployment occurred.

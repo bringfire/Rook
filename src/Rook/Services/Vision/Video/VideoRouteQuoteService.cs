@@ -51,7 +51,8 @@ namespace Rook.Services.Vision.Video
                 candidateJson.Add(new JsonObject {
                     ["provider"] = candidate.Model.ProviderName, ["model"] = candidate.Model.ModelId,
                     ["endpoint"] = binding?.SubmitEndpoint, ["lifecycle_root"] = binding?.LifecycleRoot,
-                    ["capability"] = new JsonObject { ["resolutions"] = new JsonArray(candidate.Model.Capability.Resolutions.Select(s => (JsonNode?)JsonValue.Create(s)).ToArray()), ["durations"] = new JsonArray(candidate.Model.Capability.Durations.Select(s => (JsonNode?)JsonValue.Create(s)).ToArray()), ["references"] = candidate.Model.Capability.MaxReferenceImages },
+                    ["capability"] = ProjectCapability(candidate.Model.Capability), ["supports_seed"] = binding?.SupportsSeed,
+                    ["effective_options"] = candidate.Model.OptionsCodec.Serialize(candidate.Request.Options),
                     ["profile"] = binding?.ProfileRevision, ["framing"] = binding?.FramingRevision,
                     ["continuity_verified"] = binding?.ContinuityVerified, ["cutoff"] = binding?.NewSubmissionCutoffUtc?.ToString("O"),
                     ["documentation"] = binding?.DocumentationSource.AbsoluteUri, ["verified_on"] = binding?.VerifiedOnUtc.ToString("O"), ["reference_framing_verified"] = binding?.ReferenceFramingVerified,
@@ -69,13 +70,23 @@ namespace Rook.Services.Vision.Video
             return Task.FromResult(new VideoRouteQuoteResult(new VideoRouteQuote(canonical, candidates, primary.Estimate, maximum, VideoEstimateFingerprint.Compute(canonical)), null));
         }
         internal static JsonArray ProjectMedia(VideoPreparedMediaSnapshot preparedMedia) => new(preparedMedia.Slots.Select(s => (JsonNode?)new JsonObject { ["role"] = s.Role, ["artifact_id"] = s.Ref.ArtifactId?.ToString("D"), ["source_role"] = s.Ref.Role, ["mime_type"] = s.MimeType, ["sha256"] = s.Sha256, ["byte_length"] = s.ByteLength }).ToArray());
+        private static JsonObject ProjectCapability(VideoCapability capability) => new() {
+            ["id"] = capability.Id, ["status"] = capability.Status,
+            ["resolutions"] = new JsonArray(capability.Resolutions.Select(s => (JsonNode?)JsonValue.Create(s)).ToArray()),
+            ["durations"] = new JsonArray(capability.Durations.Select(s => (JsonNode?)JsonValue.Create(s)).ToArray()),
+            ["aspects"] = new JsonArray(capability.AspectRatios.Select(s => (JsonNode?)JsonValue.Create(s)).ToArray()),
+            ["modes"] = new JsonArray(capability.Modes.Select(s => (JsonNode?)JsonValue.Create(s.ToString())).ToArray()),
+            ["supports_references"] = capability.SupportsReferenceImages, ["references"] = capability.MaxReferenceImages,
+            ["must_8s_with"] = new JsonArray(capability.Must8sWith.Select(s => (JsonNode?)JsonValue.Create(s)).ToArray()) };
         public GenerationError? ValidatePreparedMedia(VideoPreparedMediaSnapshot preparedMedia, VideoRouteQuote quote) => JsonNode.DeepEquals(ProjectMedia(preparedMedia), quote.CanonicalSnapshot["media"]) ? null : Error("Source media changed; obtain a fresh estimate and confirm a new job.", "media", "estimate_stale");
         public GenerationError? ValidateConfirmation(VideoRouteQuote current, VideoSubmitConfirmation confirmation, VideoRouteCandidate? selected)
         {
             if (confirmation.EstimateFingerprint != null && (!confirmation.MaxEstimatedCostUsd.HasValue || confirmation.EstimateFingerprint.Length != 67 || !confirmation.EstimateFingerprint.StartsWith("v1:", StringComparison.Ordinal) || confirmation.EstimateFingerprint.Skip(3).Any(c => !Uri.IsHexDigit(c)))) return Error("A valid estimate fingerprint requires a numeric cost cap.", "estimate_fingerprint");
             if (confirmation.MaxEstimatedCostUsd < 0) return Error("Cost cap cannot be negative.", "max_estimated_cost_usd");
             if (confirmation.EstimateFingerprint != null && confirmation.EstimateFingerprint != current.EstimateFingerprint) return Error("Estimate changed; obtain a fresh estimate and confirm a new job.", "estimate_fingerprint", "estimate_stale");
-            var cost = selected?.Estimate?.DollarsUsd ?? current.MaximumEstimatedCostUsd;
+            var fresh = selected == null ? null : current.Candidates.FirstOrDefault(c => c.Model.ProviderName == selected.Model.ProviderName && c.Model.ModelId == selected.Model.ModelId && c.Binding?.SubmitEndpoint == selected.Binding?.SubmitEndpoint);
+            if (selected != null && (fresh == null || fresh.EligibilityError != null || fresh.Estimate?.Pricing.TotalUsd == null)) return Error("Selected route is no longer compatible; obtain a fresh estimate.", "model", "estimate_stale");
+            var cost = fresh?.Estimate?.DollarsUsd ?? current.MaximumEstimatedCostUsd;
             if (confirmation.MaxEstimatedCostUsd is { } cap && cost > cap) return Error("Estimated video cost exceeds the confirmed bound.", "max_estimated_cost_usd", "cost_cap_exceeded");
             return null;
         }

@@ -72,10 +72,14 @@ namespace Rook.Services.Vision.Fal
 
     public sealed class FalApiException : Exception
     {
-        public FalApiException(string message)
+        public FalApiException(string message, int? statusCode = null, bool authenticatedRequest = false)
             : base(message)
         {
+            StatusCode = statusCode;
+            AuthenticatedRequest = authenticatedRequest;
         }
+        public int? StatusCode { get; }
+        public bool AuthenticatedRequest { get; }
     }
 
     public sealed class FalApiClient
@@ -220,7 +224,7 @@ namespace Rook.Services.Vision.Fal
 
             if (!initiateResponse.IsSuccessStatusCode)
                 throw new FalApiException(
-                    $"fal upload initiate request failed with status {(int)initiateResponse.StatusCode}.");
+                    $"fal upload initiate request failed with status {(int)initiateResponse.StatusCode}.", (int)initiateResponse.StatusCode, authenticatedRequest: true);
 
             var uploadInfo = ParseUploadInitiateResponse(initiateResponseBody);
 
@@ -235,7 +239,7 @@ namespace Rook.Services.Vision.Fal
 
             if (!uploadResponse.IsSuccessStatusCode)
                 throw new FalApiException(
-                    $"fal CDN upload failed with status {(int)uploadResponse.StatusCode}.");
+                    $"fal CDN upload failed with status {(int)uploadResponse.StatusCode}.", (int)uploadResponse.StatusCode);
 
             return uploadInfo.FileUrl.ToString();
         }

@@ -38,6 +38,49 @@ namespace Rook.Tests.Services.Vision.Video.Fal
         internal const string Accepted = "{\"request_id\":\"request1\",\"status_url\":\"https://queue.fal.run/fal-ai/veo3.1/requests/request1/status\",\"response_url\":\"https://queue.fal.run/fal-ai/veo3.1/requests/request1\",\"cancel_url\":\"https://queue.fal.run/fal-ai/veo3.1/requests/request1/cancel\"}";
 
         [Fact]
+        public async Task SignedCdnUpload401DoesNotInvalidateApiCredential()
+        {
+            var input = MediaRef.ForArtifact(Guid.NewGuid(), "image");
+            var request = TestVideoFixtures.DefaultT2vRequest(model: "fal-ai/veo3.1", mode: VideoMode.I2V, startFrame: input).With(options: new FalVeoOptions());
+            var client = new FalApiClient(new HttpClient(new Http { Send = message => Task.FromResult(message.RequestUri!.Host == "rest.fal.ai" ? Http.Json(200, "{\"upload_url\":\"https://v3.fal.media/upload/source\",\"file_url\":\"https://v3.fal.media/files/source.png\"}") : Http.Json(401, "signed URL rejected")) }));
+            var adapter = new FalVeoQueueAdapter(() => "test-only", client, FalVeoCompatibilityTests.ActiveCatalog(), new FalSourceFrameTransport(client));
+            var snapshot = VideoPreparedMediaSnapshot.Capture(request, new Dictionary<MediaRef, ResolvedMedia> { [input] = FalVeoCompatibilityTests.Image(1280, 720) });
+            var failure = Assert.IsType<FailedSubmitOutcome>(await adapter.SubmitPreparedAsync(request, snapshot, () => throw new Exception("Generation must not dispatch"), default));
+            Assert.Null(VideoCredentialErrors.FromError("fal", failure.Error));
+        }
+        [Fact]
+        public async Task ActualSourceUpload401RetainsFalCredentialEvidenceBeforeDispatch()
+        {
+            var input = MediaRef.ForArtifact(Guid.NewGuid(), "image");
+            var request = TestVideoFixtures.DefaultT2vRequest(model: "fal-ai/veo3.1", mode: VideoMode.I2V, startFrame: input).With(options: new FalVeoOptions());
+            var client = new FalApiClient(new HttpClient(new Http { Send = _ => Task.FromResult(Http.Json(401, "sensitive provider body")) }));
+            var adapter = new FalVeoQueueAdapter(() => "test-only", client, FalVeoCompatibilityTests.ActiveCatalog(), new FalSourceFrameTransport(client));
+            var snapshot = VideoPreparedMediaSnapshot.Capture(request, new Dictionary<MediaRef, ResolvedMedia> { [input] = FalVeoCompatibilityTests.Image(1280, 720) });
+            var failure = Assert.IsType<FailedSubmitOutcome>(await adapter.SubmitPreparedAsync(request, snapshot, () => throw new Exception("Generation must not dispatch"), default));
+            Assert.Equal("rook.fal.key_rejected", failure.Error.ProviderErrorCode); Assert.DoesNotContain("sensitive", failure.Error.Message);
+        }
+        [Fact]
+        public async Task ActualUploadUsesFrozenBytesAndReexpandsRepeatedReferences()
+        {
+            var input = MediaRef.ForArtifact(Guid.NewGuid(), "image");
+            var request = TestVideoFixtures.DefaultT2vRequest(model: "fal-ai/veo3.1", referenceFrames: new[] { input, input }).With(options: new FalVeoOptions());
+            var source = FalVeoCompatibilityTests.Image(1280, 720); var expected = source.Bytes.ToArray();
+            var snapshot = VideoPreparedMediaSnapshot.Capture(request, new Dictionary<MediaRef, ResolvedMedia> { [input] = source });
+            source.Bytes[0] = 0; int uploads = 0, sends = 0; bool admitted = false;
+            var http = new Http { Send = async message => {
+                if (message.RequestUri!.Host == "rest.fal.ai") return Http.Json(200, "{\"upload_url\":\"https://v3.fal.media/upload/source\",\"file_url\":\"https://v3.fal.media/files/source.png\"}");
+                if (message.Method == HttpMethod.Put) { uploads++; Assert.Equal(expected, await message.Content!.ReadAsByteArrayAsync()); Assert.False(admitted); return Http.Json(200, "{}"); }
+                sends++; Assert.True(admitted); var payload = JsonNode.Parse(await message.Content!.ReadAsStringAsync())!;
+                Assert.Equal(new[] { "https://v3.fal.media/files/source.png", "https://v3.fal.media/files/source.png" }, payload["image_urls"]!.AsArray().Select(n => n!.GetValue<string>()));
+                return Http.Json(200, Accepted);
+            } };
+            var client = new FalApiClient(new HttpClient(http));
+            var adapter = new FalVeoQueueAdapter(() => "test-only", client, FalVeoCompatibilityTests.ActiveCatalog(), new FalSourceFrameTransport(client));
+            var outcome = await adapter.SubmitPreparedAsync(request, snapshot, () => admitted = true, default);
+            Assert.True(outcome is QueuedSubmitOutcome, (outcome as FailedSubmitOutcome)?.Error.Message);
+            Assert.Equal(1, uploads); Assert.Equal(1, sends);
+        }
+        [Fact]
         public async Task QueuePayloadMatchesTierModeAndFixedProfile()
         {
             var events = new List<string>();

@@ -30,6 +30,7 @@ namespace Rook.Services.Vision.Video.Fal
             if (validation != null) return new FailedSubmitOutcome(validation);
             (FalVeoSourceUrls? Urls, GenerationError? Error) uploaded;
             try { uploaded = await _sources.ResolveAndUploadVeoAsync(binding, request, preparedMedia, key!, ct).ConfigureAwait(false); }
+            catch (FalApiException ex) when (ex.StatusCode != null && (ex.StatusCode != 401 || ex.AuthenticatedRequest)) { return new FailedSubmitOutcome(VideoCredentialErrors.FromHttp("fal", ex.StatusCode.Value, string.Empty)); }
             catch (Exception ex) when (ex is HttpRequestException or FalApiException) { return new FailedSubmitOutcome(Error("fal source upload failed.")); }
             if (uploaded.Error != null) return new FailedSubmitOutcome(uploaded.Error);
             var body = new JsonObject { ["prompt"] = request.Prompt, ["duration"] = request.DurationSeconds + "s", ["resolution"] = request.Resolution, ["aspect_ratio"] = request.AspectRatio, ["generate_audio"] = true, ["auto_fix"] = false, ["safety_tolerance"] = "4" };
@@ -52,7 +53,7 @@ namespace Rook.Services.Vision.Video.Fal
                 var handle = new ProviderJobHandle(id, new Uri(json["status_url"]!.GetValue<string>()), new Uri(json["response_url"]!.GetValue<string>()), new Uri(json["cancel_url"]!.GetValue<string>()), "PUT", providerMetadata: metadata);
                 return ValidHandle(handle) ? new QueuedSubmitOutcome(handle) : new FailedSubmitOutcome(VideoCredentialErrors.Unknown());
             }
-            catch (Exception ex) when (ex is System.Text.Json.JsonException or InvalidOperationException or NullReferenceException or ArgumentException) { return new FailedSubmitOutcome(VideoCredentialErrors.Unknown()); }
+            catch (Exception ex) when (ex is System.Text.Json.JsonException or InvalidOperationException or NullReferenceException or ArgumentException or FormatException) { return new FailedSubmitOutcome(VideoCredentialErrors.Unknown()); }
         }
         private bool ValidHandle(ProviderJobHandle handle)
         {
