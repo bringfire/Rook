@@ -48,6 +48,31 @@ namespace Rook.Services.Vision.Video
                 : throw new ArgumentException("Resolved input missing: " + r.Role, nameof(resolved))).ToArray();
             return new VideoPreparedMediaSnapshot(Array.AsReadOnly(slots));
         }
+        internal VideoPreparedMediaSnapshot Retain()
+        {
+            var sources = new Dictionary<MediaRef, VideoResolvedSource>();
+            try
+            {
+                foreach (var slot in Slots) if (!sources.ContainsKey(slot.Ref)) sources.Add(slot.Ref, new(slot.Buffer.Retain(), slot.MimeType));
+                return FromOwned(Slots.Select(s => (s.Role, s.Ref)), sources);
+            }
+            catch { foreach (var source in sources.Values) source.Buffer.Dispose(); throw; }
+        }
+        internal static VideoPreparedMediaSnapshot Capture(VideoGenerationRequest request, IReadOnlyDictionary<MediaRef, ResolvedMedia> resolved, VideoPreparationLease lease)
+        {
+            var sources = new Dictionary<MediaRef, VideoResolvedSource>();
+            try
+            {
+                foreach (var (_, reference) in References(request))
+                {
+                    if (sources.ContainsKey(reference)) continue;
+                    if (!resolved.TryGetValue(reference, out var media) || !lease.AdmitOriginal(media.Bytes.LongLength)) throw new ArgumentException("Source byte limits exceeded.");
+                    sources.Add(reference, new(VideoFrozenBuffer.CopyOf(media.Bytes, lease.Buffers), media.MimeType));
+                }
+                return FromOwned(request, sources);
+            }
+            catch { foreach (var source in sources.Values) source.Buffer.Dispose(); throw; }
+        }
         public static VideoPreparedMediaSnapshot Capture(VideoGenerationRequest request, IReadOnlyDictionary<MediaRef, ResolvedMedia> resolved)
         {
             var sources = new Dictionary<MediaRef, VideoResolvedSource>();

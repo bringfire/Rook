@@ -492,6 +492,7 @@ namespace Rook
             if (_video.IsValueCreated)
             {
                 _video.Value.Manager.Dispose();
+                _video.Value.Framing.Cache.Dispose();
             }
 
             if (_reconstruction.IsValueCreated)

@@ -2,6 +2,7 @@ using System;
 using Rook.Artifacts;
 using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Image.Vertex;
+using Rook.Services.Vision.Video.Framing;
 
 namespace Rook.Services.Vision.Video
 {
@@ -15,7 +16,8 @@ namespace Rook.Services.Vision.Video
         VideoJobManager Manager,
         IVideoProviderRegistry Registry,
         IVideoCostEstimator Estimator,
-        IVideoSidecarBackfillService SidecarBackfill);
+        IVideoSidecarBackfillService SidecarBackfill,
+        VideoFramingPreparationService Framing);
 
     /// <summary>
     /// Pure composition for the video subsystem. Stateless; the same
@@ -60,6 +62,7 @@ namespace Rook.Services.Vision.Video
                     vertexAccessTokenSource));
 
             var mediaResolver = new ArtifactOnlyVideoMediaResolver(artifactStore);
+            var framing = new VideoFramingPreparationService(mediaResolver, new VideoFramingCache());
             var actualLedger = ledger ?? new JsonlVideoJobLedger();
             var estimator = new VideoCostEstimator();
             var clock = new SystemVideoJobClock();
@@ -86,7 +89,8 @@ namespace Rook.Services.Vision.Video
                 manager,
                 registry,
                 estimator,
-                actualSidecarBackfill);
+                actualSidecarBackfill,
+                framing);
         }
     }
 }
