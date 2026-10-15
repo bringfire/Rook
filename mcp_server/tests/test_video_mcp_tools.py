@@ -31,6 +31,8 @@ from __future__ import annotations
 
 import os
 import sys
+import json
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -60,6 +62,44 @@ VIDEO_READONLY_TOOL_NAMES = [
     "rhino_video_jobs",
     "rhino_video_models",
 ]
+
+@pytest.mark.asyncio
+async def test_video_confirmation_fields_forward_unchanged():
+    tools = {t.name: t for t in await server.list_tools()}
+    properties = tools["rhino_render_video"].inputSchema["properties"]
+    assert properties["estimate_fingerprint"]["type"] == "string"
+    assert properties["max_estimated_cost_usd"]["type"] == "number"
+    for extras in ({}, {"max_estimated_cost_usd": 3.20}, {"estimate_fingerprint": "v1:" + "a" * 64, "max_estimated_cost_usd": 3.20}):
+        args = {"model": "veo-3.1-generate-preview", "options": {}, **extras}
+        with patch.object(server, "call_rhino", new_callable=AsyncMock) as mock:
+            mock.return_value = {"success": True, "data": {"job_id": "X", "state": "queued"}}
+            await server.call_tool("rhino_render_video", args)
+            assert mock.call_args.args[2] == args
+        with patch.object(tool_dispatcher, "call_rhino", new_callable=AsyncMock) as mock:
+            mock.return_value = {"success": True, "data": {"job_id": "X", "state": "queued"}}
+            await tool_dispatcher.ToolDispatcher().dispatch("rhino_render_video", args)
+            assert mock.call_args.args[2] == args
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scenario", ["direct_missing", "direct_rejected", "direct_403"])
+async def test_video_direct_fal_failure_keeps_credential_without_route(scenario):
+    fixtures = json.loads((Path(__file__).resolve().parents[2] / "src/Rook.Tests/UI/Vision/Fixtures/video-fallback-bridge.json").read_text())
+    envelope = fixtures[scenario]
+    for tool in ("rhino_video_status", "rhino_video_result", "rhino_video_cancel", "rhino_video_jobs"):
+        with patch.object(server, "call_rhino", new_callable=AsyncMock) as mock:
+            mock.return_value = json.loads(json.dumps(envelope))
+            response = await server.call_tool(tool, {"job_id": "22222222-2222-2222-2222-222222222222"})
+        returned = json.loads(response[0].text)
+        assert returned == envelope["data"]
+        assert returned.get("video_route") is None
+
+@pytest.mark.asyncio
+async def test_video_execution_evidence_survives_managed_envelopes():
+    data = {"stop_persistence": "failed", "detail_code": "submission_unknown", "submission_outcome_unknown": True, "warnings": ["artifact_marker_pending"], "credential_failure": {"provider": "fal", "kind": "rejected"}}
+    with patch.object(server, "call_rhino", new_callable=AsyncMock) as mock:
+        mock.return_value = {"success": False, "data": data}
+        response = await server.call_tool("rhino_render_video", {})
+    assert json.loads(response[0].text.removeprefix("Error: ")) == data
 
 # Tier assignment (locked by scope v3 §[v2] dispatcher tier table).
 VIDEO_BRIDGE_TOOLS = {
