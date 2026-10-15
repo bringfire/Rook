@@ -5,6 +5,7 @@ using System.Threading;
 
 namespace Rook.Services.Vision.Video.Framing
 {
+    internal delegate T VideoBufferReader<T>(ReadOnlySpan<byte> bytes);
     // A handle to immutable shared storage. Streams own a reference; disposing the
     // snapshot cannot invalidate a currently opened preview or provider read.
     internal sealed class VideoFrozenBuffer : IDisposable
@@ -32,6 +33,8 @@ namespace Rook.Services.Vision.Video.Framing
         { using var sha = SHA256.Create(); return BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant(); }
         public VideoFrozenBuffer Retain() { var data = Data; data.Retain(); return new(data); }
         public Stream OpenRead() { var data = Data; data.Retain(); return new FrozenReadStream(data); }
+        internal T Read<T>(VideoBufferReader<T> reader)
+        { var data = Data; data.Retain(); try { return reader(data.ReadOnlyBytes); } finally { data.Release(); } }
         internal void TransferToRetainedCache() => Data.ReleaseTransientCharge();
         public VideoOwnedBytes CopyOwned(VideoBufferBudget budget)
         {
@@ -55,6 +58,7 @@ namespace Rook.Services.Vision.Video.Framing
             private int _references = 1;
             public int Length { get; }
             public string Sha256 { get; }
+            public ReadOnlySpan<byte> ReadOnlyBytes { get { lock (_gate) return _bytes ?? throw new ObjectDisposedException(nameof(Storage)); } }
             public Storage(byte[] bytes, VideoBufferReservation reservation, string sha)
             { _bytes = bytes; _reservation = reservation; Length = bytes.Length; Sha256 = sha; }
             public void Retain() { lock (_gate) { if (_bytes is null) throw new ObjectDisposedException(nameof(Storage)); _references++; } }
