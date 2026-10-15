@@ -54,3 +54,5 @@ The installed product carries an index of every notice and its installed locatio
 `%LOCALAPPDATA%\Rook\app\THIRD_PARTY_NOTICES.txt` (source: `installer/THIRD_PARTY_NOTICES.txt`).
 - Python wheels installed by the release runtime carry the licenses recorded in the release
   license/provenance manifests.
+
+The separate FFmpeg executable statically links zlib 1.3.2 under the zlib license. See [LICENSE.zlib.txt](third_party/ffmpeg/LICENSE.zlib.txt); official source and checksum are pinned in scripts/ffmpeg/rook-zlib-source.json and included in the release source bundle.

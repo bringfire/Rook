@@ -56,3 +56,8 @@ Python 3.11.9 and Python packages
   all of them are recorded in the Python runtime manifest.
   Notice: %LOCALAPPDATA%\Rook\python\cpython-3.11.9\LICENSE.txt  [when installed: private Python runtime]
   Notice: %LOCALAPPDATA%\Rook\app\python-runtime-manifest.json  [when installed: private Python runtime]
+
+zlib 1.3.2
+  zlib license. Statically linked inside the separate FFmpeg executable.
+  Official source: https://zlib.net/zlib-1.3.2.tar.xz
+  Notice: %APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\ffmpeg\LICENSE.zlib.txt  [plugins]

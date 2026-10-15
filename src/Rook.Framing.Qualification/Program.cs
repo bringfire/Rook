@@ -23,6 +23,7 @@ namespace Rook.Framing.Qualification
         }
         private static async Task<int> RunAsync(string[] args)
         {
+            if (Value(args, "--ffmpeg") is string ffmpeg) return await RendererQualification.RunAsync(ffmpeg, Value(args, "--fixtures") ?? throw new ArgumentException("--fixtures required"), Value(args, "--report") ?? throw new ArgumentException("--report required"));
             if (!args.Contains("--process-probes") && !args.Contains("--kernel-denial-characterization")) throw new ArgumentException("Specify --process-probes.");
             string report = Value(args, "--report") ?? throw new ArgumentException("--report is required.");
             var root = Path.Combine(Path.GetTempPath(), "rook-framing-qualification-" + Guid.NewGuid().ToString("N"));
