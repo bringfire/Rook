@@ -504,8 +504,8 @@ p { margin: 8px 0; line-height: 1.4; }
                                 ? await Task.Run(
                                     () => _mediaImportHandler!.DispatchOffUi(body)).ConfigureAwait(false)
                             : isVideoOp
-                                ? await Task.Run(
-                                    () => _videoHandler!.DispatchOffUi(body)).ConfigureAwait(false)
+                                ? await DispatchWithTimeoutAsync(op, TimeSpan.FromSeconds(30),
+                                    ct => Task.Run(() => _videoHandler!.DispatchOffUi(body, ct)), "Video").ConfigureAwait(false)
                             : await Task.Run(
                                 () => _handler.DispatchOffUi(body)).ConfigureAwait(false);
                         break;

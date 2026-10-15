@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
@@ -136,6 +137,12 @@ namespace Rook.Handlers
 
         public ApiResponse DispatchOffUi(string? body)
         {
+            using var ceiling = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            return DispatchOffUi(body, ceiling.Token);
+        }
+
+        internal ApiResponse DispatchOffUi(string? body, CancellationToken cancellationToken)
+        {
             Dictionary<string, JsonElement> args;
             try { args = ParseObjectBody(body); }
             catch (ArgumentException ex)
@@ -153,7 +160,7 @@ namespace Rook.Handlers
                 {
                     OpStatus => GetStatus(args),
                     OpResult => GetResult(args),
-                    OpEstimate => Estimate(args),
+                    OpEstimate => Estimate(args, cancellationToken),
                     OpListJobs => ListJobs(args),
                     OpListModels => ListModels(),
                     OpSubmit or OpCancel => FailInvalidRequest(
@@ -174,19 +181,30 @@ namespace Rook.Handlers
         private async Task<ApiResponse> SubmitAsync(
             Dictionary<string, JsonElement> args, CancellationToken ct)
         {
-            var (request, parseErr) = ParseGenerationRequest(args);
-            if (parseErr is not null) return FailWithError(parseErr);
-
-            var result = await _manager.SubmitAsync(request!, ct).ConfigureAwait(false);
+            JobSubmitResult result;
+            if (ConfirmedManager is { } confirmed && VideoSubmissionCoordinator.IsAffectedModel(GetStringArg(args, "model") ?? ""))
+            {
+                var (intent, intentError) = ParseRequestIntent(args);
+                if (intentError != null) return FailWithError(intentError);
+                var (confirmation, confirmationError) = ParseConfirmation(args);
+                if (confirmationError != null) return FailWithError(confirmationError);
+                result = await confirmed.SubmitConfirmedAsync(intent!, confirmation!, ct).ConfigureAwait(false);
+            }
+            else
+            {
+                var (request, parseErr) = ParseGenerationRequest(args);
+                if (parseErr != null) return FailWithError(parseErr);
+                result = await _manager.SubmitAsync(request!, ct).ConfigureAwait(false);
+            }
 
             if (result.GenerationError is not null)
-                return FailWithError(result.GenerationError);
+                return FailWithError(result.GenerationError, result.Execution);
 
-            return Ok(new Dictionary<string, object?>
+            return Ok(WithExecution(result.Execution, new Dictionary<string, object?>
             {
                 ["job_id"] = result.JobId!.Value.ToString("D"),
                 ["state"] = StateToString(result.State),
-            });
+            }));
         }
 
         private async Task<ApiResponse> CancelAsync(
@@ -198,13 +216,13 @@ namespace Rook.Handlers
             var result = await _manager.CancelAsync(jobId, ct).ConfigureAwait(false);
 
             if (result.Error is not null)
-                return FailWithError(result.Error);
+                return FailWithError(result.Error, result.Execution);
 
-            return Ok(new Dictionary<string, object?>
+            return Ok(WithExecution(result.Execution, new Dictionary<string, object?>
             {
                 ["job_id"] = jobId.ToString("D"),
                 ["state"] = StateToString(result.State),
-            });
+            }));
         }
 
         private ApiResponse GetStatus(Dictionary<string, JsonElement> args)
@@ -221,16 +239,16 @@ namespace Rook.Handlers
             // accompany terminal-state reads and ride inside a successful
             // response — the caller wanted the state and got it.
             if (result.Error is { Code: VideoErrorCode.InvalidRequest })
-                return FailWithError(result.Error);
+                return FailWithError(result.Error, result.Execution);
 
-            return Ok(new Dictionary<string, object?>
+            return Ok(WithExecution(result.Execution, new Dictionary<string, object?>
             {
                 ["job_id"] = jobId.ToString("D"),
                 ["state"] = StateToString(result.State),
                 ["progress"] = result.Progress is null ? null : ProgressToObj(result.Progress),
                 ["result_artifact_id"] = result.ResultArtifactId?.ToString("D"),
                 ["error"] = result.Error is null ? null : ErrorToObj(result.Error),
-            });
+            }));
         }
 
         private ApiResponse GetResult(Dictionary<string, JsonElement> args)
@@ -242,7 +260,7 @@ namespace Rook.Handlers
                 .GetAwaiter().GetResult();
 
             if (result.Error is not null)
-                return FailWithError(result.Error);
+                return FailWithError(result.Error, result.Execution);
 
             var files = new List<Dictionary<string, object?>>(result.Files!.Count);
             foreach (var f in result.Files!)
@@ -254,17 +272,37 @@ namespace Rook.Handlers
                 });
             }
 
-            return Ok(new Dictionary<string, object?>
+            return Ok(WithExecution(result.Execution, new Dictionary<string, object?>
             {
                 ["job_id"] = jobId.ToString("D"),
                 ["state"] = StateToString(result.State),
                 ["result_artifact_id"] = result.ResultArtifactId!.Value.ToString("D"),
                 ["files"] = files,
-            });
+            }));
         }
 
-        private ApiResponse Estimate(Dictionary<string, JsonElement> args)
+        private ApiResponse Estimate(Dictionary<string, JsonElement> args, CancellationToken ct)
         {
+            if (ConfirmedManager is { } confirmed && VideoSubmissionCoordinator.IsAffectedModel(GetStringArg(args, "model") ?? ""))
+            {
+                var (intent, parseError) = ParseRequestIntent(args);
+                if (parseError != null) return FailWithError(parseError);
+                var quoting = confirmed.QuoteAsync(intent!, ct);
+                quoting.Wait(ct);
+                var quoted = quoting.GetAwaiter().GetResult();
+                if (quoted.Error != null) return FailWithError(quoted.Error);
+                var quote = quoted.Quote!;
+                var quotedEstimate = quote.PrimaryEstimate;
+                return Ok(new Dictionary<string, object?> {
+                    ["dollars_usd"] = quotedEstimate.DollarsUsd, ["model"] = quotedEstimate.Model,
+                    ["resolution"] = quotedEstimate.Resolution, ["duration_seconds"] = quotedEstimate.DurationSeconds,
+                    ["number_of_videos"] = quotedEstimate.NumberOfVideos, ["pricing"] = PricingToObj(quotedEstimate.Pricing),
+                    ["estimate_fingerprint"] = quote.EstimateFingerprint,
+                    ["maximum_estimated_cost_usd"] = quote.MaximumEstimatedCostUsd,
+                    ["candidate_routes"] = quote.CanonicalSnapshot["candidates"],
+                    ["primary_provider"] = quote.Candidates.First(c => c.Model.ModelId == quotedEstimate.Model).Model.ProviderName,
+                });
+            }
             var (request, parseErr) = ParseGenerationRequest(args);
             if (parseErr is not null) return FailWithError(parseErr);
 
@@ -341,7 +379,11 @@ namespace Rook.Handlers
             var descriptors = _registry.EnumerateAllModels();
             var models = new List<Dictionary<string, object?>>(descriptors.Count);
             foreach (var d in descriptors)
-                models.Add(ModelDescriptorToObj(d));
+                {
+                var row = ModelDescriptorToObj(d);
+                if (ConfirmedManager is { } confirmed) foreach (var kv in confirmed.ModelAvailability(d.ModelId)) row[kv.Key] = kv.Value;
+                models.Add(row);
+            }
 
             return Ok(new Dictionary<string, object?>
             {
@@ -350,6 +392,7 @@ namespace Rook.Handlers
         }
 
         private static Dictionary<string, object?> JobListEntryToObj(JobListEntry entry) =>
+            WithExecution(entry.Execution,
             new()
             {
                 ["job_id"] = entry.JobId.ToString("D"),
@@ -368,7 +411,7 @@ namespace Rook.Handlers
                 },
                 ["result_artifact_id"] = entry.ResultArtifactId?.ToString("D"),
                 ["error"] = entry.Error is null ? null : ErrorToObj(entry.Error),
-            };
+            });
 
         private static Dictionary<string, object?> WarningToObj(LedgerWarning w) =>
             // PR-V3 wire shape per signed-off scope: {line, reason, field}.
@@ -438,6 +481,36 @@ namespace Rook.Handlers
             _ => reason.ToString().ToLowerInvariant(),
         };
 
+        private IVideoConfirmedJobManager? ConfirmedManager => _manager is IVideoConfirmedJobManager { ConfirmedRoutingAvailable: true } manager ? manager : null;
+        internal (VideoRequestIntent? Intent, GenerationError? Error) ParseRequestIntent(Dictionary<string, JsonElement> args)
+        {
+            var (request, error) = ParseGenerationRequest(args, normalizeAffected: true);
+            if (error != null) return (null, VideoProviderOutcomeAdapters.ToGenerationError(error));
+            var supplied = JsonNode.Parse(args["options"].GetRawText())!.AsObject();
+            return (VideoRequestIntent.Normalize(request!, supplied), null);
+        }
+        internal static (VideoSubmitConfirmation? Confirmation, GenerationError? Error) ParseConfirmation(Dictionary<string, JsonElement> args)
+        {
+            string? fingerprint = null; decimal? cap = null;
+            if (args.TryGetValue("estimate_fingerprint", out var fp))
+            {
+                if (fp.ValueKind != JsonValueKind.String || (fingerprint = fp.GetString()) is null || fingerprint.Length != 67 || !fingerprint.StartsWith("v1:", StringComparison.Ordinal) || fingerprint.Skip(3).Any(c => !Uri.IsHexDigit(c)))
+                    return (null, new GenerationError(GenerationErrorCode.InvalidRequest, "Expected a versioned estimate fingerprint.", false, "estimate_fingerprint"));
+            }
+            if (args.TryGetValue("max_estimated_cost_usd", out var bound))
+            {
+                if (bound.ValueKind != JsonValueKind.Number || !bound.TryGetDecimal(out var value) || value < 0)
+                    return (null, new GenerationError(GenerationErrorCode.InvalidRequest, "Expected a nonnegative numeric cost cap.", false, "max_estimated_cost_usd"));
+                cap = value;
+            }
+            if (fingerprint != null && cap == null) return (null, new GenerationError(GenerationErrorCode.InvalidRequest, "A fingerprint requires a numeric cost cap.", false, "estimate_fingerprint"));
+            return (new VideoSubmitConfirmation(fingerprint, cap), null);
+        }
+        internal static void ProjectExecution(VideoExecutionProjection? execution, Dictionary<string, object?> response)
+        { if (execution != null) foreach (var kv in execution.Fields) response[kv.Key] = kv.Value; }
+        private static Dictionary<string, object?> WithExecution(VideoExecutionProjection? execution, Dictionary<string, object?> response)
+        { ProjectExecution(execution, response); return response; }
+
         // ─── Request parsing ─────────────────────────────────────────────
 
         private static bool TryParseJobId(
@@ -473,7 +546,7 @@ namespace Rook.Handlers
         }
 
         private (VideoGenerationRequest? Request, VideoJobError? Error)
-            ParseGenerationRequest(Dictionary<string, JsonElement> args)
+            ParseGenerationRequest(Dictionary<string, JsonElement> args, bool normalizeAffected = false)
         {
             var model = GetStringArg(args, "model");
             if (string.IsNullOrEmpty(model))
@@ -554,6 +627,8 @@ namespace Rook.Handlers
             if (optionsJson is null)
                 return (null, BadField("options", "'options' must be a JSON object."));
 
+            if (normalizeAffected && VideoSubmissionCoordinator.IsGoogleModel(model!) && !optionsJson.ContainsKey("person_generation"))
+                optionsJson["person_generation"] = mode == VideoMode.T2V && (referenceFrames?.Count ?? 0) == 0 && startFrame == null && endFrame == null ? "allow_all" : "allow_adult";
             var decodedOptions = resolvedModel.OptionsCodec.Deserialize(optionsJson);
             if (!decodedOptions.Success)
                 return (null, VideoProviderOutcomeAdapters.ToVideoJobError(decodedOptions.Error!));
@@ -730,7 +805,8 @@ namespace Rook.Handlers
                 ["retryable"] = err.Retryable,
                 ["field"] = err.Field,
             };
-            if(err.ProviderErrorCode == "vertex_submission_unknown") result["submission_outcome_unknown"] = true;
+            if (err.ProviderErrorCode == "vertex_submission_unknown" || err.ProviderErrorCode == "submission_unknown") result["submission_outcome_unknown"] = true;
+            if (err.ProviderErrorCode is "estimate_stale" or "cost_cap_exceeded" or "submission_unknown" or "persistence_failed" or "secret_access_failed") result["detail_code"] = err.ProviderErrorCode;
             return result;
         }
 
@@ -788,14 +864,14 @@ namespace Rook.Handlers
         private static ApiResponse Ok(object? data) =>
             new() { Success = true, Data = data, HttpStatus = 200 };
 
-        private static ApiResponse FailWithError(VideoJobError err) =>
-            FailWithError(VideoProviderOutcomeAdapters.ToGenerationError(err));
+        private static ApiResponse FailWithError(VideoJobError err, VideoExecutionProjection? execution = null) =>
+            FailWithError(VideoProviderOutcomeAdapters.ToGenerationError(err), execution);
 
-        private static ApiResponse FailWithError(GenerationError err) =>
+        private static ApiResponse FailWithError(GenerationError err, VideoExecutionProjection? execution = null) =>
             new()
             {
                 Success = false,
-                Data = ErrorToObj(err),
+                Data = WithExecution(execution, ErrorToObj(err)),
                 HttpStatus = MapStatusFromCode(err.Code),
             };
 

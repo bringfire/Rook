@@ -5,6 +5,8 @@ namespace Rook.Services.Vision.Video
 {
     internal interface IVideoConfirmedJobManager
     {
+        bool ConfirmedRoutingAvailable { get; }
+        JsonObject ModelAvailability(string model);
         Task<VideoRouteQuoteResult> QuoteAsync(VideoRequestIntent intent, CancellationToken ct);
         Task<JobSubmitResult> SubmitConfirmedAsync(VideoRequestIntent intent, VideoSubmitConfirmation confirmation, CancellationToken ct);
     }

@@ -15,6 +15,15 @@ namespace Rook.Services.Vision.Video
     public sealed partial class VideoJobManager
     {
         private readonly VideoSubmissionCoordinator? _routeCoordinator;
+        public bool ConfirmedRoutingAvailable => _routeCoordinator != null && _routeQuotes != null;
+        public JsonObject ModelAvailability(string model)
+        {
+            if (_routeCoordinator == null || !VideoSubmissionCoordinator.IsAffectedModel(model)) return new JsonObject();
+            bool configured = false;
+            try { configured = _routeCoordinator.Secrets.HasSecret(VideoSubmissionCoordinator.IsGoogleModel(model) ? GenerationSecretKeys.GeminiApiKey : GenerationSecretKeys.FalApiKey); } catch { }
+            bool available = VideoSubmissionCoordinator.IsGoogleModel(model) || _routeCoordinator.Bindings.All.Any(b => b.ModelId == model && b.ContinuityVerified && (b.NewSubmissionCutoffUtc == null || b.NewSubmissionCutoffUtc > _clock.UtcNow()));
+            return new JsonObject { ["credential_configured"] = configured, ["new_submission_available"] = available, ["availability_reason"] = available ? null : "endpoint_continuity_unverified" };
+        }
         private readonly VideoRouteQuoteService? _routeQuotes;
         private readonly IVideoDeadlineTimer _routeTimer;
         private readonly VideoPublicationService _publication;
