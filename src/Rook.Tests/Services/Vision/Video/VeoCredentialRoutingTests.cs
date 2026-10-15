@@ -13,6 +13,16 @@ namespace Rook.Tests.Services.Vision.Video
 {
     public class VeoCredentialRoutingTests
     {
+        [Fact]
+        public async Task SafeLifecycleMethodsNormalizeProviderLocalTimeouts()
+        {
+            var http = new FalVeoQueueAdapterTests.Http { Send = _ => throw new TaskCanceledException("sensitive timeout sentinel") };
+            var provider = new VeoProvider(() => "test-only", new VeoClient(new HttpClient(http)));
+            var handle = new ProviderJobHandle("operations/test", providerResultToken: "https://generativelanguage.googleapis.com/v1beta/files/test:download");
+            var status = Assert.IsType<FailedStatusOutcome>(await provider.GetStatusSafeAsync(handle, default));
+            var fetch = Assert.IsType<FailedResultOutcome>(await provider.FetchResultSafeAsync(handle, default));
+            Assert.DoesNotContain("sentinel", status.Error.Message); Assert.DoesNotContain("sentinel", fetch.Error.Message);
+        }
         [Theory]
         [InlineData(403)]
         [InlineData(500)]

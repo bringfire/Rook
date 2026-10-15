@@ -806,7 +806,7 @@ namespace Rook.Handlers
                 ["field"] = err.Field,
             };
             if (err.ProviderErrorCode == "vertex_submission_unknown" || err.ProviderErrorCode == "submission_unknown") result["submission_outcome_unknown"] = true;
-            if (err.ProviderErrorCode is "estimate_stale" or "cost_cap_exceeded" or "submission_unknown" or "persistence_failed" or "secret_access_failed") result["detail_code"] = err.ProviderErrorCode;
+            if (err.ProviderErrorCode is "estimate_stale" or "cost_cap_exceeded" or "submission_unknown" or "persistence_failed" or "secret_access_failed" or "provider_timeout") result["detail_code"] = err.ProviderErrorCode;
             return result;
         }
 

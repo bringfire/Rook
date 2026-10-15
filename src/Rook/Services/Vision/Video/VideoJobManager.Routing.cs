@@ -197,6 +197,12 @@ namespace Rook.Services.Vision.Video
             catch (OperationCanceledException)
             {
                 if (job.Budget.FirstStopReason != null) await PersistObservedStopAsync(job).ConfigureAwait(false);
+                else if (!job.PersistenceFailed && !IsTerminal(job.Durable.State))
+                {
+                    try { CommitRouted(job, r => { CheckRouted(job); return UpdateRouted(r, data => data["phase"] = "failed", VideoJobState.Error, new GenerationError(GenerationErrorCode.DependencyUnavailable, "Video provider operation stopped before completion.", false, null, "provider_timeout")); }); }
+                    catch (OperationCanceledException) { if (job.Budget.FirstStopReason != null) await PersistObservedStopAsync(job).ConfigureAwait(false); }
+                    catch (RouteFailure) { }
+                }
             }
             catch (RouteFailure failure)
             {
@@ -222,6 +228,7 @@ namespace Rook.Services.Vision.Video
         }
         private static GenerationError SafeLifecycleError(string provider, GenerationError error, string phase)
         {
+            if (error.ProviderErrorCode == "provider_timeout") return new GenerationError(GenerationErrorCode.DependencyUnavailable, "Video provider " + phase + " request timed out.", error.Retryable, null, "provider_timeout");
             if (VideoCredentialErrors.FromError(provider, error) is { } credential)
                 return credential.Kind == "missing" ? VideoCredentialErrors.Missing(provider) : new GenerationError(GenerationErrorCode.DependencyUnavailable, "Video provider rejected its API credential.", false, "credentials", error.ProviderErrorCode);
             return new GenerationError(error.Code, "Video provider " + phase + " request failed.", error.Retryable);
@@ -347,8 +354,8 @@ namespace Rook.Services.Vision.Video
                 try { artifact = await AwaitCancellation(preparation, job.Budget.Token).ConfigureAwait(false); }
                 catch { _ = preparation.ContinueWith(t => { if (t.Status == TaskStatus.RanToCompletion) _publication.RemoveOwnedProvisional(t.Result, job.Durable); else _ = t.Exception; }); throw; }
                 var warnings = new JsonArray();
-                try { if (!(await AwaitRouted(job, () => _posterProducer.TryPublishPosterAsync(artifact.Id, job.Budget.Token)).ConfigureAwait(false)).Success) warnings.Add("poster_unavailable"); } catch (OperationCanceledException) { throw; } catch { warnings.Add("poster_unavailable"); }
-                try { if ((await AwaitRouted(job, () => _frameProducer.TryPublishFrameSidecarsAsync(artifact.Id, job.Budget.Token)).ConfigureAwait(false)).RoleResults.Any(r => !r.Success)) warnings.Add("frames_unavailable"); } catch (OperationCanceledException) { throw; } catch { warnings.Add("frames_unavailable"); }
+                try { if (!(await AwaitRouted(job, () => _posterProducer.TryPublishPosterAsync(artifact.Id, job.Budget.Token)).ConfigureAwait(false)).Success) warnings.Add("poster_unavailable"); } catch (OperationCanceledException) when (job.Budget.Token.IsCancellationRequested) { throw; } catch { warnings.Add("poster_unavailable"); }
+                try { if ((await AwaitRouted(job, () => _frameProducer.TryPublishFrameSidecarsAsync(artifact.Id, job.Budget.Token)).ConfigureAwait(false)).RoleResults.Any(r => !r.Success)) warnings.Add("frames_unavailable"); } catch (OperationCanceledException) when (job.Budget.Token.IsCancellationRequested) { throw; } catch { warnings.Add("frames_unavailable"); }
                 CommitRouted(job, r => {
                     CheckRouted(job);
                     if (!job.Budget.TryAdmitCompletion()) throw new OperationCanceledException(job.Budget.Token);

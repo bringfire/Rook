@@ -163,6 +163,7 @@ namespace Rook.Services.Vision.Video
                     safe ? VideoCredentialErrors.FromHttp("veo", resp.StatusCode ?? 0, resp.ErrorBody ?? "") : VideoProviderOutcomeAdapters.ToGenerationError(
                         VeoErrorMapper.MapPollFailure(resp.StatusCode, resp.ErrorBody)));
             }
+            catch (OperationCanceledException) when (safe && !ct.IsCancellationRequested) { return new FailedStatusOutcome(new GenerationError(GenerationErrorCode.DependencyUnavailable, "Google video status request timed out.", true, null, "provider_timeout")); }
             catch (OperationCanceledException) { throw; }
             catch (HttpRequestException ex)
             {
@@ -257,6 +258,7 @@ namespace Rook.Services.Vision.Video
                         },
                         EmptyMetadata));
             }
+            catch (OperationCanceledException) when (safe && !ct.IsCancellationRequested) { return new FailedResultOutcome(new GenerationError(GenerationErrorCode.DependencyUnavailable, "Google video download timed out.", true, null, "provider_timeout")); }
             catch (OperationCanceledException) { throw; }
             catch (HttpRequestException ex)
             {

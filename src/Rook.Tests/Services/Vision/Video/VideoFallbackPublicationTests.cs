@@ -41,6 +41,32 @@ namespace Rook.Tests.Services.Vision.Video
             foreach (var job in jobs.Values) Assert.Null(job.GetType().GetField("Media", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(job));
         }
         [Theory]
+        [InlineData("poll")]
+        [InlineData("fetch")]
+        public async Task ProviderLocalTimeoutLeavesTerminalFailureWithoutFallback(string phase)
+        {
+            using var rig = new Rig();
+            if (phase == "poll") rig.Google.Poll = (h, ct) => Task.FromException<ProviderStatusOutcome>(new TaskCanceledException("sensitive timeout sentinel"));
+            else rig.Google.Fetch = (h, ct) => Task.FromException<ProviderResultOutcome>(new TaskCanceledException("sensitive timeout sentinel"));
+            var submit = await rig.Submit(); await Limit(rig.Done.Task);
+            var record = rig.Record(submit.JobId!.Value);
+            Assert.Equal(VideoJobState.Error, record.State); Assert.DoesNotContain("sentinel", record.Error!.Message); Assert.Equal(0, rig.Fal.Submits);
+            Assert.Equal(VideoJobState.Error, (await rig.Manager.CancelAsync(record.JobId, default)).State);
+            Assert.Null(VideoExecutionSnapshot.Read(record).Snapshot!.Data["first_stop_reason"]);
+        }
+        private sealed class CancelledPoster : IVideoPosterSidecarProducer
+        {
+            public Task<VideoPosterSidecarResult> TryPublishPosterAsync(Guid id, CancellationToken ct) => Task.FromException<VideoPosterSidecarResult>(new TaskCanceledException("sidecar timeout"));
+        }
+        [Fact]
+        public async Task SidecarLocalCancellationRemainsBestEffort()
+        {
+            using var rig = new Rig(poster: new CancelledPoster());
+            var submit = await rig.Submit(); await Limit(rig.Done.Task);
+            var record = rig.Record(submit.JobId!.Value); Assert.Equal(VideoJobState.Complete, record.State);
+            Assert.Contains("poster_unavailable", VideoExecutionSnapshot.Read(record).Snapshot!.Data["warnings"]!.AsArray().Select(n => n!.GetValue<string>()));
+        }
+        [Theory]
         [InlineData("poll", 403)]
         [InlineData("poll", 500)]
         [InlineData("fetch", 500)]
