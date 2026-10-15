@@ -149,9 +149,13 @@ namespace Rook.Services.Vision.Video
                 await _concurrency.WaitAsync(job.Budget.Token).ConfigureAwait(false); acquired = true;
                 CheckRouted(job);
                 PrepareRoutedBinding(job, job.Candidate);
-                var resolved = await AwaitRouted(job, () => _mediaResolver.ResolveAllAsync(VideoRouteQuoteService.VideoMediaReferences(job.Intent.Request), job.Budget.Token)).ConfigureAwait(false);
-                if (!resolved.Success) throw new RouteFailure(resolved.Error!);
-                job.Media = VideoPreparedMediaSnapshot.Capture(job.Intent.Request, resolved.Resolved!);
+                using (var resolved = await AwaitRouted(job, () => _mediaResolver is ArtifactOnlyVideoMediaResolver artifacts
+                    ? artifacts.ResolveMediaAsync(job.Intent.Request, job.Budget.Token)
+                    : _mediaResolver.ResolveAllAsync(VideoRouteQuoteService.VideoMediaReferences(job.Intent.Request), job.Budget.Token)).ConfigureAwait(false))
+                {
+                    if (!resolved.Success) throw new RouteFailure(resolved.Error!);
+                    job.Media = VideoPreparedMediaSnapshot.Capture(job.Intent.Request, resolved.Resolved!);
+                }
                 if (_routeQuotes!.ValidatePreparedMedia(job.Media, job.Quote) is { } changed) throw new RouteFailure(changed);
                 while (true)
                 {
@@ -218,7 +222,7 @@ namespace Rook.Services.Vision.Video
             }
             finally
             {
-                job.Media = null;
+                job.Media?.Dispose(); job.Media = null;
                 if (job.KnownHandle != null && (job.PersistenceFailed || job.Budget.FirstStopReason != null)) await CleanupRoutedHandleAsync(job, job.KnownHandle).ConfigureAwait(false);
                 job.Finished.TrySetResult(true);
                 job.Budget.Dispose();

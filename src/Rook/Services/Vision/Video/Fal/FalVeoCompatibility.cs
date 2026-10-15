@@ -30,6 +30,7 @@ namespace Rook.Services.Vision.Video.Fal
             VideoPreparedMediaSnapshot snapshot;
             try { snapshot = VideoPreparedMediaSnapshot.Capture(request, media); }
             catch (ArgumentException) { return Error("A source frame could not be resolved.", "start_frame"); }
+            using var captured = snapshot;
             foreach (var slot in snapshot.Slots)
             {
                 if (slot.ByteLength > 8_000_000 || slot.MimeType is not ("image/png" or "image/jpeg" or "image/webp")) return Error("fal Veo source must be PNG/JPEG/WebP and at most 8,000,000 bytes.", slot.Role);

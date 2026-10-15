@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 
 namespace Rook.Services.Vision.Generation
 {
@@ -9,8 +10,11 @@ namespace Rook.Services.Vision.Generation
     /// its <c>SubmitAsync</c> argument; on failure, surfaces a typed
     /// <see cref="GenerationError"/>.
     /// </summary>
-    public sealed record MediaResolutionResult
+    public sealed record MediaResolutionResult : IDisposable
     {
+        private IDisposable? _owner;
+        internal IDisposable? ResourceOwner => _owner;
+        public void Dispose() { Interlocked.Exchange(ref _owner, null)?.Dispose(); }
         public IReadOnlyDictionary<MediaRef, ResolvedMedia>? Resolved { get; }
         public GenerationError? Error { get; }
 
@@ -36,5 +40,8 @@ namespace Rook.Services.Vision.Generation
             if (error is null) throw new ArgumentNullException(nameof(error));
             return new MediaResolutionResult(resolved: null, error);
         }
+
+        internal static MediaResolutionResult OkOwned(IReadOnlyDictionary<MediaRef, ResolvedMedia> resolved, IDisposable owner)
+            => new MediaResolutionResult(resolved, error: null) { _owner = owner };
     }
 }

@@ -44,7 +44,7 @@ namespace Rook.Tests.Services.Vision.Video
 
             var media = MediaRef.ForArtifact(artifact.Id, VideoMediaRoles.Image);
 
-            var result = await _resolver.ResolveAllAsync(
+            using var result = await _resolver.ResolveAllAsync(
                 new[] { media }, CancellationToken.None);
             var resolved = result.Resolved![media];
 
@@ -62,7 +62,7 @@ namespace Rook.Tests.Services.Vision.Video
 
             var media = MediaRef.ForArtifact(artifact.Id, VideoMediaRoles.Image);
 
-            var result = await _resolver.ResolveAllAsync(
+            using var result = await _resolver.ResolveAllAsync(
                 new[] { media }, CancellationToken.None);
             var resolved = result.Resolved![media];
 
@@ -77,7 +77,7 @@ namespace Rook.Tests.Services.Vision.Video
                 blobs: new[] { new BlobInput(VideoMediaRoles.Video, Encoding.UTF8.GetBytes("mp4"), "mp4") });
             var media = MediaRef.ForArtifact(artifact.Id, VideoMediaRoles.Video);
 
-            var result = await _resolver.ResolveAllAsync(
+            using var result = await _resolver.ResolveAllAsync(
                 new[] { media }, CancellationToken.None);
 
             Assert.False(result.Success);
@@ -93,7 +93,7 @@ namespace Rook.Tests.Services.Vision.Video
                 blobs: new[] { new BlobInput(VideoMediaRoles.Image, Encoding.UTF8.GetBytes("mp4"), "mp4") });
             var media = MediaRef.ForArtifact(artifact.Id, VideoMediaRoles.Image);
 
-            var result = await _resolver.ResolveAllAsync(
+            using var result = await _resolver.ResolveAllAsync(
                 new[] { media }, CancellationToken.None);
 
             Assert.False(result.Success);
@@ -109,7 +109,7 @@ namespace Rook.Tests.Services.Vision.Video
             var media = MediaRef.ForPath(
                 @"C:\fixtures\frame.png", VideoMediaRoles.Image);
 
-            var result = await _resolver.ResolveAllAsync(
+            using var result = await _resolver.ResolveAllAsync(
                 new[] { media }, CancellationToken.None);
 
             Assert.False(result.Success);
@@ -122,7 +122,7 @@ namespace Rook.Tests.Services.Vision.Video
             var media = MediaRef.ForPath(
                 @"C:\fixtures\frame.png", VideoMediaRoles.Image);
 
-            var result = await _resolver.ResolveAllAsync(
+            using var result = await _resolver.ResolveAllAsync(
                 new[] { media }, CancellationToken.None);
 
             Assert.Contains("V1b", result.Error!.Message);
@@ -134,7 +134,7 @@ namespace Rook.Tests.Services.Vision.Video
         [Fact]
         public async Task Null_refs_returns_typed_failure()
         {
-            var result = await _resolver.ResolveAllAsync(null!, CancellationToken.None);
+            using var result = await _resolver.ResolveAllAsync(null!, CancellationToken.None);
 
             Assert.False(result.Success);
             Assert.Equal(GenerationErrorCode.InvalidRequest, result.Error!.Code);
@@ -168,7 +168,7 @@ namespace Rook.Tests.Services.Vision.Video
             IMediaResolver resolver = _resolver;
             var media = MediaRef.ForArtifact(artifact.Id, VideoMediaRoles.Image);
 
-            var result = await resolver.ResolveAllAsync(
+            using var result = await resolver.ResolveAllAsync(
                 new[] { media },
                 CancellationToken.None);
 
@@ -183,7 +183,7 @@ namespace Rook.Tests.Services.Vision.Video
             IMediaResolver resolver = _resolver;
             var media = MediaRef.ForPath(@"C:\fixtures\frame.png", VideoMediaRoles.Image);
 
-            var result = await resolver.ResolveAllAsync(
+            using var result = await resolver.ResolveAllAsync(
                 new[] { media },
                 CancellationToken.None);
 

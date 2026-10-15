@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Video.Framing;
 
 namespace Rook.Services.Vision.Video
 {
@@ -16,10 +17,18 @@ namespace Rook.Services.Vision.Video
 
         public async Task<VideoRouteQuoteResult> QuoteAsync(VideoRequestIntent intent, CancellationToken ct)
         {
+            if (_media is ArtifactOnlyVideoMediaResolver artifacts)
+            {
+                using var lease = await VideoPreparationResources.Shared.AcquireAsync(ct).ConfigureAwait(false);
+                var read = await artifacts.ResolveSnapshotAsync(intent.Request, lease, ct).ConfigureAwait(false);
+                if (read.Error != null) return new(null, read.Error);
+                using var snapshot = read.Snapshot!;
+                return await QuotePreparedAsync(intent, snapshot, ct).ConfigureAwait(false);
+            }
             var refs = VideoMediaReferences(intent.Request);
-            var resolution = await _media.ResolveAllAsync(refs, ct).ConfigureAwait(false);
+            using var resolution = await _media.ResolveAllAsync(refs, ct).ConfigureAwait(false);
             if (!resolution.Success) return new(null, resolution.Error);
-            try { return await QuotePreparedAsync(intent, VideoPreparedMediaSnapshot.Capture(intent.Request, resolution.Resolved!), ct).ConfigureAwait(false); }
+            try { using var snapshot = VideoPreparedMediaSnapshot.Capture(intent.Request, resolution.Resolved!); return await QuotePreparedAsync(intent, snapshot, ct).ConfigureAwait(false); }
             catch (ArgumentException) { return new(null, Error("Source media could not be captured.", "media")); }
         }
         internal static MediaRef[] VideoMediaReferences(VideoGenerationRequest request) => new[] { request.StartFrame, request.EndFrame }.Where(r => r != null).Cast<MediaRef>().Concat(request.ReferenceFrames ?? Array.Empty<MediaRef>()).ToArray();

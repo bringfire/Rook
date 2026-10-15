@@ -154,8 +154,11 @@ namespace Rook.Services.Vision.Video
             // JobSubmitResult.Fail before any background work starts.
             var mediaResult = await ResolveAllMediaAsync(request, ct).ConfigureAwait(false);
             if (!mediaResult.Success)
+            {
+                mediaResult.Dispose();
                 return JobSubmitResult.Fail(
                     VideoProviderOutcomeAdapters.ToVideoJobError(mediaResult.Error!));
+            }
             var resolved = mediaResult.Resolved!;
 
             var jobId = _idGenerator.NewJobId();
@@ -164,16 +167,18 @@ namespace Rook.Services.Vision.Video
                 jobId, request, model, estimate.Estimate!,
                 VideoJobState.Queued, now);
 
-            AppendCommittedSnapshot(initial);
+            try { AppendCommittedSnapshot(initial); }
+            catch { mediaResult.Dispose(); throw; }
 
             // Kick off background task. Caller returns immediately with
             // Queued state; the task drives the state machine.
             var jobCts = CancellationTokenSource.CreateLinkedTokenSource(_shutdownCts.Token);
             if (model.Provider is ILocalMonitoringProvider) jobCts.CancelAfter(TimeSpan.FromMinutes(15));
-            var running = new RunningJob(initial, jobCts, model);
+            var running = new RunningJob(initial, jobCts, model) { MediaOwner = mediaResult };
             _runningJobs[jobId] = running;
 
-            _ = Task.Run(() => RunJobAsync(jobId, request, resolved, running), jobCts.Token);
+            // Always enter the worker's finally, even if cancellation preceded scheduling.
+            _ = Task.Run(() => RunJobAsync(jobId, request, resolved, running));
 
             return JobSubmitResult.Ok(jobId, VideoJobState.Queued);
         }
@@ -867,6 +872,8 @@ namespace Rook.Services.Vision.Video
                             }
                         },ct).ConfigureAwait(false)
                         : await provider.SubmitAsync(request,resolvedMedia,ct).ConfigureAwait(false);
+                    running.MediaOwner?.Dispose();
+                    running.MediaOwner = null;
                     lock(running.TransitionGate)
                     {
                         running.SubmissionOutcomeUnknown = submitOutcome is FailedSubmitOutcome failedSubmit
@@ -1059,6 +1066,7 @@ namespace Rook.Services.Vision.Video
             }
             finally
             {
+                running.MediaOwner?.Dispose();
                 _runningJobs.TryRemove(jobId, out _);
                 running.Cts.Dispose();
                 AfterRunForTests?.Invoke(jobId);
@@ -1429,6 +1437,8 @@ namespace Rook.Services.Vision.Video
         private Task<MediaResolutionResult> ResolveAllMediaAsync(
             VideoGenerationRequest request, CancellationToken ct)
         {
+            if (_mediaResolver is ArtifactOnlyVideoMediaResolver artifacts)
+                return artifacts.ResolveMediaAsync(request, ct);
             var mediaRefs = new List<MediaRef>();
             AddMediaRef(request.StartFrame, mediaRefs);
             AddMediaRef(request.EndFrame, mediaRefs);
@@ -1541,6 +1551,7 @@ namespace Rook.Services.Vision.Video
             public VideoJobRecord LatestRecord;
             public readonly CancellationTokenSource Cts;
             public readonly ResolvedVideoModel Model;
+            public IDisposable? MediaOwner;
 
             public RunningJob(VideoJobRecord initial, CancellationTokenSource cts, ResolvedVideoModel model)
             {
