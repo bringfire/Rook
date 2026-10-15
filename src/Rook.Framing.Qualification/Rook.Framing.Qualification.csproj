@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net48;net7.0;net8.0</TargetFrameworks>
+    <OutputType>Exe</OutputType>
+    <PlatformTarget>x64</PlatformTarget>
+    <UseAppHost>true</UseAppHost>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Rook/Rook.csproj" />
+  </ItemGroup>
+  <Target Name="MirrorCompanionForQualification" AfterTargets="Build">
+    <Copy SourceFiles="$(OutputPath)Rook.rhp" DestinationFiles="$(OutputPath)Rook.dll"
+          Condition="Exists('$(OutputPath)Rook.rhp')" SkipUnchangedFiles="true" />
+    <ItemGroup>
+      <QualificationRhinoReference Include="@(ReferencePath)" Condition="'%(Filename)' == 'RhinoCommon'" />
+    </ItemGroup>
+    <Copy SourceFiles="@(QualificationRhinoReference)" DestinationFolder="$(OutputPath)" SkipUnchangedFiles="true" />
+    <!-- CoreCLR's startup TPA list accepts DLL/EXE assets, not Rhino's RHP
+         extension. Point only this host's metadata at the identical DLL mirror. -->
+    <PropertyGroup>
+      <QualificationDepsPath>$(TargetDir)$(AssemblyName).deps.json</QualificationDepsPath>
+      <QualificationDepsText Condition="Exists('$(QualificationDepsPath)')">$([System.IO.File]::ReadAllText('$(QualificationDepsPath)').Replace('Rook.rhp', 'Rook.dll'))</QualificationDepsText>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(QualificationDepsPath)" Lines="$(QualificationDepsText)" Overwrite="true"
+                      Encoding="UTF-8" Condition="Exists('$(QualificationDepsPath)')" />
+  </Target>
+</Project>
