@@ -29,6 +29,7 @@ namespace Rook.Services.Vision.Video
             return model switch
             {
                 PerSecondVideoPricingModel => PricingKind.PerSecond,
+                FalVeoPricingModel => PricingKind.PerSecond,
                 FalWanT2vPricingModel => PricingKind.PerSecond,
                 _ => PricingKind.External,
             };

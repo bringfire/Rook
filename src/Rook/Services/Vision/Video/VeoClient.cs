@@ -89,7 +89,8 @@ namespace Rook.Services.Vision.Video
                     ErrorBody: responseJson);
 
             using var doc = JsonDocument.Parse(responseJson);
-            if (!doc.RootElement.TryGetProperty("name", out var nameEl)
+            if (doc.RootElement.ValueKind != JsonValueKind.Object
+                || !doc.RootElement.TryGetProperty("name", out var nameEl)
                 || nameEl.ValueKind != JsonValueKind.String)
             {
                 return new VeoStartResponse(

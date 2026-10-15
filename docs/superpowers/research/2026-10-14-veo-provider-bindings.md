@@ -55,6 +55,16 @@ Deferred Minor findings:
 - UI attribution: rejected Gemini evidence after an effective fal route does not update the Gemini warning; fallback notice reads `reason` rather than `fallback_reason`; the gallery reads `metadata.model` rather than the new effective/requested model fields.
 - The `provider_timeout` detail code is missing from the outcome-adapter allowlist. Status/list retain safe messages and terminal state but lose this optional detail code.
 
+## Follow-up corrections after `b870dedd`
+
+The additional review reproduced three P2 defects with synthetic requests before fixes: the selected I2V/interpolation/reference endpoint borrowed T2V pricing ($3.20 instead of $7.20 for eight seconds at an injected $.90/second); a deferred worker failure overwrote a durably committed deadline; and a malformed successful Google operation name was accepted and polled. Regression tests also reproduced a completed record being overwritten by a deferred failure.
+
+Pricing now selects the same endpoint binding as dispatch, including its source and missing-rate behavior. Real quote/manager tests cover all three media endpoints, direct estimation, initial missing-key routing, rejected-key fallback, cap rejection before fal dispatch, and the effective price retained in the durable record. Worker commits check the latched stop, cancellation, persistence failure and latest terminal state inside the transition gate; stop persistence retains its separate guarded append path so failed stops remain retryable. A barrier test checks the interval between selecting the stop and signalling cancellation.
+
+Google acceptance validates relative `operations/{id}` and `models/{requested-model}/operations/{id}` resources before creating a handle. URLs, extra path segments, traversal, query strings, wrong-model names and malformed successful reply shapes become `submission_unknown`. Manager tests verify `Interrupted`, no handle, one submit request, no poll and no fal fallback. The corrective reviewer identified an additional legacy-submit parity gap for missing/non-string names and invalid JSON roots; observed failing tests drove the same unknown-outcome behavior at that seam.
+
+Fresh verification after these corrections: 4,605 managed tests passed with the same LiveSmoke and two documented fixture exclusions; 55 Vision UI tests and 89 Python video/profile tests passed; managed Release built with zero errors and 481 warnings. An independent read-only corrective review reported no actionable findings and declined to judge no behaviors. Its ready verdict remains conditional on the disabled production continuity gate. No native/RookBIM build, merge, deployment or live provider request occurred in this correction pass. Earlier deferred Minor findings remain recorded above.
+
 ## Implementation rulings
 
 - Ruling: Endpoint continuity remains unresolved; execute the approved disabled-binding offline implementation path — evidence cannot authorize new production fal Veo sends — cost if wrong: feature remains unavailable until authoritative support evidence is supplied.

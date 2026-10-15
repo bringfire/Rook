@@ -40,6 +40,57 @@ namespace Rook.Tests.Services.Vision.Video
         }
         internal static VideoRequestIntent Intent() => VideoRequestIntent.Normalize(TestVideoFixtures.DefaultT2vRequest(model: "veo-3.1-generate-preview", resolution: "1080p"), new JsonObject());
 
+        [Theory]
+        [InlineData("image-to-video")]
+        [InlineData("first-last-frame-to-video")]
+        [InlineData("reference-to-video")]
+        public async Task QuotesAndCapsUseSelectedEndpointPrices(string endpoint)
+        {
+            var catalog = new FalVeoBindingCatalog(FalVeoCompatibilityTests.ActiveCatalog().All.Select(b =>
+                b.SubmitEndpoint == "fal-ai/veo3.1/" + endpoint ? b with {
+                    RatesUsdPerSecond = new Dictionary<string, decimal> { ["1080p"] = .90m },
+                    PricingSource = "endpoint-specific", PricingRevision = "endpoint-revision"
+                } : b));
+            var input = MediaRef.ForArtifact(Guid.NewGuid(), "image");
+            var media = new Media(); media.Values[input] = FalVeoCompatibilityTests.Image(1280, 720);
+            var request = Intent().Request;
+            request = endpoint switch {
+                "image-to-video" => request.With(mode: VideoMode.I2V, startFrame: input),
+                "first-last-frame-to-video" => request.With(mode: VideoMode.Interp, startFrame: input, endFrame: input),
+                _ => request.With(referenceFrames: new[] { input })
+            };
+            var service = Service(new Secrets { Google = null }, media, catalog);
+            var quote = (await service.QuoteAsync(VideoRequestIntent.Normalize(request, new JsonObject()), default)).Quote!;
+            Assert.NotNull(quote);
+            Assert.Equal(7.20m, quote.PrimaryEstimate.DollarsUsd);
+            Assert.Equal(7.20m, quote.MaximumEstimatedCostUsd);
+            Assert.Equal(.90m, quote.PrimaryEstimate.Pricing.UnitPriceUsd);
+            Assert.Equal(PricingKind.PerSecond, quote.PrimaryEstimate.Pricing.Kind);
+            Assert.Equal("endpoint-specific", quote.PrimaryEstimate.Pricing.PricingSource);
+            var selected = quote.Candidates.Single(c => c.Model.ProviderName == "fal");
+            Assert.Equal("cost_cap_exceeded", service.ValidateConfirmation(quote, new(null, 3.20m), selected)!.ProviderErrorCode);
+            Assert.Null(service.ValidateConfirmation(quote, new(quote.EstimateFingerprint, 7.20m), selected));
+            var directRequest = selected.Request;
+            var direct = new VideoCostEstimator().Estimate(selected.Model, directRequest);
+            Assert.Equal(7.20m, direct.Estimate!.DollarsUsd);
+            var textQuote = (await service.QuoteAsync(Intent(), default)).Quote!;
+            Assert.Equal(3.20m, textQuote.PrimaryEstimate.DollarsUsd);
+        }
+
+        [Fact]
+        public async Task MissingSelectedEndpointPriceCannotBorrowTextEndpointPrice()
+        {
+            var catalog = new FalVeoBindingCatalog(FalVeoCompatibilityTests.ActiveCatalog().All.Select(b =>
+                b.SubmitEndpoint.EndsWith("/image-to-video", StringComparison.Ordinal)
+                    ? b with { RatesUsdPerSecond = new Dictionary<string, decimal>() } : b));
+            var input = MediaRef.ForArtifact(Guid.NewGuid(), "image");
+            var media = new Media(); media.Values[input] = FalVeoCompatibilityTests.Image(1280, 720);
+            var intent = VideoRequestIntent.Normalize(Intent().Request.With(mode: VideoMode.I2V, startFrame: input), new JsonObject());
+            var result = await Service(new Secrets { Google = null }, media, catalog).QuoteAsync(intent, default);
+            Assert.Null(result.Quote);
+            Assert.NotNull(result.Error);
+        }
+
         [Fact]
         public void CanonicalizationPreservesOrderRepeatsAndProvenance()
         {

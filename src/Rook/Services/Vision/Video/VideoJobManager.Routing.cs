@@ -94,16 +94,24 @@ namespace Rook.Services.Vision.Video
         {
             lock (job.Gate)
             {
-                var next = update(job.Durable);
-                try { _ledger.Append(next); }
-                catch
-                {
-                    job.PersistenceFailed = true; job.StopPersistence = VideoStopPersistence.Failed;
-                    job.Budget.AbortExecution();
-                    throw new RouteFailure(PersistenceError());
-                }
-                job.Durable = next; _routeRecordCache[next.JobId] = next;
+                // Every worker transition, including failures selected before
+                // this lock, must defer to the latest terminal state and stop.
+                CheckRouted(job);
+                AppendRouted(job, update(job.Durable));
             }
+        }
+        // Caller holds Gate. Stop persistence uses this after selecting the
+        // winning stop under that gate; worker transitions use CommitRouted.
+        private void AppendRouted(RoutedJob job, VideoJobRecord next)
+        {
+            try { _ledger.Append(next); }
+            catch
+            {
+                job.PersistenceFailed = true; job.StopPersistence = VideoStopPersistence.Failed;
+                job.Budget.AbortExecution();
+                throw new RouteFailure(PersistenceError());
+            }
+            job.Durable = next; _routeRecordCache[next.JobId] = next;
         }
         private VideoJobRecord UpdateRouted(VideoJobRecord record, Action<JsonObject> update, VideoJobState? state = null, GenerationError? error = null)
         {
@@ -115,6 +123,7 @@ namespace Rook.Services.Vision.Video
         {
             if (job.PersistenceFailed) throw new RouteFailure(PersistenceError());
             if (job.Budget.Remaining <= TimeSpan.Zero) job.Budget.TryStop(VideoStopReason.Deadline);
+            if (job.Budget.FirstStopReason != null) throw new OperationCanceledException(job.Budget.Token);
             job.Budget.Token.ThrowIfCancellationRequested();
             if (IsTerminal(job.Durable.State)) throw new OperationCanceledException(job.Budget.Token);
         }
@@ -196,25 +205,16 @@ namespace Rook.Services.Vision.Video
             }
             catch (OperationCanceledException)
             {
-                if (job.Budget.FirstStopReason != null) await PersistObservedStopAsync(job).ConfigureAwait(false);
-                else if (!job.PersistenceFailed && !IsTerminal(job.Durable.State))
-                {
-                    try { CommitRouted(job, r => { CheckRouted(job); return UpdateRouted(r, data => data["phase"] = "failed", VideoJobState.Error, new GenerationError(GenerationErrorCode.DependencyUnavailable, "Video provider operation stopped before completion.", false, null, "provider_timeout")); }); }
-                    catch (OperationCanceledException) { if (job.Budget.FirstStopReason != null) await PersistObservedStopAsync(job).ConfigureAwait(false); }
-                    catch (RouteFailure) { }
-                }
+                await PersistRoutedFailureAsync(job, VideoJobState.Error, new GenerationError(GenerationErrorCode.DependencyUnavailable, "Video provider operation stopped before completion.", false, null, "provider_timeout")).ConfigureAwait(false);
             }
             catch (RouteFailure failure)
             {
-                if (!job.PersistenceFailed && job.Budget.FirstStopReason == null)
-                    try { CommitRouted(job, r => UpdateRouted(r, data => { data["phase"] = "failed"; var credential = VideoCredentialErrors.FromError(r.Provider, failure.Error); if (credential != null) data["credential_failure"] = VideoCredentialErrors.Project(credential); }, failure.Error.Code == GenerationErrorCode.Interrupted ? VideoJobState.Interrupted : VideoJobState.Error, failure.Error)); } catch (RouteFailure) { }
+                await PersistRoutedFailureAsync(job, failure.Error.Code == GenerationErrorCode.Interrupted ? VideoJobState.Interrupted : VideoJobState.Error, failure.Error).ConfigureAwait(false);
             }
             catch
             {
-                if (!job.PersistenceFailed && !IsTerminal(job.Durable.State))
-                    try { CommitRouted(job, r => UpdateRouted(r, data => data["phase"] = "failed",
-                        job.KnownHandle == null ? VideoJobState.Interrupted : VideoJobState.Error,
-                        job.KnownHandle == null ? VideoCredentialErrors.Unknown() : new GenerationError(GenerationErrorCode.ExecutionFailed, "The accepted video job could not produce a valid local video.", false))); } catch (RouteFailure) { }
+                await PersistRoutedFailureAsync(job, job.KnownHandle == null ? VideoJobState.Interrupted : VideoJobState.Error,
+                    job.KnownHandle == null ? VideoCredentialErrors.Unknown() : new GenerationError(GenerationErrorCode.ExecutionFailed, "The accepted video job could not produce a valid local video.", false)).ConfigureAwait(false);
             }
             finally
             {
@@ -225,6 +225,21 @@ namespace Rook.Services.Vision.Video
                 if (acquired) try { _concurrency.Release(); } catch (ObjectDisposedException) { }
                 AfterRunForTests?.Invoke(job.Durable.JobId);
             }
+        }
+        private async Task PersistRoutedFailureAsync(RoutedJob job, VideoJobState state, GenerationError error)
+        {
+            try
+            {
+                CommitRouted(job, record => UpdateRouted(record, data => {
+                    data["phase"] = "failed";
+                    if (VideoCredentialErrors.FromError(record.Provider, error) is { } credential) data["credential_failure"] = VideoCredentialErrors.Project(credential);
+                }, state, error));
+            }
+            catch (OperationCanceledException)
+            {
+                if (job.Budget.FirstStopReason != null) await PersistObservedStopAsync(job).ConfigureAwait(false);
+            }
+            catch (RouteFailure) { /* Persistence failure already stopped execution. */ }
         }
         private static GenerationError SafeLifecycleError(string provider, GenerationError error, string phase)
         {
@@ -279,7 +294,7 @@ namespace Rook.Services.Vision.Video
                     var hasIntent = data["attempts"]!.AsArray().Any(a => a?["dispatch_state"]?.GetValue<string>() is "intent_recorded" or "unknown" or "accepted");
                     var terminal = reason == VideoStopReason.User && (!hasIntent || job.KnownHandle != null) ? VideoJobState.Cancelled : VideoJobState.Interrupted;
                     var error = hasIntent && job.KnownHandle == null ? VideoCredentialErrors.Unknown() : new GenerationError(terminal == VideoJobState.Cancelled ? GenerationErrorCode.Cancelled : GenerationErrorCode.Interrupted, reason == VideoStopReason.User ? "Local video execution cancelled; remote work may continue." : "Local video execution stopped: " + reason.ToString().ToLowerInvariant() + ".", false);
-                    CommitRouted(job, r => UpdateRouted(r, d => { d["first_stop_reason"] = reason.ToString().ToLowerInvariant(); d["stop_persistence"] = "durable"; d["phase"] = "interruption"; d["cleanup"] = job.KnownHandle != null ? "unknown" : hasIntent ? "unknown" : "not_dispatched"; }, terminal, error));
+                    AppendRouted(job, UpdateRouted(job.Durable, d => { d["first_stop_reason"] = reason.ToString().ToLowerInvariant(); d["stop_persistence"] = "durable"; d["phase"] = "interruption"; d["cleanup"] = job.KnownHandle != null ? "unknown" : hasIntent ? "unknown" : "not_dispatched"; }, terminal, error));
                     job.PersistenceFailed = false; job.StopPersistence = VideoStopPersistence.Durable;
                     return JobCancelResult.Ok(job.Durable.State) with { Execution = RouteProjection(job.Durable) };
                 }

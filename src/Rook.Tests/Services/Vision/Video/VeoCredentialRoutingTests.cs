@@ -13,6 +13,60 @@ namespace Rook.Tests.Services.Vision.Video
 {
     public class VeoCredentialRoutingTests
     {
+        [Theory]
+        [InlineData("{\"name\":\"not-an-operation\"}")]
+        [InlineData("{}")]
+        [InlineData("{\"name\":123}")]
+        [InlineData("[]")]
+        [InlineData("malformed JSON")]
+        public async Task LegacyGoogleSubmitRejectsMalformedAcceptance(string body)
+        {
+            var http = new FalVeoQueueAdapterTests.Http { Send = _ => Task.FromResult(FalVeoQueueAdapterTests.Http.Json(200, body)) };
+            var provider = new VeoProvider(() => "test-only", new VeoClient(new HttpClient(http)));
+            var failure = Assert.IsType<FailedSubmitOutcome>(await provider.SubmitAsync(TestVideoFixtures.DefaultT2vRequest(), new Dictionary<MediaRef, ResolvedMedia>(), default));
+            Assert.Equal("submission_unknown", failure.Error.ProviderErrorCode);
+        }
+
+        [Theory]
+        [InlineData("not-an-operation")]
+        [InlineData("operations/")]
+        [InlineData("operations/../other")]
+        [InlineData("operations/id?alt=media")]
+        [InlineData("https://example.com/operations/id")]
+        [InlineData("models/other-model/operations/id")]
+        [InlineData("models/veo-3.1-lite-generate-preview/operations/id/extra")]
+        public async Task MalformedGoogleAcceptanceIsUnknownWithoutPollingOrFallback(string operationName)
+        {
+            var sends = 0;
+            var http = new FalVeoQueueAdapterTests.Http { Send = message => {
+                System.Threading.Interlocked.Increment(ref sends);
+                if (message.Method != HttpMethod.Post) return Task.FromResult(FalVeoQueueAdapterTests.Http.Json(500, "{}"));
+                return Task.FromResult(FalVeoQueueAdapterTests.Http.Json(200, new JsonObject { ["name"] = operationName }.ToJsonString()));
+            } };
+            var provider = new VeoProvider(() => "test-only", new VeoClient(new HttpClient(http)));
+            using var rig = new VideoFalFallbackManagerTests.Rig(googleProvider: provider);
+            var intent = VideoRequestIntent.Normalize(TestVideoFixtures.DefaultT2vRequest(), new JsonObject());
+            var submit = await rig.Submit(intent); await VideoFalFallbackManagerTests.Limit(rig.Done.Task);
+            var record = rig.Record(submit.JobId!.Value);
+            Assert.Equal(VideoJobState.Interrupted, record.State);
+            Assert.Equal("submission_unknown", record.Error!.ProviderErrorCode);
+            Assert.Null(record.ProviderHandle);
+            Assert.Equal(1, sends);
+            Assert.Equal(0, rig.Fal.Submits);
+        }
+
+        [Theory]
+        [InlineData("operations/abc-123_ABC")]
+        [InlineData("models/veo-3.1-lite-generate-preview/operations/abc-123_ABC")]
+        public async Task SupportedGoogleOperationNamesAreAccepted(string operationName)
+        {
+            var http = new FalVeoQueueAdapterTests.Http { Send = _ => Task.FromResult(FalVeoQueueAdapterTests.Http.Json(200, new JsonObject { ["name"] = operationName }.ToJsonString())) };
+            var provider = new VeoProvider(() => "test-only", new VeoClient(new HttpClient(http)));
+            var request = TestVideoFixtures.DefaultT2vRequest();
+            var result = Assert.IsType<QueuedSubmitOutcome>(await ((IPreparedMediaVideoProvider)provider).SubmitPreparedAsync(request, VideoPreparedMediaSnapshot.Capture(request, new Dictionary<MediaRef, ResolvedMedia>()), () => { }, default));
+            Assert.Equal(operationName, result.Handle.ProviderJobId);
+        }
+
         [Fact]
         public async Task SafeLifecycleMethodsNormalizeProviderLocalTimeouts()
         {

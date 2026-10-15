@@ -51,7 +51,7 @@ namespace Rook.Services.Vision.Video
             {
                 var response = await _client.StartGenerationAsync(key!, request, (VeoOptions)request.Options, preparedMedia.ToResolvedMedia(), ct, () => { beforeDispatch(); ct.ThrowIfCancellationRequested(); admitted = true; }).ConfigureAwait(false);
                 if (!response.Success) return new FailedSubmitOutcome(response.StatusCode is >= 200 and < 300 ? VideoCredentialErrors.Unknown() : VideoCredentialErrors.FromHttp("veo", response.StatusCode ?? 0, response.ErrorBody ?? ""));
-                if (string.IsNullOrWhiteSpace(response.OperationName)) return new FailedSubmitOutcome(VideoCredentialErrors.Unknown());
+                if (!IsSupportedOperationName(response.OperationName, request.Model)) return new FailedSubmitOutcome(VideoCredentialErrors.Unknown());
                 return new QueuedSubmitOutcome(new ProviderJobHandle(response.OperationName!));
             }
             catch (System.Text.Json.JsonException) { return new FailedSubmitOutcome(VideoCredentialErrors.Unknown()); }
@@ -101,14 +101,16 @@ namespace Rook.Services.Vision.Video
                     ct)
                     .ConfigureAwait(false);
 
-                if (resp.Success && !string.IsNullOrEmpty(resp.OperationName))
-                    return new QueuedSubmitOutcome(
-                        new ProviderJobHandle(resp.OperationName!));
+                if (resp.Success || resp.StatusCode is >= 200 and < 300)
+                    return resp.Success && IsSupportedOperationName(resp.OperationName, request.Model)
+                        ? new QueuedSubmitOutcome(new ProviderJobHandle(resp.OperationName!))
+                        : new FailedSubmitOutcome(VideoCredentialErrors.Unknown());
 
                 return new FailedSubmitOutcome(
                     VideoProviderOutcomeAdapters.ToGenerationError(
                         VeoErrorMapper.MapStartFailure(resp.StatusCode, resp.ErrorBody)));
             }
+            catch (System.Text.Json.JsonException) { return new FailedSubmitOutcome(VideoCredentialErrors.Unknown()); }
             catch (OperationCanceledException) { throw; }
             catch (HttpRequestException ex)
             {
@@ -116,6 +118,23 @@ namespace Rook.Services.Vision.Video
                     VideoProviderOutcomeAdapters.ToGenerationError(
                         VeoErrorMapper.NetworkError("submit", ex.Message)));
             }
+        }
+
+        private static bool IsSupportedOperationName(string? name, string model)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            // Veo returns a relative operation resource, either unscoped or
+            // scoped to the submitted model. Never accept URLs or extra paths.
+            const string root = "operations/";
+            var scoped = "models/" + model + "/" + root;
+            string id;
+            if (name!.StartsWith(root, StringComparison.Ordinal)) id = name.Substring(root.Length);
+            else if (name.StartsWith(scoped, StringComparison.Ordinal)) id = name.Substring(scoped.Length);
+            else return false;
+            if (id.Length == 0 || id is "." or "..") return false;
+            foreach (var c in id)
+                if (!(c is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9' or '-' or '_' or '.' or '~')) return false;
+            return true;
         }
 
         public Task<ProviderStatusOutcome> GetStatusAsync(ProviderJobHandle handle, CancellationToken ct) => GetStatusCoreAsync(handle, ct, false);

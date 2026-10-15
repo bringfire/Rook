@@ -16,6 +16,48 @@ namespace Rook.Tests.Services.Vision.Video
 {
     public class VideoFalFallbackManagerTests
     {
+        [Theory]
+        [InlineData(false, false)]
+        [InlineData(false, true)]
+        [InlineData(true, false)]
+        [InlineData(true, true)]
+        public async Task EndpointPriceControlsDispatchCapAndDurablePricing(bool rejectedGoogle, bool sufficientCap)
+        {
+            var catalog = new FalVeoBindingCatalog(FalVeoCompatibilityTests.ActiveCatalog().All.Select(b =>
+                b.SubmitEndpoint == "fal-ai/veo3.1/image-to-video" ? b with {
+                    RatesUsdPerSecond = new Dictionary<string, decimal> { ["1080p"] = .90m }, PricingSource = "i2v-specific"
+                } : b));
+            using var rig = new Rig(catalog: catalog);
+            if (rejectedGoogle) rig.Google.Submit = (r, ct) => Task.FromResult<ProviderSubmitOutcome>(new FailedSubmitOutcome(new GenerationError(GenerationErrorCode.DependencyUnavailable, "rejected", false, null, "rook.veo.key_rejected")));
+            else rig.Secrets.Google = null;
+            var input = MediaRef.ForArtifact(Guid.NewGuid(), "image");
+            rig.Media.Values[input] = FalVeoCompatibilityTests.Image(1280, 720);
+            var intent = VideoRequestIntent.Normalize(VideoRouteQuoteTests.Intent().Request.With(mode: VideoMode.I2V, startFrame: input), new JsonObject());
+            var submit = await rig.Submit(intent, new(null, sufficientCap ? 7.20m : 3.20m));
+            if (!sufficientCap && !rejectedGoogle)
+            {
+                Assert.Null(submit.JobId);
+                Assert.Equal("cost_cap_exceeded", submit.GenerationError!.ProviderErrorCode);
+                Assert.Equal(0, rig.Fal.Submits);
+                return;
+            }
+            Assert.NotNull(submit.JobId); await Limit(rig.Done.Task);
+            var record = rig.Record(submit.JobId!.Value);
+            if (!sufficientCap)
+            {
+                Assert.Equal(VideoJobState.Error, record.State);
+                Assert.Equal("cost_cap_exceeded", record.Error!.ProviderErrorCode);
+                Assert.Equal(0, rig.Fal.Submits);
+                return;
+            }
+            Assert.Equal(VideoJobState.Complete, record.State);
+            Assert.Equal("fal", record.Provider);
+            Assert.Equal(.90m, record.Pricing.UnitPriceUsd);
+            Assert.Equal(7.20m, record.Pricing.TotalUsd);
+            Assert.Equal("i2v-specific", record.Pricing.PricingSource);
+            Assert.Equal(1, rig.Fal.Submits);
+        }
+
         internal static byte[] ValidVideoBytes()
         {
             var root = new DirectoryInfo(AppContext.BaseDirectory);
@@ -71,11 +113,11 @@ namespace Rook.Tests.Services.Vision.Video
             internal readonly VideoJobManager Manager;
             internal readonly VideoRouteQuoteService Quotes;
             internal readonly VideoSubmissionCoordinator Coordinator;
-            internal Rig(Func<ArtifactStore, VideoPublicationService>? publication = null, IVideoPosterSidecarProducer? poster = null)
+            internal Rig(Func<ArtifactStore, VideoPublicationService>? publication = null, IVideoPosterSidecarProducer? poster = null, IVideoProvider? googleProvider = null, FalVeoBindingCatalog? catalog = null)
             {
                 Ledger = new(Path.Combine(DirectoryPath, "ledger.jsonl")); Store = new(Path.Combine(DirectoryPath, "artifacts"));
-                var catalog = FalVeoCompatibilityTests.ActiveCatalog();
-                var registry = new DefaultVideoProviderRegistry(new IVideoProviderRegistration[] { new VeoProviderRegistration(Google), new Registration(Fal, catalog) });
+                catalog ??= FalVeoCompatibilityTests.ActiveCatalog();
+                var registry = new DefaultVideoProviderRegistry(new IVideoProviderRegistration[] { new VeoProviderRegistration(googleProvider ?? Google), new Registration(Fal, catalog) });
                 var coordinator = Coordinator = new VideoSubmissionCoordinator(registry, catalog, Secrets);
                 Quotes = new(coordinator, Media, Clock);
                 Manager = new(registry, Media, Ledger, new VideoCostEstimator(), Store, Clock, null, TimeSpan.Zero, 2, null, posterProducer: poster, coordinator: coordinator, routeQuotes: Quotes, deadlineTimer: Timer, publication: publication?.Invoke(Store));

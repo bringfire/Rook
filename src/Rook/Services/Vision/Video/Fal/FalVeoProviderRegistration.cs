@@ -10,7 +10,7 @@ namespace Rook.Services.Vision.Video.Fal
         public FalVeoProviderRegistration(FalVideoProvider provider, FalVeoBindingCatalog catalog)
         {
             Provider = provider;
-            Models = catalog.All.GroupBy(b => b.ModelId).ToDictionary(g => g.Key, g => (g.First().Capability, (IPricingModel<VideoGenerationRequest, VideoCapability>)new PerSecondVideoPricingModel(g.First().RatesUsdPerSecond, g.First().PricingSource)));
+            Models = catalog.All.GroupBy(b => b.ModelId).ToDictionary(g => g.Key, g => (g.First().Capability, (IPricingModel<VideoGenerationRequest, VideoCapability>)new FalVeoPricingModel(catalog)));
         }
         public string ProviderName => "fal";
         public IVideoProvider Provider { get; }

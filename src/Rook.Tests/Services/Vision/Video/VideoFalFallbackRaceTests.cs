@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,6 +14,76 @@ namespace Rook.Tests.Services.Vision.Video
 {
     public class VideoFalFallbackRaceTests
     {
+        // Model the worker having selected its failure before the stop wins the
+        // transition gate. Invoke the actual commit boundary after that stop.
+        [Fact]
+        public async Task DeferredFailureCannotOverwriteDurableDeadline()
+        {
+            using var rig = new Rig(); var polling = Signal<bool>();
+            rig.Google.Poll = (h, ct) => { polling.TrySetResult(true); return Signal<ProviderStatusOutcome>().Task; };
+            var submit = await rig.Submit(); await Limit(polling.Task);
+            Func<VideoJobRecord, VideoJobRecord> deferredFailure = record => VideoJobRecordFactory.WithState(record,
+                VideoJobState.Error, rig.Clock.UtcNow(), error: new GenerationError(GenerationErrorCode.ExecutionFailed,
+                    "Deferred failure.", false));
+            rig.Timer.Fire(); await rig.Manager.CancelAsync(submit.JobId!.Value, default); await Limit(rig.Done.Task);
+            var stopped = rig.Record(submit.JobId.Value);
+            Assert.Equal(VideoJobState.Interrupted, stopped.State);
+            TryDeferredCommit(rig.Manager, submit.JobId.Value, deferredFailure);
+            var final = rig.Record(submit.JobId.Value);
+            Assert.Equal(stopped.State, final.State);
+            Assert.Equal(stopped.Error, final.Error);
+            Assert.Equal("deadline", VideoExecutionSnapshot.Read(final).Snapshot!.Data["first_stop_reason"]!.GetValue<string>());
+        }
+
+        [Fact]
+        public async Task DeferredFailureCannotOverwriteDurableCompletion()
+        {
+            using var rig = new Rig();
+            var submit = await rig.Submit(); await Limit(rig.Done.Task);
+            var completed = rig.Record(submit.JobId!.Value);
+            Assert.Equal(VideoJobState.Complete, completed.State);
+            TryDeferredCommit(rig.Manager, submit.JobId.Value, record => record with { State = VideoJobState.Error });
+            Assert.Equal(VideoJobState.Complete, rig.Record(submit.JobId.Value).State);
+            Assert.Equal(completed.ResultArtifactId, rig.Record(submit.JobId.Value).ResultArtifactId);
+        }
+
+        [Fact]
+        public async Task LatchedStopPreventsFailureBeforeCancellationSignal()
+        {
+            using var rig = new Rig(); var polling = Signal<bool>(); var selected = Signal<bool>();
+            using var release = new ManualResetEventSlim();
+            rig.Google.Poll = (h, ct) => { polling.TrySetResult(true); return Signal<ProviderStatusOutcome>().Task; };
+            var submit = await rig.Submit(); await Limit(polling.Task);
+            var job = RoutedJob(rig.Manager, submit.JobId!.Value);
+            var budget = (VideoExecutionBudget)job.GetType().GetField("Budget", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(job)!;
+            budget.AfterStopSelectedForTests = () => { selected.TrySetResult(true); release.Wait(); };
+            var stop = Task.Run(() => rig.Timer.Fire());
+            try
+            {
+                await Limit(selected.Task);
+                Assert.False(budget.Token.IsCancellationRequested);
+                TryDeferredCommit(rig.Manager, submit.JobId.Value, record => record with { State = VideoJobState.Error });
+                Assert.Equal(VideoJobState.Polling, rig.Record(submit.JobId.Value).State);
+            }
+            finally { release.Set(); }
+            await stop; await Limit(rig.Done.Task);
+            Assert.Equal(VideoJobState.Interrupted, rig.Record(submit.JobId.Value).State);
+        }
+
+        private static object RoutedJob(VideoJobManager manager, Guid id)
+        {
+            var jobs = typeof(VideoJobManager).GetField("_routedJobs", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(manager)!;
+            return jobs.GetType().GetProperty("Item")!.GetValue(jobs, new object[] { id })!;
+        }
+
+        private static void TryDeferredCommit(VideoJobManager manager, Guid id, Func<VideoJobRecord, VideoJobRecord> update)
+        {
+            const BindingFlags hidden = BindingFlags.Instance | BindingFlags.NonPublic;
+            var job = RoutedJob(manager, id);
+            try { typeof(VideoJobManager).GetMethod("CommitRouted", hidden)!.Invoke(manager, new[] { job, update }); }
+            catch (TargetInvocationException error) when (error.InnerException is OperationCanceledException) { }
+        }
+
         [Fact]
         public async Task HeldResponseSnapshotRestoresUncertainty()
         {
