@@ -117,6 +117,10 @@ namespace Rook.Services.Vision.Image.Jobs
                 ["updated_at"] = r.UpdatedAt.ToString("o", CultureInfo.InvariantCulture),
             };
 
+            var routing = ImageRoutingCodec.ToJson(new ImageRoutingContext(r.ImageRoute, r.CredentialFailure), r.FalDispatchState);
+            if (!ImageRoutingCodec.TryRead(routing, r.Provider, r.Model, out _, out _, out var invalidField))
+                throw new ArgumentException("Invalid image routing field: " + invalidField);
+            foreach (var property in routing) obj[property.Key] = property.Value?.DeepClone();
             return obj.ToJsonString(new JsonSerializerOptions
             {
                 WriteIndented = false,
@@ -216,6 +220,8 @@ namespace Rook.Services.Vision.Image.Jobs
                 || !TryParseTimestamp(updatedAtText, out var updatedAt))
                 return (null, MissingField(lineNumber, "updated_at"));
 
+            if (!ImageRoutingCodec.TryRead(obj, provider!, model!, out var routing, out var dispatch, out var field))
+                return (null, MissingField(lineNumber, field!));
             return (new ImageJobLedgerRecord(
                 SchemaVersion: schemaVersion.Value,
                 JobId: jobId,
@@ -226,7 +232,10 @@ namespace Rook.Services.Vision.Image.Jobs
                 ResultArtifactId: resultArtifactId,
                 Error: error,
                 CreatedAt: createdAt,
-                UpdatedAt: updatedAt), null);
+                UpdatedAt: updatedAt,
+                ImageRoute: routing?.Route,
+                CredentialFailure: routing?.CredentialFailure,
+                FalDispatchState: dispatch), null);
         }
 
         private static (GenerationError? Error, ImageJobLedgerReadError? ReadError)

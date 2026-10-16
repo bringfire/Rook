@@ -41,7 +41,12 @@ namespace Rook.Tests.UI.Chat
                         coordinator.Enqueue(new ConversationCloseRequest(
                             new Uri("http://127.0.0.1:8765"), "shutdown-control", null));
 
-                    drain = coordinator.DrainAsync(TimeSpan.FromMilliseconds(100));
+                    // The completed-close case tests context independence, not
+                    // whether pool delivery beats a 100ms timer. Its blocking
+                    // assertion remains bounded below; the separate deadline
+                    // case still exercises the real timeout.
+                    drain = coordinator.DrainAsync(scenario == "completed-close"
+                        ? Timeout.InfiniteTimeSpan : TimeSpan.FromMilliseconds(100));
                     if (scenario == "completed-close") release.TrySetResult(true);
 
                     // Match shutdown's blocking, non-pumping caller, but put a safety

@@ -14,6 +14,8 @@ if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
 $SourceMetadataPath = Join-Path $PSScriptRoot 'rook-ffmpeg-source.json'
 $ConfigureRecipePath = Join-Path $PSScriptRoot 'rook-ffmpeg-configure.txt'
 $AllowlistPath = Join-Path $PSScriptRoot 'rook-ffmpeg-enable-allowlist.json'
+$ZlibMetadataPath = Join-Path $PSScriptRoot 'rook-zlib-source.json'
+$ZlibMetadata = Get-Content -LiteralPath $ZlibMetadataPath -Raw | ConvertFrom-Json
 
 $SourceMetadata = Get-Content -LiteralPath $SourceMetadataPath -Raw | ConvertFrom-Json
 $ConfigureArgs = @(Get-Content -LiteralPath $ConfigureRecipePath | Where-Object {
@@ -71,6 +73,21 @@ function Convert-ToMsysPath {
     return $fullPath.Replace('\', '/').Replace('C:', '/c')
 }
 
+function Reset-OwnedDirectory {
+    param([string]$Path)
+    $root = [IO.Path]::GetFullPath($OutputRoot).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+    $target = [IO.Path]::GetFullPath($Path)
+    if (-not $target.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) { throw 'Cleanup target escapes output root.' }
+    # Do not cross a junction/reparse point while recursively deleting staging.
+    $cursor = $target
+    while ($cursor.Length -ge $root.TrimEnd('\').Length) {
+        if ((Test-Path -LiteralPath $cursor) -and ((Get-Item -LiteralPath $cursor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Staging path contains a reparse point.' }
+        $cursor = Split-Path -Parent $cursor
+    }
+    if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
+    New-Item -ItemType Directory -Path $target -Force | Out-Null
+}
+
 function Invoke-Msys2 {
     param([string]$Command)
     $env:MSYSTEM = 'UCRT64'
@@ -110,23 +127,47 @@ Invoke-Msys2 -Command "gpg --batch --yes --dearmor --output '$(Convert-ToMsysPat
 Invoke-Msys2 -Command "gpgv --keyring '$(Convert-ToMsysPath $TrustedKeyringPath)' '$(Convert-ToMsysPath $SignaturePath)' '$(Convert-ToMsysPath $ArchivePath)'"
 $SignatureStatus = 'verified'
 
+$ZlibArchive = Join-Path $Downloads $ZlibMetadata.source_archive
+Save-RemoteFile -Uri $ZlibMetadata.source_url -OutFile $ZlibArchive
+Assert-Sha256 -Path $ZlibArchive -Expected $ZlibMetadata.source_sha256
+$ZlibRoot = Join-Path $BuildRoot 'zlib'
+$ZlibPrefix = Join-Path $BuildRoot 'zlib-prefix'
+Reset-OwnedDirectory $ZlibRoot
+Reset-OwnedDirectory $ZlibPrefix
+$zlibForBash = Convert-ToMsysPath $ZlibRoot
+$prefixForBash = Convert-ToMsysPath $ZlibPrefix
+Invoke-Msys2 -Command "set -euo pipefail; tar -xf '$(Convert-ToMsysPath $ZlibArchive)' -C '$zlibForBash' --strip-components=1; cd '$zlibForBash'; ./configure --static --prefix='$prefixForBash'; make -j4; make install"
+$ZlibStatic = Join-Path $ZlibPrefix 'lib/libz.a'
+Assert-Tool -Path $ZlibStatic -Name 'owned static zlib archive'
+$ZlibArchiveHash = (Get-FileHash -LiteralPath $ZlibStatic -Algorithm SHA256).Hash
+$ZlibLicense = Join-Path $ZlibRoot 'LICENSE'
+Assert-Tool -Path $ZlibLicense -Name 'official zlib license'
+
 $configureForBash = ($ConfigureArgs | ForEach-Object { "'$($_.Replace("'", "'\''"))'" }) -join ' '
 $archiveForBash = Convert-ToMsysPath $ArchivePath
 $buildForBash = Convert-ToMsysPath $BuildRoot
+Reset-OwnedDirectory (Join-Path $BuildRoot 'src')
 $bashScript = @"
 set -euo pipefail
-rm -rf '$buildForBash/src'
-mkdir -p '$buildForBash/src'
 tar -xf '$archiveForBash' -C '$buildForBash/src' --strip-components=1
 cd '$buildForBash/src'
+# The owned prefix precedes all system search paths. Static-only archive: no zlib DLL.
+export CPATH='$prefixForBash/include'
+export LIBRARY_PATH='$prefixForBash/lib'
+export PKG_CONFIG_LIBDIR='$prefixForBash/lib/pkgconfig'
 ./configure $configureForBash
-make -j`$(nproc) ffmpeg.exe
+make -j4 ffmpeg.exe
 "@
 
 $bashScriptPath = Join-Path $StageRoot 'build-ffmpeg.sh'
 Set-Content -LiteralPath $bashScriptPath -Value $bashScript -Encoding ASCII
 
 Invoke-Msys2 -Command "bash '$(Convert-ToMsysPath $bashScriptPath)'"
+
+$LinkMapPath = Join-Path $BuildRoot 'src/rook-link.map'
+$linkMap = (Get-Content -LiteralPath $LinkMapPath -Raw).Replace('\', '/')
+if (-not $linkMap.Contains('../zlib-prefix/lib/libz.a(')) { throw 'Link map did not prove linkage of the owned static zlib archive.' }
+if ($linkMap -match '(?i)(?:ucrt64|mingw64)[/\\]lib[/\\]libz') { throw 'Link map selected system zlib.' }
 
 $BuiltExe = Join-Path $BuildRoot 'src\ffmpeg.exe'
 if (-not (Test-Path -LiteralPath $BuiltExe -PathType Leaf)) {
@@ -155,6 +196,10 @@ Copy-Item -LiteralPath $ConfigureRecipePath -Destination (Join-Path $BundleRoot 
 Copy-Item -LiteralPath $SourceMetadataPath -Destination (Join-Path $BundleRoot 'rook-ffmpeg-source.json') -Force
 Copy-Item -LiteralPath $AllowlistPath -Destination (Join-Path $BundleRoot 'rook-ffmpeg-enable-allowlist.json') -Force
 Copy-Item -LiteralPath $PSCommandPath -Destination (Join-Path $BundleRoot 'build-rook-ffmpeg.ps1') -Force
+Copy-Item -LiteralPath $ZlibArchive -Destination (Join-Path $BundleRoot $ZlibMetadata.source_archive) -Force
+Copy-Item -LiteralPath $ZlibMetadataPath -Destination (Join-Path $BundleRoot 'rook-zlib-source.json') -Force
+Copy-Item -LiteralPath $ZlibLicense -Destination (Join-Path $BundleRoot 'LICENSE.zlib.txt') -Force
+Copy-Item -LiteralPath $LinkMapPath -Destination (Join-Path $BundleRoot 'rook-link.map') -Force
 
 $SourceBundleZip = Join-Path $StageRoot "rook-ffmpeg-$($SourceMetadata.version)-source-bundle.zip"
 if (Test-Path -LiteralPath $SourceBundleZip) {
@@ -180,11 +225,14 @@ $BundleManifestPath = Join-Path $StageRoot 'rook-ffmpeg-source-bundle-manifest.j
     build_recipe_path = 'scripts/ffmpeg/build-rook-ffmpeg.ps1'
     generated_at = [DateTimeOffset]::UtcNow.ToString('o')
     generated_by = 'scripts/ffmpeg/build-rook-ffmpeg.ps1'
+    zlib = $ZlibMetadata
+    zlib_static_archive_sha256 = $ZlibArchiveHash
 } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $BundleManifestPath -Encoding UTF8
 
 if ($InstallPayload) {
     New-Item -ItemType Directory -Force $PayloadDir | Out-Null
     Copy-Item -LiteralPath $BuiltExe -Destination (Join-Path $PayloadDir 'ffmpeg.exe') -Force
+    Copy-Item -LiteralPath $ZlibLicense -Destination (Join-Path $PayloadDir 'LICENSE.zlib.txt') -Force
 
     $BinaryHash = (Get-FileHash -LiteralPath (Join-Path $PayloadDir 'ffmpeg.exe') -Algorithm SHA256).Hash
     [ordered]@{
@@ -220,6 +268,8 @@ if ($InstallPayload) {
         verified_at = [DateTimeOffset]::UtcNow.ToString('o')
         verified_by = 'Rook minimal FFmpeg build recipe'
         notes = 'Built by Rook from official FFmpeg source for video sidecar extraction via ffmpeg.exe subprocess only.'
+        zlib = $ZlibMetadata
+        zlib_static_archive_sha256 = $ZlibArchiveHash
     } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $PayloadDir 'ffmpeg-provenance.json') -Encoding UTF8
 }
 

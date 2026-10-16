@@ -13252,8 +13252,8 @@ Returns the full profile JSON including features, surfaces, and elements.""",
         # Submit/estimate accept media references by artifact_id ONLY.
         # Inline base64 and local file paths are rejected at the
         # managed boundary (VideoOpHandler.ParseMediaRef) per D2.1.
-        # Generation requires a Veo API key persisted via Vision
-        # settings; managed surfaces a clear error envelope otherwise.
+        # Google 3.1 uses Google first and compatible, lifecycle-qualified fal fallback.
+        # Credential presence and new-submission availability are separate metadata.
         Tool(
             name="rhino_render_video",
             description=(
@@ -13267,7 +13267,7 @@ Returns the full profile JSON including features, surfaces, and elements.""",
                 "runs in the background. Poll rhino_video_status for progress, "
                 "then rhino_video_result once state == 'complete'. Use "
                 "rhino_video_estimate to dry-run cost before submitting. "
-                "Requires a Veo API key persisted via Vision settings."
+                "Google 3.1 uses Google first with compatible fal fallback for missing or definitively rejected Google credentials, subject to endpoint availability. Direct fal is intentional. Estimate first; pass its estimate_fingerprint and maximum_estimated_cost_usd as max_estimated_cost_usd to bind confirmation to the quoted request, media, routes, and prices. Unknown submissions are never replayed automatically."
             ),
             inputSchema={
                 "type": "object",
@@ -13277,13 +13277,16 @@ Returns the full profile JSON including features, surfaces, and elements.""",
                     "duration_seconds": {"type": "integer", "description": "Clip length in seconds (model-dependent — see capability.durations)."},
                     "resolution": {"type": "string", "description": "Output resolution (model-dependent — see capability.resolutions)."},
                     "aspect_ratio": {"type": "string", "description": "Output aspect ratio (model-dependent — see capability.aspect_ratios)."},
-                    "options": {"type": "object", "description": "Provider-specific typed options. For Veo: {person_generation: 'dont_allow'|'allow_adult'|'allow_all'}."},
+                    "source_framing": {"type": "string", "enum": ["fit", "fill"], "description": "Optional automatic source preparation for Veo 3.1 i2v/interp. fit preserves the whole image with black padding; fill center-crops to the output shape. Explicit framing requires the estimate fingerprint and numeric cost cap at submit; originals stay unchanged."},
+                    "options": {"type": "object", "description": "Provider-specific options. Google 3.1 options {} uses mode defaults; explicit person_generation preserves that policy and can prevent fal fallback. Other Google models require person_generation. Direct fal Veo options {} uses its fixed profile."},
                     "prompt": {"type": "string", "description": "Optional generation prompt."},
                     "start_frame": {"type": "object", "description": "Optional input frame for i2v / interp. Shape: {kind: 'artifact_id', artifact_id: '<uuid>', role?: '<role>'}."},
                     "end_frame": {"type": "object", "description": "Optional terminal frame for interp mode. Same shape as start_frame."},
                     "reference_frames": {"type": "array", "items": {"type": "object"}, "description": "Optional style/identity reference frames. Each entry shares the start_frame shape."},
                     "seed": {"type": "integer", "description": "Optional deterministic seed."},
                     "number_of_videos": {"type": "integer", "description": "Omit or set to 1; v1 policy rejects any other value (CapabilityValidator). Multi-variant generation is not yet supported."},
+                    "estimate_fingerprint": {"type": "string", "description": "Optional versioned fingerprint from rhino_video_estimate; requires max_estimated_cost_usd. A stale quote requires fresh human confirmation."},
+                    "max_estimated_cost_usd": {"type": "number", "minimum": 0, "description": "Maximum authorized estimate in USD for a single route. Cap-only legacy clients authorize any compatible route within the cap."},
                     "port": {"type": "integer", "description": "Specific Rhino port to target."},
                 },
                 "required": ["model", "mode", "duration_seconds", "resolution", "aspect_ratio", "options"],
@@ -13351,8 +13354,7 @@ Returns the full profile JSON including features, surfaces, and elements.""",
                 "aspect_ratio, options, optional number_of_videos). Returns "
                 "{dollars_usd, model, resolution, duration_seconds, "
                 "number_of_videos, breakdown[], pricing}. No provider call, "
-                "no job created — pure pricing math against the resolved "
-                "model's PricingModel."
+                "no job created. Google 3.1 estimates inspect local source media and return conditional route prices, maximum_estimated_cost_usd, and estimate_fingerprint. Confirm that fingerprint and bound at submission; prices are estimates, not final billing."
             ),
             inputSchema={
                 "type": "object",
@@ -13362,12 +13364,13 @@ Returns the full profile JSON including features, surfaces, and elements.""",
                     "duration_seconds": {"type": "integer", "description": "Clip length in seconds."},
                     "resolution": {"type": "string", "description": "Output resolution."},
                     "aspect_ratio": {"type": "string", "description": "Output aspect ratio."},
+                    "source_framing": {"type": "string", "enum": ["fit", "fill"], "description": "Optional automatic source preparation for Veo 3.1 i2v/interp. fit adds black padding; fill center-crops. Estimate returns source_preparation evidence bound into the confirmation fingerprint. Omit for legacy requests."},
                     "options": {"type": "object", "description": "Provider-specific typed options (same shape as rhino_render_video)."},
-                    "prompt": {"type": "string", "description": "Optional prompt (not used for pricing; accepted for parity with submit)."},
+                    "prompt": {"type": "string", "description": "Optional prompt; included in the confirmed request fingerprint."},
                     "start_frame": {"type": "object", "description": "Optional media ref (same shape as rhino_render_video)."},
                     "end_frame": {"type": "object", "description": "Optional media ref."},
                     "reference_frames": {"type": "array", "items": {"type": "object"}, "description": "Optional reference media refs."},
-                    "seed": {"type": "integer", "description": "Optional seed (not used for pricing)."},
+                    "seed": {"type": "integer", "description": "Optional seed; included in the confirmed request fingerprint."},
                     "number_of_videos": {"type": "integer", "description": "Omit or set to 1; v1 policy rejects any other value (CapabilityValidator)."},
                     "port": {"type": "integer", "description": "Specific Rhino port to target."},
                 },

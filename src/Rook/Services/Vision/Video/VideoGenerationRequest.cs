@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Video.Framing;
 
 namespace Rook.Services.Vision.Video
 {
@@ -39,7 +40,8 @@ namespace Rook.Services.Vision.Video
             IReadOnlyList<MediaRef>? ReferenceFrames,
             int? Seed,
             ProviderOptions Options,
-            int NumberOfVideos)
+            int NumberOfVideos,
+            SourceFramingMode? SourceFraming = null)
             : base(Model, Options)
         {
             this.Mode = Mode;
@@ -52,6 +54,7 @@ namespace Rook.Services.Vision.Video
             this.ReferenceFrames = ReferenceFrames;
             this.Seed = Seed;
             this.NumberOfVideos = NumberOfVideos;
+            this.SourceFraming = SourceFraming;
         }
 
         public VideoMode Mode { get; }
@@ -64,6 +67,7 @@ namespace Rook.Services.Vision.Video
         public IReadOnlyList<MediaRef>? ReferenceFrames { get; }
         public int? Seed { get; }
         public int NumberOfVideos { get; }
+        public SourceFramingMode? SourceFraming { get; }
 
         public VideoGenerationRequest With(
             string? model = null,
@@ -77,7 +81,8 @@ namespace Rook.Services.Vision.Video
             IReadOnlyList<MediaRef>? referenceFrames = null,
             int? seed = null,
             ProviderOptions? options = null,
-            int? numberOfVideos = null) =>
+            int? numberOfVideos = null,
+            SourceFramingMode? sourceFraming = null) =>
             new VideoGenerationRequest(
                 model ?? Model,
                 mode ?? Mode,
@@ -90,7 +95,8 @@ namespace Rook.Services.Vision.Video
                 referenceFrames ?? ReferenceFrames,
                 seed ?? Seed,
                 options ?? Options,
-                numberOfVideos ?? NumberOfVideos);
+                numberOfVideos ?? NumberOfVideos,
+                sourceFraming ?? SourceFraming);
 
         public VideoGenerationRequest WithPrompt(string? prompt) =>
             new VideoGenerationRequest(
@@ -105,6 +111,7 @@ namespace Rook.Services.Vision.Video
                 ReferenceFrames,
                 Seed,
                 Options,
-                NumberOfVideos);
+                NumberOfVideos,
+                SourceFraming);
     }
 }

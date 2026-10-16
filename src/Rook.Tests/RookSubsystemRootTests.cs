@@ -8,6 +8,17 @@ namespace Rook.Tests
     public class RookSubsystemRootTests
     {
         [Fact]
+        public void ImageJobsSharesOneExecutorWithItsManager()
+        {
+            var root = new RookSubsystemRoot(null, null, new Rook.Tests.Services.Vision.Video.FakeVideoJobLedger(),
+                new Rook.Tests.Services.Vision.Image.Jobs.FakeImageJobLedger());
+            var bundle = root.ImageJobs;
+            var field = bundle.Manager.GetType().GetField("_submissionExecutor",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+            Assert.Same(bundle.Executor, field.GetValue(bundle.Manager));
+            root.DisposeCreatedSubsystems();
+        }
+        [Fact]
         public void ImageJobs_factory_wires_replicate_authenticated_output_selector()
         {
             var source = File.ReadAllText(FindSourceFile(

@@ -18,6 +18,7 @@ namespace Rook.Services.Vision.Video
     /// </summary>
     public sealed record JobFetchResult
     {
+        internal VideoExecutionProjection? Execution { get; init; }
         public VideoJobState State { get; }
         public Guid? ResultArtifactId { get; }
         public IReadOnlyList<JobResultFile>? Files { get; }

@@ -9,10 +9,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using Rook.Services.Vision.Fal;
 using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Video.Framing;
 
 namespace Rook.Services.Vision.Video.Fal
 {
-    public sealed class FalVideoProvider : IModelAwareVideoProvider
+    public sealed class FalVideoProvider : IModelAwareVideoProvider, IPreparedMediaVideoProvider
     {
         private static readonly Uri WanEndpoint =
             new("https://queue.fal.run/fal-ai/wan/v2.7/text-to-video");
@@ -45,6 +46,10 @@ namespace Rook.Services.Vision.Video.Fal
         private readonly Func<string?> _apiKeyProvider;
         private readonly FalApiClient _client;
         private readonly IFalSourceFrameTransport _sourceFrameTransport;
+        private readonly FalVeoQueueAdapter _veo;
+
+        Task<ProviderSubmitOutcome> IPreparedMediaVideoProvider.SubmitPreparedAsync(VideoGenerationRequest request, VideoPreparedMediaSnapshot preparedMedia, Action beforeDispatch, CancellationToken ct, VideoPreparationLease? phase = null) =>
+            _veo.SubmitPreparedAsync(request, preparedMedia, beforeDispatch, ct, phase);
 
         public FalVideoProvider(Func<string?> apiKeyProvider, FalApiClient? client = null)
             : this(apiKeyProvider, client, sourceFrameTransport: null)
@@ -54,13 +59,16 @@ namespace Rook.Services.Vision.Video.Fal
         internal FalVideoProvider(
             Func<string?> apiKeyProvider,
             FalApiClient? client,
-            IFalSourceFrameTransport? sourceFrameTransport)
+            IFalSourceFrameTransport? sourceFrameTransport,
+            FalVeoBindingCatalog? veoBindings = null)
         {
             _apiKeyProvider = apiKeyProvider
                 ?? throw new ArgumentNullException(nameof(apiKeyProvider));
             _client = client ?? new FalApiClient();
             _sourceFrameTransport =
                 sourceFrameTransport ?? new FalSourceFrameTransport(_client);
+            _veo = new FalVeoQueueAdapter(_apiKeyProvider, _client, veoBindings ?? new FalVeoBindingCatalog(),
+                _sourceFrameTransport as IFalVeoSourceFrameTransport ?? new FalSourceFrameTransport(_client));
         }
 
         public string ProviderName => FalVideoCapabilities.ProviderName;
@@ -541,6 +549,7 @@ namespace Rook.Services.Vision.Video.Fal
             ProviderJobHandle handle,
             CancellationToken ct)
         {
+            if (VideoSubmissionCoordinator.IsAffectedModel(modelId)) return _veo.GetStatusAsync(handle, ct);
             if (string.Equals(modelId, FalVideoCapabilities.WanT2v, StringComparison.Ordinal))
                 return GetStatusAsync(handle, ct);
 
@@ -652,6 +661,7 @@ namespace Rook.Services.Vision.Video.Fal
             ProviderJobHandle handle,
             CancellationToken ct)
         {
+            if (VideoSubmissionCoordinator.IsAffectedModel(modelId)) return _veo.CancelAsync(handle, ct);
             if (string.Equals(modelId, FalVideoCapabilities.WanT2v, StringComparison.Ordinal))
                 return CancelAsync(handle, ct);
 
@@ -750,6 +760,7 @@ namespace Rook.Services.Vision.Video.Fal
             ProviderJobHandle handle,
             CancellationToken ct)
         {
+            if (VideoSubmissionCoordinator.IsAffectedModel(modelId)) return _veo.FetchResultAsync(handle, ct);
             if (string.Equals(modelId, FalVideoCapabilities.WanT2v, StringComparison.Ordinal))
                 return FetchResultAsync(handle, ct);
 

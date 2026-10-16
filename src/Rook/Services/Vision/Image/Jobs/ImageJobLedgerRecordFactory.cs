@@ -74,10 +74,21 @@ namespace Rook.Services.Vision.Image.Jobs
             DateTimeOffset now,
             string? providerJobId = null,
             Guid? resultArtifactId = null,
-            GenerationError? error = null)
+            GenerationError? error = null,
+            ResolvedImageModel? effectiveModel = null,
+            ImageRoutingContext? routing = null,
+            ImageFalDispatchState? falDispatchState = null)
         {
             if (prior is null) throw new ArgumentNullException(nameof(prior));
 
+            var route = routing is null ? prior.ImageRoute : routing.Route;
+            if (route != null && prior.ImageRoute is { } previous &&
+                route.RequestedModel == previous.RequestedModel && route.EffectiveModel == previous.EffectiveModel)
+                route = route with
+                {
+                    GenerationDispatchAttempted = route.GenerationDispatchAttempted || previous.GenerationDispatchAttempted,
+                    Phase = (ImageExecutionPhase)Math.Max((int)route.Phase, (int)previous.Phase)
+                };
             return prior with
             {
                 State = state,
@@ -87,6 +98,12 @@ namespace Rook.Services.Vision.Image.Jobs
                 ResultArtifactId = resultArtifactId ?? prior.ResultArtifactId,
                 Error = SanitizeError(error) ?? prior.Error,
                 UpdatedAt = now,
+                Provider = effectiveModel?.ProviderName ?? routing?.Route?.EffectiveProvider ?? prior.Provider,
+                Model = effectiveModel?.ModelId ?? routing?.Route?.EffectiveModel ?? prior.Model,
+                ImageRoute = route,
+                CredentialFailure = routing is null ? prior.CredentialFailure : routing.CredentialFailure,
+                FalDispatchState = (int?)falDispatchState > (int?)prior.FalDispatchState
+                    || prior.FalDispatchState is null ? falDispatchState ?? prior.FalDispatchState : prior.FalDispatchState,
             };
         }
 

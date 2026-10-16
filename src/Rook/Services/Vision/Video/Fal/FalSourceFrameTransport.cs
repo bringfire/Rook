@@ -4,19 +4,50 @@ using System.Threading;
 using System.Threading.Tasks;
 using Rook.Services.Vision.Fal;
 using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Video.Framing;
 using Rook.Services.Vision.Image;
 
 namespace Rook.Services.Vision.Video.Fal
 {
-    internal sealed class FalSourceFrameTransport : IFalSourceFrameTransport
+    internal sealed class FalSourceFrameTransport : IFalSourceFrameTransport, IFalVeoSourceFrameTransport
     {
         public const int SourceMediaExpirationSeconds = 3600;
 
         private readonly FalApiClient _client;
+        private readonly FfmpegVideoSourceValidator _veoSourceValidator;
 
-        public FalSourceFrameTransport(FalApiClient client)
+        public async Task<(FalVeoSourceUrls? Urls, GenerationError? Error)> ResolveAndUploadVeoAsync(FalVeoBinding binding, VideoGenerationRequest request, VideoPreparedMediaSnapshot preparedMedia, string apiKey, CancellationToken ct, VideoPreparationLease? phase = null)
+        {
+            using var ownedPhase = phase == null ? await VideoPreparationResources.Shared.AcquireAsync(ct).ConfigureAwait(false) : null;
+            phase ??= ownedPhase!;
+            var error = await FalVeoCompatibility.ValidateForUploadAsync(VideoRequestIntent.Normalize(request, new FalVeoOptionsCodec().Serialize(request.Options)),
+                binding, preparedMedia, phase, _veoSourceValidator, ct).ConfigureAwait(false);
+            if (error != null) return (null, error);
+            var uploaded = new Dictionary<string, string>();
+            string? start = null, end = null;
+            var references = new List<string>();
+            foreach (var slot in preparedMedia.Slots)
+            {
+                ct.ThrowIfCancellationRequested();
+                var contentKey = slot.MimeType + ":" + slot.Sha256;
+                if (!uploaded.TryGetValue(contentKey, out var url))
+                {
+                    var extension = slot.MimeType == "image/png" ? "png" : slot.MimeType == "image/jpeg" ? "jpg" : "webp";
+                    using var bytes = slot.Buffer.CopyOwned(phase.Buffers);
+                    url = await _client.UploadFileToCdnAsync(apiKey, "rook-veo-source." + extension, bytes.Bytes, slot.MimeType, FalUploadPlatformHeaders.ForSourceUpload(SourceMediaExpirationSeconds), ct).ConfigureAwait(false);
+                    uploaded.Add(contentKey, url);
+                }
+                if (slot.Role == "start_frame") start = url;
+                else if (slot.Role == "end_frame") end = url;
+                else references.Add(url);
+            }
+            return (new FalVeoSourceUrls(start, end, references.AsReadOnly()), null);
+        }
+
+        public FalSourceFrameTransport(FalApiClient client, FfmpegVideoSourceValidator? veoSourceValidator = null)
         {
             _client = client ?? throw new ArgumentNullException(nameof(client));
+            _veoSourceValidator = veoSourceValidator ?? new FfmpegVideoSourceValidator();
         }
 
         public async Task<(FalSourceFrameUrls? Urls, GenerationError? Error)> ResolveAndUploadAsync(

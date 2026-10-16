@@ -18,6 +18,7 @@ namespace Rook.Services.Vision.Video
 
     internal enum VideoSidecarBackfillArtifactResultCode
     {
+        SkippedNotDurablyPublished,
         Attempted,
         SkippedNotGeneratedVideo,
         SkippedNoVideoRole,
@@ -94,17 +95,20 @@ namespace Rook.Services.Vision.Video
         private readonly IVideoPosterSidecarProducer _posterProducer;
         private readonly IVideoFrameSidecarProducer _frameProducer;
         private readonly IVideoSidecarBackfillClock _clock;
+        private readonly Func<Artifact, bool>? _videoArtifactIsVisible;
 
         public VideoSidecarBackfillService(
             ArtifactStore store,
             IVideoPosterSidecarProducer posterProducer,
             IVideoFrameSidecarProducer frameProducer,
-            IVideoSidecarBackfillClock? clock = null)
+            IVideoSidecarBackfillClock? clock = null,
+            Func<Artifact, bool>? videoArtifactIsVisible = null)
         {
             _store = store ?? throw new ArgumentNullException(nameof(store));
             _posterProducer = posterProducer ?? throw new ArgumentNullException(nameof(posterProducer));
             _frameProducer = frameProducer ?? throw new ArgumentNullException(nameof(frameProducer));
             _clock = clock ?? new SystemVideoSidecarBackfillClock();
+            _videoArtifactIsVisible = videoArtifactIsVisible;
         }
 
         public async Task<VideoSidecarBackfillResult> BackfillMissingSidecarsAsync(
@@ -126,6 +130,12 @@ namespace Rook.Services.Vision.Video
             foreach (var artifact in _store.Enumerate())
             {
                 scanned++;
+                if (VideoPublicationService.IsAffectedArtifact(artifact))
+                {
+                    bool visible;
+                    try { visible = _videoArtifactIsVisible?.Invoke(artifact) ?? false; } catch { visible = false; }
+                    if (!visible) { artifactResults.Add(new VideoSidecarBackfillArtifactResult(artifact.Id, VideoSidecarBackfillArtifactResultCode.SkippedNotDurablyPublished, Array.Empty<string>(), Array.Empty<VideoSidecarBackfillRoleResult>())); continue; }
+                }
                 if (!string.Equals(artifact.Kind, GeneratedVideoKind, StringComparison.Ordinal))
                 {
                     artifactResults.Add(new VideoSidecarBackfillArtifactResult(

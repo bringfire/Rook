@@ -48,6 +48,128 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
                 Directory.Delete(_root, recursive: true);
         }
 
+        private ImageExecutionSnapshot SeedRoute(ImageJobManager manager, Guid id)
+        {
+            var now = _clock.UtcNow();
+            var record = new ImageJobRecord(id, ImageJobState.Submitting, GeminiImageCapabilities.NanoBanana2,
+                "gemini", now, now);
+            SetRecord(manager, record);
+            _ledger.Append(ImageJobLedgerRecordFactory.FromInitial(id, "gemini",
+                GeminiImageCapabilities.NanoBanana2, ImageJobState.Submitting, now));
+            using var fixture = new ImageFallbackFixture(geminiKey: null);
+            fixture.Registry.TryResolve("fal-ai/nano-banana-2", out var fal);
+            var context = new ImageExecutionContext();
+            context.SelectFallback(fixture.Request(fal.ModelId), fal, new ImageRouteReceipt("gemini",
+                GeminiImageCapabilities.NanoBanana2, "fal", fal.ModelId, fal.ModelId + "/edit",
+                ImageFallbackReason.GeminiKeyMissing, ImageExecutionPhase.Validation, false));
+            return context.Snapshot();
+        }
+
+        [Fact]
+        public async Task CancellationCommitsBeforeStaleRoute()
+        {
+            using var manager = Manager();
+            var id = Guid.NewGuid();
+            var route = SeedRoute(manager, id);
+            using var entered = new ManualResetEventSlim();
+            using var release = new ManualResetEventSlim();
+            var once = 0;
+            manager.BeforeTransitionGateForTests = _ =>
+            { if (Interlocked.Increment(ref once) == 1) { entered.Set(); Assert.True(release.Wait(5000)); } };
+            var preparation = Task.Run(() => manager.PrepareEffectiveRouteAsync(id, route, CancellationToken.None));
+            Assert.True(entered.Wait(5000));
+            Assert.Equal(ImageJobState.Cancelled, (await manager.CancelAsync(id, CancellationToken.None)).State);
+            release.Set();
+            Assert.NotNull(await preparation);
+            using var fresh = Manager();
+            Assert.Equal(ImageJobState.Cancelled, (await fresh.GetStatusAsync(id, CancellationToken.None)).State);
+            Assert.Equal(ImageJobState.Cancelled, _ledger.AllRecords.Last().State);
+        }
+
+        [Fact]
+        public async Task RouteAppendInProgressCancellationWaitsAndWins()
+        {
+            using var manager = Manager();
+            var id = Guid.NewGuid(); var route = SeedRoute(manager, id);
+            using var entered = new ManualResetEventSlim();
+            using var release = new ManualResetEventSlim();
+            _ledger.BeforeAppend = r =>
+            { if (r.ImageRoute != null && r.State == ImageJobState.Submitting) { entered.Set(); Assert.True(release.Wait(5000)); } };
+            var preparation = Task.Run(() => manager.PrepareEffectiveRouteAsync(id, route, CancellationToken.None));
+            Assert.True(entered.Wait(5000));
+            var cancel = Task.Run(() => manager.CancelAsync(id, CancellationToken.None));
+            Assert.NotSame(cancel, await Task.WhenAny(cancel, Task.Delay(50)));
+            release.Set(); await preparation;
+            Assert.Equal(ImageJobState.Cancelled, (await cancel).State);
+            using var fresh = Manager();
+            Assert.Equal(ImageJobState.Cancelled, (await fresh.GetStatusAsync(id, CancellationToken.None)).State);
+            Assert.Equal("fal", _ledger.AllRecords.Last().Provider);
+            Assert.NotNull(_ledger.AllRecords.Last().ImageRoute);
+        }
+
+        [Fact]
+        public async Task DispatchIntentAppendFailureDeniesAdmission()
+        {
+            using var manager = Manager();
+            var id = Guid.NewGuid(); var route = SeedRoute(manager, id);
+            Assert.Null(await manager.PrepareEffectiveRouteAsync(id, route, CancellationToken.None));
+            var context = new ImageExecutionContext();
+            context.SelectFallback(route.EffectiveRequest!, route.EffectiveModel!, route.Routing!.Route!);
+            _ledger.BeforeAppend = r =>
+            { if (r.FalDispatchState == ImageFalDispatchState.IntentRecorded) throw new IOException("intent blocked"); };
+            Assert.NotNull(await manager.PrepareGenerationDispatchAsync(id, context, CancellationToken.None));
+            Assert.Equal(ImageFalDispatchState.NotStarted, context.Snapshot().FalDispatchState);
+            Assert.NotEqual(ImageFalDispatchState.IntentRecorded, _ledger.AllRecords.Last().FalDispatchState);
+        }
+
+        [Fact]
+        public async Task CompletionAdmittedBeforeCancellationRetainsArtifact()
+        {
+            using var manager = Manager();
+            using var entered = new ManualResetEventSlim();
+            using var release = new ManualResetEventSlim();
+            _ledger.BeforeAppend = r =>
+            { if (r.State == ImageJobState.Complete) { entered.Set(); Assert.True(release.Wait(5000)); } };
+            var submit = await manager.SubmitAsync(Start(), CancellationToken.None);
+            Assert.True(entered.Wait(5000));
+            var cancel = Task.Run(() => manager.CancelAsync(submit.JobId!.Value, CancellationToken.None));
+            Assert.NotSame(cancel, await Task.WhenAny(cancel, Task.Delay(50)));
+            release.Set();
+            Assert.Equal(ImageJobState.Complete, (await cancel).State);
+            using var fresh = Manager();
+            var status = await fresh.GetStatusAsync(submit.JobId!.Value, CancellationToken.None);
+            Assert.Equal(ImageJobState.Complete, status.State);
+            Assert.NotNull(_artifactStore.Get(status.ResultArtifactId!.Value));
+        }
+
+        [Fact]
+        public async Task TotalAppendFailureDoesNotClaimDurableCancellation()
+        {
+            using var manager = Manager();
+            var id = Guid.NewGuid(); SeedRoute(manager, id);
+            _ledger.BeforeAppend = _ => throw new IOException("disk unavailable");
+            var cancelled = await manager.CancelAsync(id, CancellationToken.None);
+            Assert.NotNull(cancelled.Error);
+            Assert.Equal(ImageJobState.Error, (await manager.GetStatusAsync(id, CancellationToken.None)).State);
+            using var fresh = Manager();
+            Assert.Equal(ImageJobState.Submitting, (await fresh.GetStatusAsync(id, CancellationToken.None)).State);
+            Assert.Equal(ImageJobState.Submitting, _ledger.AllRecords.Last().State);
+            Assert.Equal(ImageJobState.Error, Assert.Single((await manager.ListJobsAsync(10, CancellationToken.None)).Jobs).State);
+        }
+
+        [Fact]
+        public async Task CompleteAppendFailureCleansUncommittedArtifact()
+        {
+            _ledger.BeforeAppend = r => { if (r.State == ImageJobState.Complete) throw new IOException("publication blocked"); };
+            using var manager = Manager();
+            var submit = await manager.SubmitAsync(Start(), CancellationToken.None);
+            var status = await WaitForTerminalAsync(manager, submit.JobId!.Value);
+            Assert.Equal(ImageJobState.Error, status.State);
+            Assert.Null(status.ResultArtifactId);
+            await WaitForRunningJobCountAsync(manager, 0);
+            await WaitForArtifactCountAsync(0);
+        }
+
         [Fact]
         public async Task SubmitAsync_SyncProvider_CompletesAndWritesArtifact()
         {

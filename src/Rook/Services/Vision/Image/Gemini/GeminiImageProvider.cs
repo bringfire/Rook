@@ -46,12 +46,13 @@ namespace Rook.Services.Vision.Image.Gemini
                     "options");
 
             var apiKey = _apiKeyProvider();
-            if (string.IsNullOrEmpty(apiKey))
+            if (string.IsNullOrWhiteSpace(apiKey))
             {
-                return Failed(
+                return new FailedSubmitOutcome(new GenerationError(
                     GenerationErrorCode.DependencyUnavailable,
                     "Gemini API key is not configured. Set it via the Vision settings " +
-                    "before calling /vision/generate.");
+                    "before calling /vision/generate.", false,
+                    ProviderErrorCode: ImageCredentialErrors.GeminiMissing));
             }
 
             try
@@ -335,6 +336,10 @@ namespace Rook.Services.Vision.Image.Gemini
             var providerCode = TryGetString(errorObject?["status"], out var statusText)
                 ? statusText
                 : errorObject?["code"]?.ToJsonString();
+            if (GoogleCredentialErrors.IsRejectedKey(status, errorObject))
+                providerCode = ImageCredentialErrors.GeminiRejected;
+            else if (ImageCredentialErrors.IsReserved(providerCode))
+                providerCode = "upstream." + providerCode;
             var message = TryGetString(errorObject?["message"], out var messageText)
                 ? messageText
                 : null;

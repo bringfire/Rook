@@ -1,0 +1,295 @@
+{
+  "schema_version": 1,
+  "origin": "Original Rook synthetic fixtures, MIT; no third-party photographs.",
+  "generator": {
+    "script": "generate-fixtures.py",
+    "pillow": "10.4.0"
+  },
+  "pixel_oracles": {
+    "markers": {
+      "top": [
+        240,
+        20,
+        20
+      ],
+      "bottom": [
+        20,
+        240,
+        20
+      ],
+      "left": [
+        20,
+        20,
+        240
+      ],
+      "right": [
+        240,
+        220,
+        20
+      ],
+      "center": [
+        100,
+        20,
+        180
+      ]
+    },
+    "alpha": {
+      "transparent": [
+        0,
+        0,
+        0
+      ],
+      "half_alpha": [
+        120,
+        20,
+        10
+      ]
+    },
+    "orientation": "Pillow ImageOps.exif_transpose on the independently encoded JPEG; per-orientation oracle PNGs.",
+    "ordinary_fit": {
+      "canvas": [
+        1920,
+        1080
+      ],
+      "scaled": [
+        1380,
+        1080
+      ],
+      "offset": [
+        270,
+        0
+      ]
+    },
+    "ordinary_fill": {
+      "canvas": [
+        1920,
+        1080
+      ],
+      "scaled": [
+        1920,
+        1502
+      ],
+      "offset": [
+        0,
+        211
+      ]
+    }
+  },
+  "generated_stress_fixture": {
+    "path": "artifacts/video-framing-fixtures/generated-noise-4k.png",
+    "seed": 1729,
+    "size": [
+      3840,
+      2160
+    ],
+    "mode": "L",
+    "command": "generate-fixtures.py --include-noise"
+  },
+  "files": [
+    {
+      "path": "alpha.png",
+      "sha256": "b33a81ff1ad4b3469d45f451bb297e7bae82acc7c681e6910b5d1fd5488543a8",
+      "bytes": 323
+    },
+    {
+      "path": "alpha.webp",
+      "sha256": "8fa64a1db516beca318a11be2830c89d113c59ee80392786fe0cd3c70feccc6b",
+      "bytes": 52
+    },
+    {
+      "path": "animated.png",
+      "sha256": "75376c93fde5f41da1baf08701a26f56b1b11a63bf440b1a84fcd44f36b7fd3a",
+      "bytes": 751
+    },
+    {
+      "path": "animated.webp",
+      "sha256": "9cc1b9f96f35fe5a2c564a392bd2b8b908c1f1d89e38693cbb59318132ed7c3b",
+      "bytes": 376
+    },
+    {
+      "path": "chunk-overflow.webp",
+      "sha256": "e8a2ffac568429d314550124269b70423026eadbaca4f39b2e036cb184b61a92",
+      "bytes": 52
+    },
+    {
+      "path": "corrupt-animation.png",
+      "sha256": "0830f03f0326dbcee28f48491312ef963515617bd61675c079b2de25ce0af378",
+      "bytes": 381
+    },
+    {
+      "path": "corrupt-crc.png",
+      "sha256": "edc33cea99ff77d8ee19123da2276d90833cc882806949e17c6dd1f9b82724da",
+      "bytes": 323
+    },
+    {
+      "path": "cyclic-exif.png",
+      "sha256": "56367934461f91dd34147439057ac5dd42c4fc926425d067100cbeb883eecf4b",
+      "bytes": 349
+    },
+    {
+      "path": "declared-single.png",
+      "sha256": "7a18d850add16ea516e4b8f45c6560f7a1f2c77f87757114dd4a28331b10e22b",
+      "bytes": 381
+    },
+    {
+      "path": "declared-single.webp",
+      "sha256": "88265be24654e508ef035ae6d621ebe4116fc1a6700ef8fd0916ef3ff65c7229",
+      "bytes": 326
+    },
+    {
+      "path": "depth16.png",
+      "sha256": "089e08a1dec2ba31621c026ddde060d3b9ed6437cc70532e6620a6eec7e392a2",
+      "bytes": 552
+    },
+    {
+      "path": "extreme-16384x720.png",
+      "sha256": "6851a6357ffb453bd097426efa2a207e6f4e53e316f6e46c8329696605884e38",
+      "bytes": 36751
+    },
+    {
+      "path": "matching.png",
+      "sha256": "2e7227a2a095d928525a434879c1525a6ab1ee307c63ff28dcd58d28ffe1bb2c",
+      "bytes": 4376
+    },
+    {
+      "path": "odd-119x73.png",
+      "sha256": "a327b90f0d0d073a439599fb73743c8d6c4c0d6a4142cf7c3f9a24466210cd75",
+      "bytes": 303
+    },
+    {
+      "path": "orientation-1-oracle.png",
+      "sha256": "7305d16da35234f5ecf20492967cced189dc355d09d105221b1428c8516eb992",
+      "bytes": 1544
+    },
+    {
+      "path": "orientation-1.jpg",
+      "sha256": "94d741c0d02abc125561e16d5100dbf32aad7c854ed882a733e2e46eb1322d0e",
+      "bytes": 3679
+    },
+    {
+      "path": "orientation-2-oracle.png",
+      "sha256": "245f9961aebacbbbb8c1e4730efa7a9f95139021741365efc727435210cdafe0",
+      "bytes": 1539
+    },
+    {
+      "path": "orientation-2.jpg",
+      "sha256": "83bf2c1c0ef2306742b110f1946e994d7588143cdeb46eb9b9497d452ef546b0",
+      "bytes": 3679
+    },
+    {
+      "path": "orientation-3-oracle.png",
+      "sha256": "6ac242b47ad9178231ea4e9ad213a4c2dfb1ecb400d92489e174b4bcb9abd039",
+      "bytes": 1548
+    },
+    {
+      "path": "orientation-3.jpg",
+      "sha256": "0974c95f1c9cbdf0df35e3b7e188fd5a9084620d30d920f4ba2aaea1c1d6c83b",
+      "bytes": 3679
+    },
+    {
+      "path": "orientation-4-oracle.png",
+      "sha256": "014a7aff4e4494bda8c018d662bfd4814f4f97f5411c8fa8c305ae447a8622d0",
+      "bytes": 1540
+    },
+    {
+      "path": "orientation-4.jpg",
+      "sha256": "7b6cb87ec5a87cb2a768174dd3ebaeca32232e7180d783590c9cb23031176caf",
+      "bytes": 3679
+    },
+    {
+      "path": "orientation-5-oracle.png",
+      "sha256": "f03c62d683c8face781fe61c260d82a2d06a2597c21bca22f9218e3a943ed276",
+      "bytes": 1466
+    },
+    {
+      "path": "orientation-5.jpg",
+      "sha256": "687818029f717d791a105d6d9552e4cb3b887772f819dcfed29662428440b003",
+      "bytes": 3679
+    },
+    {
+      "path": "orientation-6-oracle.png",
+      "sha256": "03149ca5bfc99fc80a41203d6e83306410e8f595d68d69437b5d47dcc772c1d1",
+      "bytes": 1451
+    },
+    {
+      "path": "orientation-6.jpg",
+      "sha256": "ab9f28e48b25b86c7ff1e9c0c879256ca82159684bd229911a46fefcc6090399",
+      "bytes": 3679
+    },
+    {
+      "path": "orientation-6.png",
+      "sha256": "41c9d5594bd7ead15b7d67edc0188d8ec4f6170a19de78253c093d0d3ae27e15",
+      "bytes": 355
+    },
+    {
+      "path": "orientation-6.webp",
+      "sha256": "7e5680480ef7fff5318d2bf18667f27dfa74675cb999d8309fa52f0905afa52b",
+      "bytes": 158
+    },
+    {
+      "path": "orientation-7-oracle.png",
+      "sha256": "89b3265a2fe06065362e2f6836564bb050e71589926ace29d1484c6e1679ecd9",
+      "bytes": 1466
+    },
+    {
+      "path": "orientation-7.jpg",
+      "sha256": "f74f2a81ee9e0782717f3d3127eb368a237b0e262c8ad8ccbd0103fe390ea8bc",
+      "bytes": 3679
+    },
+    {
+      "path": "orientation-8-oracle.png",
+      "sha256": "205db1aa11914b2ad009add48f4cfb8f8ba4312d6626b3ec95fa9385ac84b4d9",
+      "bytes": 1463
+    },
+    {
+      "path": "orientation-8.jpg",
+      "sha256": "6ff6c49c5ddfca3ee10671a2f16cf3a939205a00f82bf9bec3dc0376a5e7f039",
+      "bytes": 3679
+    },
+    {
+      "path": "palette.png",
+      "sha256": "02ce528a08027ab41e40f5d09ba58acd235c74ec6dbad96687b276224178ae71",
+      "bytes": 995
+    },
+    {
+      "path": "portrait.png",
+      "sha256": "735a9494de4fc9b6520b3721ef4ed0dc10ba403414b6830aa72b3931c6710de5",
+      "bytes": 5588
+    },
+    {
+      "path": "rgb-1166x912-lossless.webp",
+      "sha256": "0b5cd3421bb42f1c81937a865c1388f4391eaf8421526162ffd496cfc55ae4be",
+      "bytes": 302
+    },
+    {
+      "path": "rgb-1166x912-lossy.webp",
+      "sha256": "0c7dc3777db919f6095e1c6b84d1835c40fc77ea21f3c2d946817c778d8c1898",
+      "bytes": 3192
+    },
+    {
+      "path": "rgb-1166x912.jpg",
+      "sha256": "31c6906ec598196161ed113446a92523c72ce6656a0bbdc8d9f25f2e2dba4cbe",
+      "bytes": 55774
+    },
+    {
+      "path": "rgb-1166x912.png",
+      "sha256": "f94e0305e65553b5a511eac319f00b68a7961dd51094a07f93086ead2d99af5b",
+      "bytes": 5273
+    },
+    {
+      "path": "rgb-icc-private.png",
+      "sha256": "0031d5d24229f645aeb96a96d5eacb88dbbb4881f735435114194d0eef53bb4d",
+      "bytes": 5716
+    },
+    {
+      "path": "square.png",
+      "sha256": "eaedc899f9a48e76da880cc6a281b8f3ad5f731dfdda58db3bbdbf912d7fe085",
+      "bytes": 4590
+    },
+    {
+      "path": "thin.png",
+      "sha256": "6b4a36d93e93c6ea4747b3a22a9378f2bd8ed996adce0c7174d09b059893fa71",
+      "bytes": 131
+    }
+  ]
+}

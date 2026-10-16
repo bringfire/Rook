@@ -2,6 +2,7 @@ using System;
 using Rook.Artifacts;
 using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Image.Vertex;
+using Rook.Services.Vision.Video.Framing;
 
 namespace Rook.Services.Vision.Video
 {
@@ -15,7 +16,8 @@ namespace Rook.Services.Vision.Video
         VideoJobManager Manager,
         IVideoProviderRegistry Registry,
         IVideoCostEstimator Estimator,
-        IVideoSidecarBackfillService SidecarBackfill);
+        IVideoSidecarBackfillService SidecarBackfill,
+        VideoFramingPreparationService Framing);
 
     /// <summary>
     /// Pure composition for the video subsystem. Stateless; the same
@@ -59,28 +61,38 @@ namespace Rook.Services.Vision.Video
                     () => generationSecrets.GetSecret(GenerationSecretKeys.FalApiKey),
                     vertexAccessTokenSource));
 
-            var mediaResolver = new ArtifactOnlyVideoMediaResolver(artifactStore);
+            VideoJobManager? manager = null;
+            var mediaResolver = new ArtifactOnlyVideoMediaResolver(artifactStore, VideoPreparationResources.Shared,
+                artifact => manager?.IsArtifactVisible(artifact) == true);
+            var framing = new VideoFramingPreparationService(mediaResolver, new VideoFramingCache());
             var actualLedger = ledger ?? new JsonlVideoJobLedger();
             var estimator = new VideoCostEstimator();
+            var clock = new SystemVideoJobClock();
+            var coordinator = new VideoSubmissionCoordinator(registry, new Fal.FalVeoBindingCatalog(), generationSecrets);
+            var routeQuotes = new VideoRouteQuoteService(coordinator, mediaResolver, clock, framing);
 
-            var manager = new VideoJobManager(
+            manager = new VideoJobManager(
                 registry: registry,
                 mediaResolver: mediaResolver,
                 ledger: actualLedger,
                 estimator: estimator,
-                artifactStore: artifactStore);
+                artifactStore: artifactStore,
+                clock: clock, idGenerator: null, pollInterval: null, maxConcurrentJobs: VideoJobManager.DefaultMaxConcurrentJobs,
+                materializer: null, coordinator: coordinator, routeQuotes: routeQuotes);
 
             var actualSidecarBackfill = sidecarBackfill
                 ?? new VideoSidecarBackfillService(
                     artifactStore,
                     new VideoPosterSidecarProducer(artifactStore),
-                    new VideoFrameSidecarProducer(artifactStore));
+                    new VideoFrameSidecarProducer(artifactStore),
+                    videoArtifactIsVisible: manager.IsArtifactVisible);
 
             return new VideoSubsystemBundle(
                 manager,
                 registry,
                 estimator,
-                actualSidecarBackfill);
+                actualSidecarBackfill,
+                framing);
         }
     }
 }

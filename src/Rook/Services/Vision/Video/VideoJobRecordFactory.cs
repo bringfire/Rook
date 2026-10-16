@@ -154,7 +154,8 @@ namespace Rook.Services.Vision.Video
                 EndFrame: ToNormalized(req.EndFrame),
                 ReferenceFrames: ToNormalizedList(req.ReferenceFrames),
                 Seed: req.Seed,
-                NumberOfVideos: req.NumberOfVideos);
+                NumberOfVideos: req.NumberOfVideos,
+                SourceFraming: req.SourceFraming);
         }
 
         private static NormalizedMediaRef? ToNormalized(Rook.Services.Vision.Generation.MediaRef? r) =>

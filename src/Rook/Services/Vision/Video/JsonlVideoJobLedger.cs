@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Video.Framing;
 
 namespace Rook.Services.Vision.Video
 {
@@ -78,6 +79,8 @@ namespace Rook.Services.Vision.Video
                     _filePath, FileMode.Append, FileAccess.Write, FileShare.Read);
                 using var writer = new StreamWriter(stream, new UTF8Encoding(false));
                 writer.WriteLine(line);
+                writer.Flush();
+                stream.Flush(flushToDisk: true);
             }
         }
 
@@ -162,7 +165,7 @@ namespace Rook.Services.Vision.Video
             var refs = req.ReferenceFrames is null ? null : new JsonArray(
                 req.ReferenceFrames.Select(SerializeMediaRef).ToArray<JsonNode?>());
 
-            return new JsonObject
+            var result = new JsonObject
             {
                 ["mode"] = req.Mode.ToString(),
                 ["duration_seconds"] = req.DurationSeconds,
@@ -175,6 +178,8 @@ namespace Rook.Services.Vision.Video
                 ["seed"] = req.Seed,
                 ["number_of_videos"] = req.NumberOfVideos,
             };
+            if (req.SourceFraming != null) result["source_framing"] = req.SourceFraming.Value.Wire();
+            return result;
         }
 
         private static JsonObject SerializeMediaRef(NormalizedMediaRef m) => new()
@@ -449,6 +454,13 @@ namespace Rook.Services.Vision.Video
                 refs = list;
             }
 
+            SourceFramingMode? framing = null;
+            if (obj.ContainsKey("source_framing"))
+            {
+                var wire = TryGetString(obj, "source_framing");
+                if (wire is not ("fit" or "fill")) return (null, MissingField(lineNumber, "normalized_request.source_framing"));
+                framing = wire == "fit" ? SourceFramingMode.Fit : SourceFramingMode.Fill;
+            }
             var value = new NormalizedRequest(
                 Mode: mode,
                 DurationSeconds: duration.Value,
@@ -459,7 +471,8 @@ namespace Rook.Services.Vision.Video
                 EndFrame: endFrame,
                 ReferenceFrames: refs,
                 Seed: seed,
-                NumberOfVideos: count.Value);
+                NumberOfVideos: count.Value,
+                SourceFraming: framing);
 
             return (value, null);
         }

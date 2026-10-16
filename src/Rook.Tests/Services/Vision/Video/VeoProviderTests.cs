@@ -228,7 +228,7 @@ namespace Rook.Tests.Services.Vision.Video
             var outcome = await provider.FetchResultAsync(
                 new ProviderJobHandle(
                     "operations/abc",
-                    providerResultToken: "https://veo/r/x.mp4"),
+                    providerResultToken: "https://generativelanguage.googleapis.com/v1beta/files/test:download"),
                 CancellationToken.None);
 
             var success = Assert.IsType<SuccessResultOutcome>(outcome);
@@ -266,7 +266,7 @@ namespace Rook.Tests.Services.Vision.Video
             var outcome = await provider.FetchResultAsync(
                 new ProviderJobHandle(
                     "operations/abc",
-                    providerResultToken: "https://veo/r/x.mp4"),
+                    providerResultToken: "https://generativelanguage.googleapis.com/v1beta/files/test:download"),
                 CancellationToken.None);
 
             // EnsureSuccessStatusCode throws HttpRequestException → caught →

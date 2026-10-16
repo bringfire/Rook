@@ -1,0 +1,209 @@
+{
+  "estimate": {
+    "success": true,
+    "data": {
+      "dollars_usd": 1.60,
+      "model": "veo-3.1-generate-preview",
+      "resolution": "720p",
+      "duration_seconds": 4,
+      "number_of_videos": 1,
+      "pricing": {
+        "kind": "per_second",
+        "currency": "USD",
+        "quantity": 4,
+        "unit_price_usd": 0.40,
+        "total_usd": 1.60,
+        "pricing_source": "veo-rate-card-v1"
+      },
+      "estimate_fingerprint": "v1:fb9068ee74abe95d483e67c345b3dc1ffb8b1dbb4859272b1ddd0cbb683927bf",
+      "maximum_estimated_cost_usd": 1.60,
+      "candidate_routes": [
+        {
+          "provider": "veo",
+          "model": "veo-3.1-generate-preview",
+          "endpoint": null,
+          "lifecycle_root": null,
+          "capability": {
+            "id": "veo-3.1-generate-preview",
+            "status": "preview",
+            "resolutions": [
+              "720p",
+              "1080p",
+              "4k"
+            ],
+            "durations": [
+              4,
+              6,
+              8
+            ],
+            "aspects": [
+              "16:9",
+              "9:16"
+            ],
+            "modes": [
+              "T2V",
+              "I2V",
+              "Interp"
+            ],
+            "supports_references": true,
+            "references": 3,
+            "must_8s_with": [
+              "1080p",
+              "4k",
+              "referenceImages"
+            ]
+          },
+          "supports_seed": null,
+          "effective_options": {
+            "person_generation": "allow_all"
+          },
+          "profile": null,
+          "framing": null,
+          "continuity_verified": null,
+          "cutoff": null,
+          "documentation": null,
+          "verified_on": null,
+          "reference_framing_verified": null,
+          "pricing_source": "veo-rate-card-v1",
+          "pricing_revision": "veo-rate-card-v1",
+          "currency": "USD",
+          "unit_rate": 0.40,
+          "total": 1.60,
+          "eligible": true,
+          "incompatible_field": null
+        },
+        {
+          "provider": "fal",
+          "model": "fal-ai/veo3.1",
+          "endpoint": "fal-ai/veo3.1",
+          "lifecycle_root": "fal-ai/veo3.1",
+          "capability": {
+            "id": "fal-ai/veo3.1",
+            "status": "preview",
+            "resolutions": [
+              "720p",
+              "1080p",
+              "4k"
+            ],
+            "durations": [
+              4,
+              6,
+              8
+            ],
+            "aspects": [
+              "16:9",
+              "9:16"
+            ],
+            "modes": [
+              "T2V",
+              "I2V",
+              "Interp"
+            ],
+            "supports_references": true,
+            "references": 3,
+            "must_8s_with": [
+              "1080p",
+              "4k",
+              "referenceImages"
+            ]
+          },
+          "supports_seed": true,
+          "effective_options": {
+            "generate_audio": true,
+            "auto_fix": false,
+            "safety_tolerance": "4"
+          },
+          "profile": "fal-veo-candidate-v1",
+          "framing": "exact-selected-ratio-v1",
+          "continuity_verified": true,
+          "cutoff": null,
+          "documentation": "https://fal.ai/models/fal-ai/veo3.1/api",
+          "verified_on": "2026-10-14T00:00:00.0000000\u002B00:00",
+          "reference_framing_verified": true,
+          "pricing_source": "fal-veo-candidate-rates-2026-10-14",
+          "pricing_revision": "2026-10-14",
+          "currency": "USD",
+          "unit_rate": 0.40,
+          "total": 1.60,
+          "eligible": true,
+          "incompatible_field": null
+        }
+      ],
+      "primary_provider": "veo",
+      "source_preparation": null
+    }
+  },
+  "direct_missing": {
+    "success": true,
+    "data": {
+      "state": "error",
+      "error": {
+        "code": "dependency_unavailable",
+        "message": "Safe provider failure.",
+        "retryable": false,
+        "field": null
+      },
+      "requested_provider": "fal",
+      "requested_model": "fal-ai/veo3.1",
+      "effective_provider": "fal",
+      "effective_model": "fal-ai/veo3.1",
+      "credential_failure": {
+        "provider": "fal",
+        "kind": "missing",
+        "secret_key": "fal.api_key",
+        "source": "local_configuration"
+      },
+      "video_route": null,
+      "submission_outcome_unknown": false,
+      "execution_stopped": false,
+      "stop_persistence": null
+    }
+  },
+  "direct_rejected": {
+    "success": true,
+    "data": {
+      "state": "error",
+      "error": {
+        "code": "dependency_unavailable",
+        "message": "Safe provider failure.",
+        "retryable": false,
+        "field": null
+      },
+      "requested_provider": "fal",
+      "requested_model": "fal-ai/veo3.1",
+      "effective_provider": "fal",
+      "effective_model": "fal-ai/veo3.1",
+      "credential_failure": {
+        "provider": "fal",
+        "kind": "rejected",
+        "secret_key": "fal.api_key",
+        "source": "provider_response"
+      },
+      "video_route": null,
+      "submission_outcome_unknown": false,
+      "execution_stopped": false,
+      "stop_persistence": null
+    }
+  },
+  "direct_403": {
+    "success": true,
+    "data": {
+      "state": "error",
+      "error": {
+        "code": "dependency_unavailable",
+        "message": "Safe provider failure.",
+        "retryable": false,
+        "field": null
+      },
+      "requested_provider": "fal",
+      "requested_model": "fal-ai/veo3.1",
+      "effective_provider": "fal",
+      "effective_model": "fal-ai/veo3.1",
+      "credential_failure": null,
+      "video_route": null,
+      "submission_outcome_unknown": false,
+      "execution_stopped": false,
+      "stop_persistence": null
+    }
+  }
+}

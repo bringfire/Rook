@@ -251,7 +251,7 @@ namespace Rook.Tests.UI.Vision
                 // V2 video — bridge mirrors of the native HTTP routes.
                 "submit_video_job", "cancel_video_job",
                 "get_video_job", "get_video_job_result",
-                "estimate_video_job",
+                "estimate_video_job", "preview_video_framing",
                 // V3 video — bridge-only (NOT in native trampoline).
                 "list_video_jobs", "list_video_models",
                 // Presentation reconciler (spec 2026-06-10) — substrate-
@@ -312,6 +312,7 @@ namespace Rook.Tests.UI.Vision
         // V3 video — both off-UI: ledger reads + registry enumeration.
         [InlineData("list_video_jobs", "OffUi")]
         [InlineData("list_video_models", "OffUi")]
+        [InlineData("preview_video_framing", "Async")]
         // Presentation reconciler — UI-thread (touches the WebView2
         // controller and the Eto async-invoke scheduler).
         [InlineData("get_presentation_diagnostics", "Ui")]
@@ -331,6 +332,7 @@ namespace Rook.Tests.UI.Vision
         [InlineData("estimate_video_job")]
         [InlineData("list_video_jobs")]
         [InlineData("list_video_models")]
+        [InlineData("preview_video_framing")]
         public void VideoOps_Set_Tracks_VideoOpHandler_Constants(string op)
         {
             // Pin: bridge-side video op set is wired to VideoOpHandler's
@@ -341,13 +343,13 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
-        public void VideoOps_Set_HasExactly7Entries()
+        public void VideoOps_Set_HasExactly8Entries()
         {
             // Defensive count pin — no drift between OpRoutes-side video
             // entries and VideoOps-side membership.
             //   5 V2 ops (submit/cancel/status/result/estimate)
             // + 2 V3 bridge-only ops (list_video_jobs, list_video_models)
-            Assert.Equal(7, VisionWebSurface.VideoOps.Count);
+            Assert.Equal(8, VisionWebSurface.VideoOps.Count);
         }
 
         [Theory]
@@ -1477,6 +1479,50 @@ namespace Rook.Tests.UI.Vision
             using var reader = new StreamReader(resource.Content);
             Assert.Equal("fake-png-content", reader.ReadToEnd());
             Assert.Contains("Cache-Control: no-store", resource.ExtraHeaders ?? "");
+        }
+
+        [Fact]
+        public void BlobStreamRejectsProvisionalOrUnknownOwnership()
+        {
+            var id = Guid.NewGuid();
+            var artifact = _store.Create("generated_video", new[] { new BlobInput("video", new byte[] { 1, 2, 3 }, "mp4"), new BlobInput("poster", new byte[] { 4 }, "png"), new BlobInput("start_frame", new byte[] { 4 }, "png"), new BlobInput("end_frame", new byte[] { 4 }, "png") }, metadata: new Dictionary<string, JsonNode?> { ["video_job_id"] = JsonValue.Create(id.ToString("D")) }, flags: new Dictionary<string, JsonNode?> { ["video_publication"] = JsonValue.Create("provisional") });
+            var surface = NewSurface();
+            foreach (var role in new[] { "video", "poster", "start_frame", "end_frame" }) Assert.Equal(404, surface.ResolveVirtualResourceForTest(new Uri($"https://app.rook.invalid/blob/{artifact.Id:D}/{role}"))!.StatusCode);
+        }
+
+        [Fact]
+        public void BlobStreamRequiresMatchingDurableOwnerForEveryRole()
+        {
+            var record = Rook.Tests.Services.Vision.Video.VideoExecutionSnapshotTests.Record();
+            var artifact = _store.Create("generated_video", new[] { "video", "poster", "start_frame", "end_frame" }.Select(role => new BlobInput(role, new byte[] { 7, 8 }, role == "video" ? "mp4" : "png")).ToArray(), metadata: new Dictionary<string, JsonNode?> { ["video_job_id"] = JsonValue.Create(record.JobId.ToString("D")) }, flags: new Dictionary<string, JsonNode?> { ["video_publication"] = JsonValue.Create("provisional") });
+            var service = new Rook.Services.Vision.Video.VideoPublicationService(_store, new Rook.Services.Vision.Video.VideoArtifactMaterializer());
+            foreach (var state in new[] { Rook.Services.Vision.Video.VideoJobState.Queued, Rook.Services.Vision.Video.VideoJobState.Polling, Rook.Services.Vision.Video.VideoJobState.Interrupted, Rook.Services.Vision.Video.VideoJobState.Complete })
+            {
+                var durable = record with { State = state, ResultArtifactId = Guid.NewGuid() };
+                var surface = new VisionWebSurface(new VisionHandler(), null, null, null, _store, a => service.IsVisible(a, durable));
+                foreach (var role in new[] { "video", "poster", "start_frame", "end_frame" }) Assert.Equal(404, surface.ResolveVirtualResourceForTest(new Uri($"https://app.rook.invalid/blob/{artifact.Id:D}/{role}"))!.StatusCode);
+            }
+            var throwing = new VisionWebSurface(new VisionHandler(), null, null, null, _store, a => throw new IOException("unavailable"));
+            Assert.Equal(404, throwing.ResolveVirtualResourceForTest(new Uri($"https://app.rook.invalid/blob/{artifact.Id:D}/video"))!.StatusCode);
+            var malformed = _store.Create("generated_video", new[] { new BlobInput("video", new byte[] { 7 }, "mp4") }, metadata: new Dictionary<string, JsonNode?> { ["video_job_id"] = JsonValue.Create(7) });
+            var guarded = new VisionWebSurface(new VisionHandler(), null, null, null, _store, a => service.IsVisible(a, record with { State = Rook.Services.Vision.Video.VideoJobState.Complete, ResultArtifactId = malformed.Id }));
+            Assert.Equal(404, guarded.ResolveVirtualResourceForTest(new Uri($"https://app.rook.invalid/blob/{malformed.Id:D}/video"))!.StatusCode);
+        }
+        [Fact]
+        public void BlobStreamAllowsDurablyCompletedArtifactWithPendingMarker()
+        {
+            var record = Rook.Tests.Services.Vision.Video.VideoExecutionSnapshotTests.Record();
+            var artifact = _store.Create("generated_video", new[] { new BlobInput("video", new byte[] { 1, 2, 3 }, "mp4"), new BlobInput("poster", new byte[] { 4 }, "png"), new BlobInput("start_frame", new byte[] { 4 }, "png"), new BlobInput("end_frame", new byte[] { 4 }, "png") }, metadata: new Dictionary<string, JsonNode?> { ["video_job_id"] = JsonValue.Create(record.JobId.ToString("D")) }, flags: new Dictionary<string, JsonNode?> { ["video_publication"] = JsonValue.Create("provisional") });
+            record = record with { State = Rook.Services.Vision.Video.VideoJobState.Complete, ResultArtifactId = artifact.Id };
+            var service = new Rook.Services.Vision.Video.VideoPublicationService(_store, new Rook.Services.Vision.Video.VideoArtifactMaterializer());
+            var surface = new VisionWebSurface(new VisionHandler(), null, null, null, _store, a => service.IsVisible(a, record));
+            foreach (var role in new[] { "video", "poster", "start_frame", "end_frame" })
+            {
+                var resource = surface.ResolveVirtualResourceForTest(new Uri($"https://app.rook.invalid/blob/{artifact.Id:D}/{role}"))!;
+                Assert.Equal(200, resource.StatusCode); Assert.Contains("Cache-Control: no-store", resource.ExtraHeaders);
+                using var body = new MemoryStream(); resource.Content.CopyTo(body); resource.Content.Dispose();
+                Assert.Equal(role == "video" ? new byte[] { 1, 2, 3 } : new byte[] { 4 }, body.ToArray());
+            }
         }
 
         [Fact]

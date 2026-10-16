@@ -1,0 +1,1129 @@
+{
+  "catalog_fal_only": {
+    "success": true,
+    "data": {
+      "models": [
+        {
+          "model_id": "gemini-3.1-flash-image-preview",
+          "provider_name": "gemini",
+          "pricing_source": "gemini-per-token-by-modality-stub",
+          "submission_mode": "sync",
+          "credential_availability": "missing_required_secret",
+          "credential_message": "Missing required credential: Gemini API key.",
+          "capability": {
+            "id": "gemini-3.1-flash-image-preview",
+            "name": "Nano Banana 2",
+            "status": "preview",
+            "modality": "image",
+            "sub_capabilities": [
+              "text_to_image",
+              "image_to_image"
+            ],
+            "resolutions": [
+              "512",
+              "1K",
+              "2K",
+              "4K"
+            ],
+            "aspect_ratios": [
+              "1:1",
+              "1:4",
+              "4:1",
+              "1:8",
+              "8:1",
+              "2:3",
+              "3:2",
+              "3:4",
+              "4:3",
+              "4:5",
+              "5:4",
+              "9:16",
+              "16:9",
+              "21:9"
+            ],
+            "max_reference_images": 8,
+            "supports_image_to_image": true,
+            "supports_text_to_image": true
+          },
+          "fallback_available": {
+            "provider_name": "fal",
+            "model_id": "fal-ai/nano-banana-2",
+            "credential_availability": "available_but_unverified",
+            "credential_message": null
+          }
+        },
+        {
+          "model_id": "gemini-3-pro-image-preview",
+          "provider_name": "gemini",
+          "pricing_source": "gemini-per-token-by-modality-stub",
+          "submission_mode": "sync",
+          "credential_availability": "missing_required_secret",
+          "credential_message": "Missing required credential: Gemini API key.",
+          "capability": {
+            "id": "gemini-3-pro-image-preview",
+            "name": "Nano Banana Pro",
+            "status": "preview",
+            "modality": "image",
+            "sub_capabilities": [
+              "text_to_image",
+              "image_to_image"
+            ],
+            "resolutions": [
+              "1K",
+              "2K",
+              "4K"
+            ],
+            "aspect_ratios": [
+              "1:1",
+              "1:4",
+              "4:1",
+              "1:8",
+              "8:1",
+              "2:3",
+              "3:2",
+              "3:4",
+              "4:3",
+              "4:5",
+              "5:4",
+              "9:16",
+              "16:9",
+              "21:9"
+            ],
+            "max_reference_images": 8,
+            "supports_image_to_image": true,
+            "supports_text_to_image": true
+          },
+          "fallback_available": {
+            "provider_name": "fal",
+            "model_id": "fal-ai/nano-banana-pro",
+            "credential_availability": "available_but_unverified",
+            "credential_message": null
+          }
+        },
+        {
+          "model_id": "fal-ai/nano-banana-2",
+          "provider_name": "fal",
+          "pricing_source": "fal-nano-banana-unavailable-2026-10-12",
+          "submission_mode": "sync",
+          "credential_availability": "available_but_unverified",
+          "credential_message": null,
+          "capability": {
+            "id": "fal-ai/nano-banana-2",
+            "name": "Nano Banana 2 (fal.ai)",
+            "status": "available",
+            "modality": "image",
+            "sub_capabilities": [
+              "text_to_image",
+              "image_to_image"
+            ],
+            "resolutions": [
+              "0.5K",
+              "1K",
+              "2K",
+              "4K"
+            ],
+            "aspect_ratios": [
+              "1:1",
+              "1:4",
+              "4:1",
+              "1:8",
+              "8:1",
+              "2:3",
+              "3:2",
+              "3:4",
+              "4:3",
+              "4:5",
+              "5:4",
+              "9:16",
+              "16:9",
+              "21:9"
+            ],
+            "max_reference_images": 8,
+            "supports_image_to_image": true,
+            "supports_text_to_image": true
+          }
+        },
+        {
+          "model_id": "fal-ai/nano-banana-pro",
+          "provider_name": "fal",
+          "pricing_source": "fal-nano-banana-unavailable-2026-10-12",
+          "submission_mode": "sync",
+          "credential_availability": "available_but_unverified",
+          "credential_message": null,
+          "capability": {
+            "id": "fal-ai/nano-banana-pro",
+            "name": "Nano Banana Pro (fal.ai)",
+            "status": "available",
+            "modality": "image",
+            "sub_capabilities": [
+              "text_to_image",
+              "image_to_image"
+            ],
+            "resolutions": [
+              "1K",
+              "2K",
+              "4K"
+            ],
+            "aspect_ratios": [
+              "1:1",
+              "2:3",
+              "3:2",
+              "3:4",
+              "4:3",
+              "4:5",
+              "5:4",
+              "9:16",
+              "16:9",
+              "21:9"
+            ],
+            "max_reference_images": 8,
+            "supports_image_to_image": true,
+            "supports_text_to_image": true
+          }
+        },
+        {
+          "model_id": "fal-ai/flux/schnell",
+          "provider_name": "fal",
+          "pricing_source": "fal-ai/flux/schnell-megapixel-2026-04-29",
+          "submission_mode": "sync",
+          "credential_availability": "available_but_unverified",
+          "credential_message": null,
+          "capability": {
+            "id": "fal-ai/flux/schnell",
+            "name": "FLUX.1 Schnell",
+            "status": "available",
+            "modality": "image",
+            "sub_capabilities": [
+              "text_to_image"
+            ],
+            "resolutions": [
+              "1K"
+            ],
+            "aspect_ratios": [
+              "1:1",
+              "4:3",
+              "3:4",
+              "16:9",
+              "9:16"
+            ],
+            "max_reference_images": 0,
+            "supports_image_to_image": false,
+            "supports_text_to_image": true
+          }
+        },
+        {
+          "model_id": "openai/gpt-image-2/edit",
+          "provider_name": "fal",
+          "pricing_source": "fal-openai-gpt-image-2-edit-2026-05-05",
+          "submission_mode": "async_image_job",
+          "credential_availability": "available_but_unverified",
+          "credential_message": null,
+          "capability": {
+            "id": "openai/gpt-image-2/edit",
+            "name": "GPT Image 2 Edit",
+            "status": "available",
+            "modality": "image",
+            "sub_capabilities": [
+              "image_to_image"
+            ],
+            "resolutions": [
+              "auto"
+            ],
+            "aspect_ratios": [
+              "match_input_image"
+            ],
+            "max_reference_images": 0,
+            "supports_image_to_image": true,
+            "supports_text_to_image": false
+          }
+        }
+      ]
+    }
+  },
+  "fallback_success": {
+    "success": true,
+    "data": {
+      "artifact_id": "11111111-1111-1111-1111-111111111111",
+      "kind": "generated_image",
+      "created_at": "\u003Ctimestamp\u003E",
+      "file_path": "\u003Clocal-file\u003E",
+      "files": [
+        {
+          "role": "image",
+          "path": "image.png"
+        }
+      ],
+      "parent_ids": [
+        "11111111-1111-1111-1111-111111111111",
+        "11111111-1111-1111-1111-111111111111"
+      ],
+      "metadata": {
+        "prompt": "private test prompt",
+        "model": "fal-ai/nano-banana-2",
+        "resolution": "1K",
+        "aspect_ratio": "auto",
+        "mime_type": "image/png",
+        "generated_at": "\u003Ctimestamp\u003E",
+        "reference_count": 1,
+        "provider": "fal",
+        "requested_provider": "gemini",
+        "requested_model": "gemini-3.1-flash-image-preview",
+        "provider_endpoint": "fal-ai/nano-banana-2/edit",
+        "fallback_reason": "gemini_key_missing",
+        "image_route": {
+          "requested_provider": "gemini",
+          "requested_model": "gemini-3.1-flash-image-preview",
+          "effective_provider": "fal",
+          "effective_model": "fal-ai/nano-banana-2",
+          "provider_endpoint": "fal-ai/nano-banana-2/edit",
+          "fallback_reason": "gemini_key_missing",
+          "phase": "publication",
+          "generation_dispatch_attempted": true
+        }
+      },
+      "flags": {}
+    }
+  },
+  "catalog_neither": {
+    "success": true,
+    "data": {
+      "models": [
+        {
+          "model_id": "gemini-3.1-flash-image-preview",
+          "provider_name": "gemini",
+          "pricing_source": "gemini-per-token-by-modality-stub",
+          "submission_mode": "sync",
+          "credential_availability": "missing_required_secret",
+          "credential_message": "Missing required credential: Gemini API key.",
+          "capability": {
+            "id": "gemini-3.1-flash-image-preview",
+            "name": "Nano Banana 2",
+            "status": "preview",
+            "modality": "image",
+            "sub_capabilities": [
+              "text_to_image",
+              "image_to_image"
+            ],
+            "resolutions": [
+              "512",
+              "1K",
+              "2K",
+              "4K"
+            ],
+            "aspect_ratios": [
+              "1:1",
+              "1:4",
+              "4:1",
+              "1:8",
+              "8:1",
+              "2:3",
+              "3:2",
+              "3:4",
+              "4:3",
+              "4:5",
+              "5:4",
+              "9:16",
+              "16:9",
+              "21:9"
+            ],
+            "max_reference_images": 8,
+            "supports_image_to_image": true,
+            "supports_text_to_image": true
+          },
+          "fallback_available": {
+            "provider_name": "fal",
+            "model_id": "fal-ai/nano-banana-2",
+            "credential_availability": "missing_required_secret",
+            "credential_message": "Missing required credential: fal.ai API key."
+          }
+        },
+        {
+          "model_id": "gemini-3-pro-image-preview",
+          "provider_name": "gemini",
+          "pricing_source": "gemini-per-token-by-modality-stub",
+          "submission_mode": "sync",
+          "credential_availability": "missing_required_secret",
+          "credential_message": "Missing required credential: Gemini API key.",
+          "capability": {
+            "id": "gemini-3-pro-image-preview",
+            "name": "Nano Banana Pro",
+            "status": "preview",
+            "modality": "image",
+            "sub_capabilities": [
+              "text_to_image",
+              "image_to_image"
+            ],
+            "resolutions": [
+              "1K",
+              "2K",
+              "4K"
+            ],
+            "aspect_ratios": [
+              "1:1",
+              "1:4",
+              "4:1",
+              "1:8",
+              "8:1",
+              "2:3",
+              "3:2",
+              "3:4",
+              "4:3",
+              "4:5",
+              "5:4",
+              "9:16",
+              "16:9",
+              "21:9"
+            ],
+            "max_reference_images": 8,
+            "supports_image_to_image": true,
+            "supports_text_to_image": true
+          },
+          "fallback_available": {
+            "provider_name": "fal",
+            "model_id": "fal-ai/nano-banana-pro",
+            "credential_availability": "missing_required_secret",
+            "credential_message": "Missing required credential: fal.ai API key."
+          }
+        },
+        {
+          "model_id": "fal-ai/nano-banana-2",
+          "provider_name": "fal",
+          "pricing_source": "fal-nano-banana-unavailable-2026-10-12",
+          "submission_mode": "sync",
+          "credential_availability": "missing_required_secret",
+          "credential_message": "Missing required credential: fal.ai API key.",
+          "capability": {
+            "id": "fal-ai/nano-banana-2",
+            "name": "Nano Banana 2 (fal.ai)",
+            "status": "available",
+            "modality": "image",
+            "sub_capabilities": [
+              "text_to_image",
+              "image_to_image"
+            ],
+            "resolutions": [
+              "0.5K",
+              "1K",
+              "2K",
+              "4K"
+            ],
+            "aspect_ratios": [
+              "1:1",
+              "1:4",
+              "4:1",
+              "1:8",
+              "8:1",
+              "2:3",
+              "3:2",
+              "3:4",
+              "4:3",
+              "4:5",
+              "5:4",
+              "9:16",
+              "16:9",
+              "21:9"
+            ],
+            "max_reference_images": 8,
+            "supports_image_to_image": true,
+            "supports_text_to_image": true
+          }
+        },
+        {
+          "model_id": "fal-ai/nano-banana-pro",
+          "provider_name": "fal",
+          "pricing_source": "fal-nano-banana-unavailable-2026-10-12",
+          "submission_mode": "sync",
+          "credential_availability": "missing_required_secret",
+          "credential_message": "Missing required credential: fal.ai API key.",
+          "capability": {
+            "id": "fal-ai/nano-banana-pro",
+            "name": "Nano Banana Pro (fal.ai)",
+            "status": "available",
+            "modality": "image",
+            "sub_capabilities": [
+              "text_to_image",
+              "image_to_image"
+            ],
+            "resolutions": [
+              "1K",
+              "2K",
+              "4K"
+            ],
+            "aspect_ratios": [
+              "1:1",
+              "2:3",
+              "3:2",
+              "3:4",
+              "4:3",
+              "4:5",
+              "5:4",
+              "9:16",
+              "16:9",
+              "21:9"
+            ],
+            "max_reference_images": 8,
+            "supports_image_to_image": true,
+            "supports_text_to_image": true
+          }
+        },
+        {
+          "model_id": "fal-ai/flux/schnell",
+          "provider_name": "fal",
+          "pricing_source": "fal-ai/flux/schnell-megapixel-2026-04-29",
+          "submission_mode": "sync",
+          "credential_availability": "missing_required_secret",
+          "credential_message": "Missing required credential: fal.ai API key.",
+          "capability": {
+            "id": "fal-ai/flux/schnell",
+            "name": "FLUX.1 Schnell",
+            "status": "available",
+            "modality": "image",
+            "sub_capabilities": [
+              "text_to_image"
+            ],
+            "resolutions": [
+              "1K"
+            ],
+            "aspect_ratios": [
+              "1:1",
+              "4:3",
+              "3:4",
+              "16:9",
+              "9:16"
+            ],
+            "max_reference_images": 0,
+            "supports_image_to_image": false,
+            "supports_text_to_image": true
+          }
+        },
+        {
+          "model_id": "openai/gpt-image-2/edit",
+          "provider_name": "fal",
+          "pricing_source": "fal-openai-gpt-image-2-edit-2026-05-05",
+          "submission_mode": "async_image_job",
+          "credential_availability": "missing_required_secret",
+          "credential_message": "Missing required credential: fal.ai API key.",
+          "capability": {
+            "id": "openai/gpt-image-2/edit",
+            "name": "GPT Image 2 Edit",
+            "status": "available",
+            "modality": "image",
+            "sub_capabilities": [
+              "image_to_image"
+            ],
+            "resolutions": [
+              "auto"
+            ],
+            "aspect_ratios": [
+              "match_input_image"
+            ],
+            "max_reference_images": 0,
+            "supports_image_to_image": true,
+            "supports_text_to_image": false
+          }
+        }
+      ]
+    }
+  },
+  "fallback_missing": {
+    "success": false,
+    "data": {
+      "code": "dependency_unavailable",
+      "message": "fal API key is not configured.",
+      "retryable": false,
+      "field": null,
+      "provider": "fal",
+      "model": "fal-ai/nano-banana-2",
+      "image_route": {
+        "requested_provider": "gemini",
+        "requested_model": "gemini-3.1-flash-image-preview",
+        "effective_provider": "fal",
+        "effective_model": "fal-ai/nano-banana-2",
+        "provider_endpoint": "fal-ai/nano-banana-2/edit",
+        "fallback_reason": "gemini_key_missing",
+        "phase": "validation",
+        "generation_dispatch_attempted": false
+      },
+      "credential_failure": {
+        "provider": "fal",
+        "kind": "missing"
+      },
+      "fal_dispatch_state": "not_started"
+    }
+  },
+  "catalog_google": {
+    "success": true,
+    "data": {
+      "models": [
+        {
+          "model_id": "gemini-3.1-flash-image-preview",
+          "provider_name": "gemini",
+          "pricing_source": "gemini-per-token-by-modality-stub",
+          "submission_mode": "sync",
+          "credential_availability": "available_but_unverified",
+          "credential_message": null,
+          "capability": {
+            "id": "gemini-3.1-flash-image-preview",
+            "name": "Nano Banana 2",
+            "status": "preview",
+            "modality": "image",
+            "sub_capabilities": [
+              "text_to_image",
+              "image_to_image"
+            ],
+            "resolutions": [
+              "512",
+              "1K",
+              "2K",
+              "4K"
+            ],
+            "aspect_ratios": [
+              "1:1",
+              "1:4",
+              "4:1",
+              "1:8",
+              "8:1",
+              "2:3",
+              "3:2",
+              "3:4",
+              "4:3",
+              "4:5",
+              "5:4",
+              "9:16",
+              "16:9",
+              "21:9"
+            ],
+            "max_reference_images": 8,
+            "supports_image_to_image": true,
+            "supports_text_to_image": true
+          },
+          "fallback_available": {
+            "provider_name": "fal",
+            "model_id": "fal-ai/nano-banana-2",
+            "credential_availability": "available_but_unverified",
+            "credential_message": null
+          }
+        },
+        {
+          "model_id": "gemini-3-pro-image-preview",
+          "provider_name": "gemini",
+          "pricing_source": "gemini-per-token-by-modality-stub",
+          "submission_mode": "sync",
+          "credential_availability": "available_but_unverified",
+          "credential_message": null,
+          "capability": {
+            "id": "gemini-3-pro-image-preview",
+            "name": "Nano Banana Pro",
+            "status": "preview",
+            "modality": "image",
+            "sub_capabilities": [
+              "text_to_image",
+              "image_to_image"
+            ],
+            "resolutions": [
+              "1K",
+              "2K",
+              "4K"
+            ],
+            "aspect_ratios": [
+              "1:1",
+              "1:4",
+              "4:1",
+              "1:8",
+              "8:1",
+              "2:3",
+              "3:2",
+              "3:4",
+              "4:3",
+              "4:5",
+              "5:4",
+              "9:16",
+              "16:9",
+              "21:9"
+            ],
+            "max_reference_images": 8,
+            "supports_image_to_image": true,
+            "supports_text_to_image": true
+          },
+          "fallback_available": {
+            "provider_name": "fal",
+            "model_id": "fal-ai/nano-banana-pro",
+            "credential_availability": "available_but_unverified",
+            "credential_message": null
+          }
+        },
+        {
+          "model_id": "fal-ai/nano-banana-2",
+          "provider_name": "fal",
+          "pricing_source": "fal-nano-banana-unavailable-2026-10-12",
+          "submission_mode": "sync",
+          "credential_availability": "available_but_unverified",
+          "credential_message": null,
+          "capability": {
+            "id": "fal-ai/nano-banana-2",
+            "name": "Nano Banana 2 (fal.ai)",
+            "status": "available",
+            "modality": "image",
+            "sub_capabilities": [
+              "text_to_image",
+              "image_to_image"
+            ],
+            "resolutions": [
+              "0.5K",
+              "1K",
+              "2K",
+              "4K"
+            ],
+            "aspect_ratios": [
+              "1:1",
+              "1:4",
+              "4:1",
+              "1:8",
+              "8:1",
+              "2:3",
+              "3:2",
+              "3:4",
+              "4:3",
+              "4:5",
+              "5:4",
+              "9:16",
+              "16:9",
+              "21:9"
+            ],
+            "max_reference_images": 8,
+            "supports_image_to_image": true,
+            "supports_text_to_image": true
+          }
+        },
+        {
+          "model_id": "fal-ai/nano-banana-pro",
+          "provider_name": "fal",
+          "pricing_source": "fal-nano-banana-unavailable-2026-10-12",
+          "submission_mode": "sync",
+          "credential_availability": "available_but_unverified",
+          "credential_message": null,
+          "capability": {
+            "id": "fal-ai/nano-banana-pro",
+            "name": "Nano Banana Pro (fal.ai)",
+            "status": "available",
+            "modality": "image",
+            "sub_capabilities": [
+              "text_to_image",
+              "image_to_image"
+            ],
+            "resolutions": [
+              "1K",
+              "2K",
+              "4K"
+            ],
+            "aspect_ratios": [
+              "1:1",
+              "2:3",
+              "3:2",
+              "3:4",
+              "4:3",
+              "4:5",
+              "5:4",
+              "9:16",
+              "16:9",
+              "21:9"
+            ],
+            "max_reference_images": 8,
+            "supports_image_to_image": true,
+            "supports_text_to_image": true
+          }
+        },
+        {
+          "model_id": "fal-ai/flux/schnell",
+          "provider_name": "fal",
+          "pricing_source": "fal-ai/flux/schnell-megapixel-2026-04-29",
+          "submission_mode": "sync",
+          "credential_availability": "available_but_unverified",
+          "credential_message": null,
+          "capability": {
+            "id": "fal-ai/flux/schnell",
+            "name": "FLUX.1 Schnell",
+            "status": "available",
+            "modality": "image",
+            "sub_capabilities": [
+              "text_to_image"
+            ],
+            "resolutions": [
+              "1K"
+            ],
+            "aspect_ratios": [
+              "1:1",
+              "4:3",
+              "3:4",
+              "16:9",
+              "9:16"
+            ],
+            "max_reference_images": 0,
+            "supports_image_to_image": false,
+            "supports_text_to_image": true
+          }
+        },
+        {
+          "model_id": "openai/gpt-image-2/edit",
+          "provider_name": "fal",
+          "pricing_source": "fal-openai-gpt-image-2-edit-2026-05-05",
+          "submission_mode": "async_image_job",
+          "credential_availability": "available_but_unverified",
+          "credential_message": null,
+          "capability": {
+            "id": "openai/gpt-image-2/edit",
+            "name": "GPT Image 2 Edit",
+            "status": "available",
+            "modality": "image",
+            "sub_capabilities": [
+              "image_to_image"
+            ],
+            "resolutions": [
+              "auto"
+            ],
+            "aspect_ratios": [
+              "match_input_image"
+            ],
+            "max_reference_images": 0,
+            "supports_image_to_image": true,
+            "supports_text_to_image": false
+          }
+        }
+      ]
+    }
+  },
+  "primary_success": {
+    "success": true,
+    "data": {
+      "artifact_id": "11111111-1111-1111-1111-111111111111",
+      "kind": "generated_image",
+      "created_at": "\u003Ctimestamp\u003E",
+      "file_path": "\u003Clocal-file\u003E",
+      "files": [
+        {
+          "role": "image",
+          "path": "image.png"
+        }
+      ],
+      "parent_ids": [
+        "11111111-1111-1111-1111-111111111111",
+        "11111111-1111-1111-1111-111111111111"
+      ],
+      "metadata": {
+        "prompt": "private test prompt",
+        "model": "gemini-3.1-flash-image-preview",
+        "resolution": "1K",
+        "aspect_ratio": "auto",
+        "mime_type": "image/png",
+        "generated_at": "\u003Ctimestamp\u003E",
+        "reference_count": 1
+      },
+      "flags": {}
+    }
+  },
+  "fallback_401": {
+    "success": false,
+    "data": {
+      "code": "dependency_unavailable",
+      "message": "fal request failed with HTTP 401.",
+      "retryable": false,
+      "field": null,
+      "provider": "fal",
+      "model": "fal-ai/nano-banana-2",
+      "image_route": {
+        "requested_provider": "gemini",
+        "requested_model": "gemini-3.1-flash-image-preview",
+        "effective_provider": "fal",
+        "effective_model": "fal-ai/nano-banana-2",
+        "provider_endpoint": "fal-ai/nano-banana-2/edit",
+        "fallback_reason": "gemini_key_missing",
+        "phase": "submission",
+        "generation_dispatch_attempted": true
+      },
+      "credential_failure": {
+        "provider": "fal",
+        "kind": "rejected"
+      },
+      "fal_dispatch_state": "attempted"
+    }
+  },
+  "fallback_403": {
+    "success": false,
+    "data": {
+      "code": "dependency_unavailable",
+      "message": "fal request failed with HTTP 403.",
+      "retryable": false,
+      "field": null,
+      "provider": "fal",
+      "model": "fal-ai/nano-banana-2",
+      "image_route": {
+        "requested_provider": "gemini",
+        "requested_model": "gemini-3.1-flash-image-preview",
+        "effective_provider": "fal",
+        "effective_model": "fal-ai/nano-banana-2",
+        "provider_endpoint": "fal-ai/nano-banana-2/edit",
+        "fallback_reason": "gemini_key_missing",
+        "phase": "submission",
+        "generation_dispatch_attempted": true
+      },
+      "fal_dispatch_state": "attempted"
+    }
+  },
+  "direct_401": {
+    "success": false,
+    "data": {
+      "code": "dependency_unavailable",
+      "message": "fal request failed with HTTP 401.",
+      "retryable": false,
+      "field": null,
+      "provider": "fal",
+      "model": "fal-ai/nano-banana-2",
+      "credential_failure": {
+        "provider": "fal",
+        "kind": "rejected"
+      },
+      "fal_dispatch_state": "attempted"
+    }
+  },
+  "direct_403": {
+    "success": false,
+    "data": {
+      "code": "dependency_unavailable",
+      "message": "fal request failed with HTTP 403.",
+      "retryable": false,
+      "field": null,
+      "provider": "fal",
+      "model": "fal-ai/nano-banana-2",
+      "fal_dispatch_state": "attempted"
+    }
+  },
+  "direct_missing": {
+    "success": false,
+    "data": {
+      "code": "dependency_unavailable",
+      "message": "fal API key is not configured.",
+      "retryable": false,
+      "field": null,
+      "provider": "fal",
+      "model": "fal-ai/nano-banana-2",
+      "credential_failure": {
+        "provider": "fal",
+        "kind": "missing"
+      },
+      "fal_dispatch_state": "not_started"
+    }
+  },
+  "direct_job_missing": {
+    "success": true,
+    "data": {
+      "job_id": "11111111-1111-1111-1111-111111111111",
+      "state": "error",
+      "progress": null,
+      "result_artifact_id": null,
+      "error": {
+        "code": "dependency_unavailable",
+        "message": "fal API key is not configured.",
+        "retryable": false,
+        "field": null,
+        "provider": "fal",
+        "model": "fal-ai/nano-banana-2",
+        "credential_failure": {
+          "provider": "fal",
+          "kind": "missing"
+        },
+        "fal_dispatch_state": "not_started"
+      },
+      "provider": "fal",
+      "model": "fal-ai/nano-banana-2",
+      "credential_failure": {
+        "provider": "fal",
+        "kind": "missing"
+      },
+      "fal_dispatch_state": "not_started"
+    }
+  },
+  "direct_job_401": {
+    "success": true,
+    "data": {
+      "job_id": "11111111-1111-1111-1111-111111111111",
+      "state": "error",
+      "progress": null,
+      "result_artifact_id": null,
+      "error": {
+        "code": "dependency_unavailable",
+        "message": "fal request failed with HTTP 401.",
+        "retryable": false,
+        "field": null,
+        "provider": "fal",
+        "model": "fal-ai/nano-banana-2",
+        "credential_failure": {
+          "provider": "fal",
+          "kind": "rejected"
+        },
+        "fal_dispatch_state": "attempted"
+      },
+      "provider": "fal",
+      "model": "fal-ai/nano-banana-2",
+      "credential_failure": {
+        "provider": "fal",
+        "kind": "rejected"
+      },
+      "fal_dispatch_state": "attempted"
+    }
+  },
+  "direct_job_403": {
+    "success": true,
+    "data": {
+      "job_id": "11111111-1111-1111-1111-111111111111",
+      "state": "error",
+      "progress": null,
+      "result_artifact_id": null,
+      "error": {
+        "code": "dependency_unavailable",
+        "message": "fal request failed with HTTP 403.",
+        "retryable": false,
+        "field": null,
+        "provider": "fal",
+        "model": "fal-ai/nano-banana-2",
+        "fal_dispatch_state": "attempted"
+      },
+      "provider": "fal",
+      "model": "fal-ai/nano-banana-2",
+      "fal_dispatch_state": "attempted"
+    }
+  },
+  "incompatible": {
+    "success": false,
+    "data": {
+      "code": "invalid_request",
+      "message": "aspect_ratio must be one of: 1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9.",
+      "retryable": false,
+      "field": "aspect_ratio",
+      "provider": "fal",
+      "model": "fal-ai/nano-banana-pro",
+      "image_route": {
+        "requested_provider": "gemini",
+        "requested_model": "gemini-3-pro-image-preview",
+        "effective_provider": "fal",
+        "effective_model": "fal-ai/nano-banana-pro",
+        "provider_endpoint": "fal-ai/nano-banana-pro/edit",
+        "fallback_reason": "gemini_key_missing",
+        "phase": "validation",
+        "generation_dispatch_attempted": false
+      },
+      "fal_dispatch_state": "not_started"
+    }
+  },
+  "materialization_failed": {
+    "success": false,
+    "data": {
+      "code": "dependency_unavailable",
+      "message": "Remote image artifact fetch failed with HTTP 404.",
+      "retryable": false,
+      "field": null,
+      "provider": "fal",
+      "model": "fal-ai/nano-banana-2",
+      "image_route": {
+        "requested_provider": "gemini",
+        "requested_model": "gemini-3.1-flash-image-preview",
+        "effective_provider": "fal",
+        "effective_model": "fal-ai/nano-banana-2",
+        "provider_endpoint": "fal-ai/nano-banana-2/edit",
+        "fallback_reason": "gemini_key_missing",
+        "phase": "materialization",
+        "generation_dispatch_attempted": true
+      },
+      "fal_dispatch_state": "attempted"
+    }
+  },
+  "restored_intent_status": {
+    "success": true,
+    "data": {
+      "job_id": "11111111-1111-1111-1111-111111111111",
+      "state": "interrupted",
+      "progress": null,
+      "result_artifact_id": null,
+      "error": {
+        "code": "interrupted",
+        "message": "Image job interrupted after fal dispatch admission; submission outcome is unknown. A deliberately new request may create another billed generation.",
+        "retryable": false,
+        "field": null,
+        "provider": "fal",
+        "model": "fal-ai/nano-banana-2",
+        "image_route": {
+          "requested_provider": "gemini",
+          "requested_model": "gemini-3.1-flash-image-preview",
+          "effective_provider": "fal",
+          "effective_model": "fal-ai/nano-banana-2",
+          "provider_endpoint": "fal-ai/nano-banana-2/edit",
+          "fallback_reason": "gemini_key_missing",
+          "phase": "interruption",
+          "generation_dispatch_attempted": false
+        },
+        "fal_dispatch_state": "intent_recorded"
+      },
+      "provider": "fal",
+      "model": "fal-ai/nano-banana-2",
+      "image_route": {
+        "requested_provider": "gemini",
+        "requested_model": "gemini-3.1-flash-image-preview",
+        "effective_provider": "fal",
+        "effective_model": "fal-ai/nano-banana-2",
+        "provider_endpoint": "fal-ai/nano-banana-2/edit",
+        "fallback_reason": "gemini_key_missing",
+        "phase": "interruption",
+        "generation_dispatch_attempted": false
+      },
+      "fal_dispatch_state": "intent_recorded"
+    }
+  },
+  "restored_intent_result": {
+    "success": false,
+    "data": {
+      "code": "interrupted",
+      "message": "Image job interrupted after fal dispatch admission; submission outcome is unknown. A deliberately new request may create another billed generation.",
+      "retryable": false,
+      "field": null,
+      "provider": "fal",
+      "model": "fal-ai/nano-banana-2",
+      "image_route": {
+        "requested_provider": "gemini",
+        "requested_model": "gemini-3.1-flash-image-preview",
+        "effective_provider": "fal",
+        "effective_model": "fal-ai/nano-banana-2",
+        "provider_endpoint": "fal-ai/nano-banana-2/edit",
+        "fallback_reason": "gemini_key_missing",
+        "phase": "interruption",
+        "generation_dispatch_attempted": false
+      },
+      "fal_dispatch_state": "intent_recorded"
+    }
+  },
+  "job_fallback_result": {
+    "success": true,
+    "data": {
+      "job_id": "11111111-1111-1111-1111-111111111111",
+      "state": "complete",
+      "result_artifact_id": "11111111-1111-1111-1111-111111111111",
+      "files": [
+        {
+          "role": "image",
+          "path": "/blob/11111111-1111-1111-1111-111111111111/image"
+        }
+      ],
+      "provider": "fal",
+      "model": "fal-ai/nano-banana-2",
+      "image_route": {
+        "requested_provider": "gemini",
+        "requested_model": "gemini-3.1-flash-image-preview",
+        "effective_provider": "fal",
+        "effective_model": "fal-ai/nano-banana-2",
+        "provider_endpoint": "fal-ai/nano-banana-2/edit",
+        "fallback_reason": "gemini_key_missing",
+        "phase": "publication",
+        "generation_dispatch_attempted": true
+      },
+      "fal_dispatch_state": "attempted"
+    }
+  }
+}

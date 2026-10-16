@@ -14,7 +14,9 @@ namespace Rook.Services.Vision.Image.Jobs
             DateTimeOffset updatedAt,
             ProviderJobHandle? providerHandle = null,
             Guid? resultArtifactId = null,
-            GenerationError? error = null)
+            GenerationError? error = null,
+            ImageRoutingContext? routing = null,
+            ImageFalDispatchState? falDispatchState = null)
         {
             if (jobId == Guid.Empty)
                 throw new ArgumentException(
@@ -29,6 +31,8 @@ namespace Rook.Services.Vision.Image.Jobs
             ProviderHandle = providerHandle;
             ResultArtifactId = resultArtifactId;
             Error = error;
+            Routing = routing;
+            FalDispatchState = falDispatchState;
         }
 
         public Guid JobId { get; }
@@ -40,5 +44,7 @@ namespace Rook.Services.Vision.Image.Jobs
         public ProviderJobHandle? ProviderHandle { get; }
         public Guid? ResultArtifactId { get; }
         public GenerationError? Error { get; }
+        public ImageRoutingContext? Routing { get; }
+        public ImageFalDispatchState? FalDispatchState { get; }
     }
 }

@@ -7,9 +7,16 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Video.Framing;
 
 namespace Rook.Services.Vision.Video
 {
+    internal sealed class VeoDownloadException : HttpRequestException
+    {
+        internal VeoDownloadException(int status, bool apiCredentialResponse) : base("Google video download request failed.") { HttpStatus = status; ApiCredentialResponse = apiCredentialResponse; }
+        internal int HttpStatus { get; }
+        internal bool ApiCredentialResponse { get; }
+    }
     /// <summary>
     /// Thin HTTP wrapper for Google's Veo video generation API. Wraps the
     /// long-running operation dance: start → poll → cancel → download.
@@ -35,13 +42,16 @@ namespace Rook.Services.Vision.Video
 
         private static readonly HttpClient s_default = CreateDefaultHttpClient();
         private readonly HttpClient _http;
+        private readonly long _maxVideoBytes;
 
         public VeoClient() : this(s_default) { }
 
         // Test seam: inject an HttpClient backed by a TestHttpMessageHandler.
-        internal VeoClient(HttpClient http)
+        internal VeoClient(HttpClient http, long maxVideoBytes = VideoArtifactMaterializer.MaxGeneratedVideoBytes)
         {
             _http = http ?? throw new ArgumentNullException(nameof(http));
+            if (maxVideoBytes <= 0) throw new ArgumentOutOfRangeException(nameof(maxVideoBytes));
+            _maxVideoBytes = maxVideoBytes;
         }
 
         private static HttpClient CreateDefaultHttpClient()
@@ -49,7 +59,7 @@ namespace Rook.Services.Vision.Video
             // Individual HTTP calls are short; videos can take 6+ minutes
             // but that's spread across many polls, not one request. 2 min
             // per call is plenty for start/poll/download chunks.
-            return new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
+            return new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromMinutes(2) };
         }
 
         public async Task<VeoStartResponse> StartGenerationAsync(
@@ -57,16 +67,29 @@ namespace Rook.Services.Vision.Video
             VideoGenerationRequest request,
             VeoOptions options,
             IReadOnlyDictionary<MediaRef, ResolvedMedia> resolvedMedia,
-            CancellationToken ct)
+            CancellationToken ct, Action? beforeDispatch = null)
         {
             var url = $"{BaseUrl}/models/{request.Model}:predictLongRunning";
             var body = BuildPredictBody(request, options, resolvedMedia);
             var json = JsonSerializer.Serialize(body, JsonOptions);
 
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
+            return await SendStartAsync(apiKey, request.Model, content, ct, beforeDispatch).ConfigureAwait(false);
+        }
+        internal async Task<VeoStartResponse> StartPreparedGenerationAsync(string apiKey, VideoGenerationRequest request, VeoOptions options,
+            VideoPreparedMediaSnapshot prepared, VideoPreparationLease phase, CancellationToken ct, Action beforeDispatch)
+        {
+            using var content = new VeoPreparedContent(request, prepared, BuildParameters(request, options), phase, ct);
+            return await SendStartAsync(apiKey, request.Model, content, ct, beforeDispatch).ConfigureAwait(false);
+        }
+        private async Task<VeoStartResponse> SendStartAsync(string apiKey, string model, HttpContent content, CancellationToken ct, Action? beforeDispatch)
+        {
+            string url = $"{BaseUrl}/models/{model}:predictLongRunning";
             using var httpRequest = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
             httpRequest.Headers.Add("x-goog-api-key", apiKey);
 
+            beforeDispatch?.Invoke();
+            ct.ThrowIfCancellationRequested();
             using var response = await _http.SendAsync(httpRequest, ct).ConfigureAwait(false);
             var responseJson = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
 
@@ -78,7 +101,8 @@ namespace Rook.Services.Vision.Video
                     ErrorBody: responseJson);
 
             using var doc = JsonDocument.Parse(responseJson);
-            if (!doc.RootElement.TryGetProperty("name", out var nameEl)
+            if (doc.RootElement.ValueKind != JsonValueKind.Object
+                || !doc.RootElement.TryGetProperty("name", out var nameEl)
                 || nameEl.ValueKind != JsonValueKind.String)
             {
                 return new VeoStartResponse(
@@ -190,22 +214,40 @@ namespace Rook.Services.Vision.Video
             string videoUri,
             CancellationToken ct)
         {
-            using var httpRequest = new HttpRequestMessage(HttpMethod.Get, videoUri);
-            httpRequest.Headers.Add("x-goog-api-key", apiKey);
-
-            using var response = await _http.SendAsync(
-                httpRequest, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
-
+            if (!Uri.TryCreate(videoUri, UriKind.Absolute, out var current) || !IsSafeDownloadUri(current)) throw new HttpRequestException("Google video download URI is not trusted.");
+            for (int redirects = 0; ; redirects++)
+            {
+                ct.ThrowIfCancellationRequested();
+                using var httpRequest = new HttpRequestMessage(HttpMethod.Get, current);
+                // CDN redirects use their signed URL, never the caller's API credential.
+                if (current.Host.Equals("generativelanguage.googleapis.com", StringComparison.OrdinalIgnoreCase)) httpRequest.Headers.Add("x-goog-api-key", apiKey);
+                using var response = await _http.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+                var code = (int)response.StatusCode;
+                if (code is 301 or 302 or 303 or 307 or 308)
+                {
+                    if (redirects >= 3 || response.Headers.Location is not { } location || !Uri.TryCreate(current, location, out var next) || !IsSafeDownloadUri(next)) throw new HttpRequestException("Google video download redirect is not trusted or exceeds its limit.");
+                    current = next; continue;
+                }
+                if (!response.IsSuccessStatusCode) throw new VeoDownloadException(code, current.Host.Equals("generativelanguage.googleapis.com", StringComparison.OrdinalIgnoreCase));
+                if (response.Content.Headers.ContentLength is { } length && length > _maxVideoBytes) throw new HttpRequestException("Google video exceeds the local byte limit.");
 #if NETFRAMEWORK
-            using var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+                using var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
 #else
-            using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+                using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
 #endif
-            using var ms = new MemoryStream();
-            await stream.CopyToAsync(ms, 81920, ct).ConfigureAwait(false);
-            return ms.ToArray();
+                using var ms = new MemoryStream();
+                var buffer = new byte[81920];
+                while (true)
+                {
+                    // Read only the remaining allowance plus one byte to detect overflow.
+                    var read = await stream.ReadAsync(buffer, 0, (int)Math.Min(buffer.Length, _maxVideoBytes - ms.Length + 1), ct).ConfigureAwait(false);
+                    if (read == 0) return ms.ToArray();
+                    if (ms.Length + read > _maxVideoBytes) throw new HttpRequestException("Google video exceeds the local byte limit.");
+                    ms.Write(buffer, 0, read);
+                }
+            }
         }
+        private static bool IsSafeDownloadUri(Uri uri) => uri.Scheme == "https" && uri.IsDefaultPort && uri.UserInfo.Length == 0 && !uri.IsLoopback && (uri.Host.Equals("generativelanguage.googleapis.com", StringComparison.OrdinalIgnoreCase) || uri.Host.Equals("storage.googleapis.com", StringComparison.OrdinalIgnoreCase) || uri.Host.EndsWith(".googlevideo.com", StringComparison.OrdinalIgnoreCase) || uri.Host.EndsWith(".googleusercontent.com", StringComparison.OrdinalIgnoreCase));
 
         private static readonly JsonSerializerOptions JsonOptions = new()
         {
@@ -219,6 +261,10 @@ namespace Rook.Services.Vision.Video
         {
             var instance = VeoInputCodec.BuildInstance(request, resolvedMedia);
 
+            return new { instances = new[] { instance }, parameters = BuildParameters(request, options) };
+        }
+        private static Dictionary<string, object?> BuildParameters(VideoGenerationRequest request, VeoOptions options)
+        {
             var parameters = new Dictionary<string, object?>
             {
                 ["aspectRatio"] = request.AspectRatio,
@@ -239,11 +285,7 @@ namespace Rook.Services.Vision.Video
 
             if (request.Seed.HasValue) parameters["seed"] = request.Seed.Value;
 
-            return new
-            {
-                instances = new[] { instance },
-                parameters,
-            };
+            return parameters;
         }
 
         private static string MapPersonGeneration(PersonGenerationPolicy policy) => policy switch

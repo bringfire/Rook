@@ -52,7 +52,7 @@ public static class Program
         if (args.Length > 0 && args[0] == "-version")
         {
             Console.WriteLine("ffmpeg version n8.1.1-rook-minimal");
-            Console.WriteLine("configuration: --disable-everything --disable-autodetect --disable-network --disable-doc --disable-debug --disable-programs --enable-ffmpeg --enable-protocol=file --enable-demuxer=mov --enable-demuxer=matroska --enable-muxer=image2 --enable-decoder=h264 --enable-parser=h264 --enable-filter=select --enable-filter=reverse --enable-encoder=mjpeg");
+            Console.WriteLine("configuration: " + (Environment.GetEnvironmentVariable("ROOK_FAKE_FFMPEG_CONFIG") ?? "--disable-everything --disable-autodetect --disable-network --disable-doc --disable-debug --disable-programs --enable-ffmpeg --enable-protocol=file --enable-demuxer=mov --enable-demuxer=matroska --enable-muxer=image2 --enable-decoder=h264 --enable-parser=h264 --enable-filter=select --enable-filter=reverse --enable-encoder=mjpeg"));
             return 0;
         }
 
@@ -776,7 +776,34 @@ function Test-InstallerSourceEntryWithSkipIfSourceDoesNotExistFails {
     }
 }
 
+function Test-RejectsUnattributedAllowedZlib {
+    Invoke-PayloadTest {
+        param($payload)
+        try {
+            $metadataDir = Split-Path -Parent $payload.SourceMetadataPath
+            $provenance = Get-Content -LiteralPath $payload.Provenance -Raw | ConvertFrom-Json
+            $provenance.configure_line += ' --enable-zlib'
+            $env:ROOK_FAKE_FFMPEG_CONFIG = $provenance.configure_line
+            $provenance | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $payload.Provenance -Encoding UTF8
+            $allow = Get-Content -LiteralPath $payload.AllowlistPath -Raw | ConvertFrom-Json
+            $allow.allowed_enable_flags += '--enable-zlib'
+            $allow | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $payload.AllowlistPath -Encoding UTF8
+            $recipe = Join-Path $metadataDir 'rook-ffmpeg-configure.txt'
+            ($provenance.configure_line -split ' ') | Set-Content -LiteralPath $recipe -Encoding ASCII
+            Copy-Item -LiteralPath $recipe -Destination (Join-Path $payload.SourceBundleDir 'rook-ffmpeg-configure.txt') -Force
+            Copy-Item -LiteralPath $payload.AllowlistPath -Destination (Join-Path $payload.SourceBundleDir 'rook-ffmpeg-enable-allowlist.json') -Force
+            $manifest = Get-Content -LiteralPath $payload.SourceBundleManifestPath -Raw | ConvertFrom-Json
+            $manifest.configure_line = $provenance.configure_line
+            $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $payload.SourceBundleManifestPath -Encoding UTF8
+            Compress-TestSourceBundle -Payload $payload
+            $output = Invoke-ValidationExpectFailure -Payload $payload
+            Assert-Contains -Text $output -Expected 'zlib source metadata is missing' -Message 'Allowed zlib requires matching source and license evidence.'
+        } finally { Remove-Item Env:\ROOK_FAKE_FFMPEG_CONFIG -ErrorAction SilentlyContinue }
+    }
+}
+
 Test-ValidPayloadPasses
+Test-RejectsUnattributedAllowedZlib
 Test-ProvenanceEnableGplFails
 Test-ProvenanceEnableNonfreeFails
 Test-MissingConfigureLineFails

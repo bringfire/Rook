@@ -12,6 +12,7 @@ namespace Rook.Services.Vision.Video
     /// </summary>
     public sealed record JobCancelResult
     {
+        internal VideoExecutionProjection? Execution { get; init; }
         public VideoJobState State { get; }
         public VideoJobError? Error { get; }
 

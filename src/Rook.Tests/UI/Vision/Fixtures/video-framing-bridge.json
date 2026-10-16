@@ -1,0 +1,62 @@
+{
+  "origin": "Synthetic bridge contract; base preview pixels/digests from production qualified FFmpeg profile.",
+  "preview": {
+    "fit": {
+      "success": true,
+      "error": null,
+      "slots": [
+        {
+          "role": "start_frame",
+          "preview_id": "22222222-2222-2222-2222-222222222222",
+          "preview_role": "image",
+          "preview_url": "/blob/22222222-2222-2222-2222-222222222222/image",
+          "sha256": "027fe9a5d3420499bdf8d46b187c30d7a92d7f927c81c5285d11034d0fe649ae",
+          "width": 1920,
+          "height": 1080,
+          "original_width": 1166,
+          "original_height": 912,
+          "upscaled": true
+        }
+      ]
+    },
+    "fill": {
+      "success": true,
+      "error": null,
+      "slots": [
+        {
+          "role": "start_frame",
+          "preview_id": "33333333-3333-3333-3333-333333333333",
+          "preview_role": "image",
+          "preview_url": "/blob/33333333-3333-3333-3333-333333333333/image",
+          "sha256": "27b6ff0be6364e5268fbc56d2168ef4a0ed179c004fc607edcd9b78176aa0f00",
+          "width": 1920,
+          "height": 1080,
+          "original_width": 1166,
+          "original_height": 912,
+          "upscaled": true
+        }
+      ]
+    }
+  },
+  "route_unavailable": {
+    "success": false,
+    "data": {
+      "field": "model",
+      "retryable": false,
+      "detail_code": "video_route_unavailable",
+      "message": "Video generation needs a Google API key. Fal Veo fallback is currently disabled.",
+      "action": "open_settings",
+      "code": "dependency_unavailable"
+    }
+  },
+  "fill_limits": {
+    "code": "invalid_request",
+    "framing_mode": "fill",
+    "action": "choose_fit",
+    "message": "This Fill would exceed Rook's rendering limits. Choose Fit to keep the whole image.",
+    "detail_code": "source_preparation_failed",
+    "field": "start_frame",
+    "retryable": false,
+    "preparation_detail": "render_limits_exceeded"
+  }
+}

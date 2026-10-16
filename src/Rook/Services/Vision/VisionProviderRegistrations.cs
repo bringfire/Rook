@@ -30,12 +30,15 @@ namespace Rook.Services.Vision
             Func<string?> geminiKeyProvider,
             Func<string?> falKeyProvider,
             IVertexAccessTokenSource? vertexAccessTokenSource = null)
-            => new IVideoProviderRegistration[]
-            {
+        {
+            var fal = new FalVideoProvider(falKeyProvider);
+            return new IVideoProviderRegistration[] {
                 new VeoProviderRegistration(new VeoProvider(geminiKeyProvider)),
-                new FalVideoProviderRegistration(new FalVideoProvider(falKeyProvider)),
+                new FalVideoProviderRegistration(fal),
+                new FalVeoProviderRegistration(fal, new FalVeoBindingCatalog()),
                 new VertexVeoProviderRegistration(new VertexVeoProvider(vertexAccessTokenSource ?? UnavailableVertexAccessTokenSource.Instance)),
             };
+        }
 
         public static ProviderCredentialMetadataCatalog CreateCredentialMetadata()
         {

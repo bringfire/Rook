@@ -46,6 +46,8 @@ async function bridgeCall(op, args) {
         err.code = data.code;
         err.field = data.field;
         err.retryable = data.retryable;
+        copyImageExecutionFields(err, data);
+        copyVideoExecutionFields(err, data);
     } else {
         err = new Error("Vision op failed.");
     }
@@ -124,6 +126,7 @@ document.addEventListener("DOMContentLoaded", init);
 // ─── Navigation ───────────────────────────────────────────────────
 
 function switchView(view) {
+    if (currentView === "video" && view !== "video") Video.onLeave();
     currentView = view;
     $$(".nav-btn").forEach(btn => {
         btn.classList.toggle("active", btn.dataset.view === view);
@@ -260,10 +263,10 @@ async function enhancePrompt() {
             el.prompt.dataset.originalPrompt = prompt;
             el.prompt.value = text;
             if (tryRenderEnhancedPromptAsJson(text)) {
-                el.enhanceHint.textContent = "Prompt enhanced. Click Edit to modify.";
+                el.enhanceHint.textContent = promptEnhancementLabel(artifact) + " Click Edit to modify.";
             } else {
                 showPromptAsTextarea();
-                el.enhanceHint.textContent = "Prompt enhanced. Original saved.";
+                el.enhanceHint.textContent = promptEnhancementLabel(artifact) + " Original saved.";
             }
         } else {
             el.enhanceHint.textContent = "Enhancement returned no text.";
@@ -277,7 +280,7 @@ async function enhancePrompt() {
 }
 
 // ─── Enhanced-prompt rendering ─────────────────────────────────────
-// After a successful enhance, Gemini returns a JSON string. Render it
+// After a successful enhance, the text provider returns a JSON string. Render it
 // as an indented, syntax-highlighted <pre> and hide the textarea. The
 // textarea still holds the raw text — it's the source-of-truth that
 // `generate` reads — so the swap is visual only.
@@ -385,6 +388,12 @@ function readEnhancedPromptFromArtifact(artifact) {
     return typeof text === "string" && text.length > 0 ? text : null;
 }
 
+function promptEnhancementLabel(artifact) {
+    return artifact?.metadata?.provider === "fal"
+        ? "Prompt enhanced with fal.ai."
+        : "Prompt enhanced.";
+}
+
 async function generateImage() {
     if (el.generateBtn.disabled) return;
     const prompt = el.prompt.value.trim();
@@ -429,14 +438,12 @@ async function generateSyncImage(prompt, model) {
         }
 
         const artifact = await bridgeCall("generate", args);
-        renderGeneratedArtifact(artifact, "Image generated.");
+        renderGeneratedArtifact(artifact, imageResultNotice(artifact));
     } catch (e) {
         if (model && model.provider_name === "vertex_ai" && (e.message || "").includes("submission outcome is unknown"))
             window.rookUnknownGoogleImageSubmission = true;
-        if (model && isCredentialFailureMessage(e.message)) {
-            markProviderCredentialInvalid(model.provider_name);
-        }
-        showStatus(e.message, "error");
+        applyImageCredentialWarning(e, model);
+        showStatus(imageErrorMessage(e), "error");
     } finally {
         setGenerating(el.generateBtn, el.generateText, el.generateSpinner, false);
     }
@@ -473,12 +480,10 @@ async function generateImageJob(prompt, model, sourcePath) {
         }
 
         const result = await awaitImageJobResult(args, showImageJobStatus);
-        renderGeneratedArtifact({ artifact_id: result.result_artifact_id }, "Image generated.");
+        renderGeneratedArtifact({ artifact_id: result.result_artifact_id }, imageResultNotice(result));
     } catch (e) {
-        if (model && isCredentialFailureMessage(e.message)) {
-            markProviderCredentialInvalid(model.provider_name);
-        }
-        showStatus(e.message, "error");
+        applyImageCredentialWarning(e, model);
+        showStatus(imageErrorMessage(e), "error");
     } finally {
         setGenerating(el.generateBtn, el.generateText, el.generateSpinner, false);
     }
@@ -505,13 +510,17 @@ async function awaitImageJobResult(args, statusHandler) {
     }
     if (!terminal) throw new Error("Image job did not finish before the UI timeout.");
     if (terminal.state !== "complete") {
-        const err = terminal.error && terminal.error.message;
-        throw new Error(err || `Image job ended with state ${terminal.state}.`);
+        const data = terminal.error || {};
+        const error = new Error(data.message || `Image job ended with state ${terminal.state}.`);
+        error.code = data.code; error.field = data.field; error.retryable = data.retryable;
+        copyImageExecutionFields(error, data); copyImageExecutionFields(error, terminal);
+        throw error;
     }
     const result = await bridgeCall("image_job_result", { job_id: jobId });
     if (!result || !result.result_artifact_id) {
         throw new Error("Image job completed without an artifact.");
     }
+    copyImageExecutionFields(result, terminal);
     return result;
 }
 
@@ -721,6 +730,7 @@ function normalizeImageModelDescriptor(m) {
         pricing_kind: m.pricing_kind || null,
         credential_availability: m.credential_availability || "available_but_unverified",
         credential_message: m.credential_message || "",
+        fallback_available: m.fallback_available || null,
         credential_secret_key: m.credential_secret_key || "",
         submission_mode: m.submission_mode || "sync",
         supported_resolutions: cap.resolutions || m.supported_resolutions || [],
@@ -741,6 +751,7 @@ function normalizeLegacyAvailableModel(m) {
         pricing_kind: m.pricing_kind || null,
         credential_availability: m.credential_availability || "available_but_unverified",
         credential_message: m.credential_message || "",
+        fallback_available: m.fallback_available || null,
         credential_secret_key: m.credential_secret_key || "",
         submission_mode: m.submission_mode || "sync",
         supported_resolutions: m.supported_resolutions || [],
@@ -789,7 +800,7 @@ function rememberProviderSecretKeys(providers) {
     });
 }
 
-function effectiveCredentialAvailability(model) {
+function primaryCredentialAvailability(model) {
     const base = model.credential_availability || "available_but_unverified";
     if (base === "missing_required_secret") return base;
 
@@ -804,6 +815,115 @@ function effectiveCredentialAvailability(model) {
         return "available_with_inconclusive_validation";
     }
     return base;
+}
+
+function hasImageFallback(model) {
+    const fallback = model && model.fallback_available;
+    const targets = {
+        "gemini-3.1-flash-image-preview": "fal-ai/nano-banana-2",
+        "gemini-3-pro-image-preview": "fal-ai/nano-banana-pro",
+        "nano-banana-2": "fal-ai/nano-banana-2",
+        "nano-banana-pro": "fal-ai/nano-banana-pro"
+    };
+    return !!fallback && model.provider_name === "gemini" && fallback.provider_name === "fal"
+        && targets[model.model_id] === fallback.model_id;
+}
+
+function hasAvailableImageFallback(model) {
+    return hasImageFallback(model) && model.fallback_available.credential_availability !== "missing_required_secret";
+}
+
+function imageModelCredentialGuidance(model) {
+    return hasImageFallback(model) ? "Configure a Gemini or fal.ai key before using this model."
+        : `${providerDisplayName(model.provider_name)} key is required before using this model.`;
+}
+
+function effectiveCredentialAvailability(model) {
+    const primary = primaryCredentialAvailability(model);
+    if (primary === "missing_required_secret" && hasAvailableImageFallback(model)) {
+        return primaryCredentialAvailability(model.fallback_available);
+    }
+    return primary;
+}
+
+function copyVideoExecutionFields(target, source) {
+    if (!source) return target;
+    for (const key of ["detail_code", "requested_provider", "requested_model", "effective_provider", "effective_model", "video_route", "credential_failure", "submission_outcome_unknown", "stop_persistence", "execution_stopped", "cleanup", "cleanup_persistence", "warnings", "effective_estimated_cost_usd", "effective_pricing_source", "source_preparation", "source_preparation_error", "preparation_detail", "framing_mode", "action"]) {
+        if (Object.prototype.hasOwnProperty.call(source, key)) target[key] = source[key];
+    }
+    return target;
+}
+function applyVideoEvidence(data) {
+    if (!data || !data.credential_failure) return;
+    const evidence = data.credential_failure;
+    const expected = data.effective_provider === "veo" ? "gemini" : data.effective_provider;
+    if (evidence.provider === expected && evidence.kind === "rejected") markProviderCredentialInvalid(expected);
+}
+function videoExecutionNotice(data) {
+    if (!data) return "";
+    const parts = [];
+    if (data.effective_provider) parts.push(`${providerDisplayName(data.effective_provider === "veo" ? "gemini" : data.effective_provider)} · ${data.effective_model || ""}`);
+    if (typeof data.effective_estimated_cost_usd === "number") parts.push(`Estimated $${data.effective_estimated_cost_usd.toFixed(2)}`);
+    if (data.video_route) parts.push(`Fallback: ${data.video_route.reason || "Google credential unavailable"}`);
+    if (data.credential_failure && data.credential_failure.kind === "missing") parts.push(`${providerDisplayName(data.credential_failure.provider)} key missing; configure it in Settings.`);
+    if (data.execution_stopped && ["pending", "failed"].includes(data.stop_persistence)) parts.push(`Execution stopped · stop persistence ${data.stop_persistence}`);
+    if (data.submission_outcome_unknown) parts.push("Submission outcome unknown; inspect history before deliberately starting another job.");
+    if (data.cleanup) parts.push(`Remote cleanup: ${data.cleanup}; accepted work may still incur charges.`);
+    if ((data.warnings || []).includes("artifact_marker_pending")) parts.push("Video saved; publication marker repair pending.");
+    return parts.join(" · ");
+}
+
+function copyImageExecutionFields(target, source) {
+    if (!source) return target;
+    for (const key of ["provider", "model", "image_route", "credential_failure", "fal_dispatch_state"]) {
+        if (Object.prototype.hasOwnProperty.call(source, key)) target[key] = source[key];
+    }
+    return target;
+}
+
+function hasStructuredImageContext(error) {
+    return !!error && ((error.provider === "fal"
+        && ["fal-ai/nano-banana-2", "fal-ai/nano-banana-pro"].includes(error.model))
+        || (error.provider === "gemini"
+        && ["gemini-3.1-flash-image-preview", "gemini-3-pro-image-preview"].includes(error.model)));
+}
+
+function applyImageCredentialWarning(error, model) {
+    if (hasStructuredImageContext(error)) {
+        const evidence = error.credential_failure;
+        if (evidence && evidence.provider === error.provider && evidence.kind === "rejected") {
+            markProviderCredentialInvalid(evidence.provider);
+        }
+        return;
+    }
+    if (model && isCredentialFailureMessage(error.message)) markProviderCredentialInvalid(model.provider_name);
+}
+
+function imageErrorMessage(error) {
+    const evidence = error && error.credential_failure;
+    if (hasStructuredImageContext(error) && evidence && evidence.provider === error.provider && evidence.kind === "missing") {
+        return providerDisplayName(evidence.provider) + " API key is not configured. Configure it in Settings.";
+    }
+    if (hasStructuredImageContext(error)) {
+        const route = error.image_route;
+        const fallback = route && route.requested_provider === "gemini" && route.effective_provider === "fal";
+        const beforeSend = fallback && route.generation_dispatch_attempted === false && error.fal_dispatch_state === "not_started";
+        const context = beforeSend ? "fal.ai fallback failed before sending"
+            : fallback ? "fal.ai fallback" : providerDisplayName(error.provider);
+        return context + ": " + error.message;
+    }
+    return error.message;
+}
+
+function imageResultNotice(result) {
+    const route = result && (result.image_route || (result.metadata && result.metadata.image_route));
+    const target = route && ({
+        "gemini-3.1-flash-image-preview": "fal-ai/nano-banana-2",
+        "gemini-3-pro-image-preview": "fal-ai/nano-banana-pro"
+    })[route.requested_model];
+    return route && route.requested_provider === "gemini" && route.effective_provider === "fal"
+        && target && route.effective_model === target && route.generation_dispatch_attempted === true
+        ? "Generated with fal.ai" : "Image generated.";
 }
 
 function markProviderCredentialInvalid(providerName) {
@@ -828,7 +948,7 @@ function validateGenerateModelForSubmit(selectEl) {
     if (!model) return null;
     const availability = effectiveCredentialAvailability(model);
     if (availability === "missing_required_secret") {
-        return `${providerDisplayName(model.provider_name)} key is required before using this model.`;
+        return imageModelCredentialGuidance(model);
     }
     if (!(capturedViewport && capturedViewport.file_path)
         && !canRunPromptOnlyAsyncImageJob(model)) {
@@ -842,7 +962,7 @@ function validateStudioModelForSubmit(selectEl) {
     if (!model) return null;
     const availability = effectiveCredentialAvailability(model);
     if (availability === "missing_required_secret") {
-        return `${providerDisplayName(model.provider_name)} key is required before using this model.`;
+        return imageModelCredentialGuidance(model);
     }
     if (model.supports_image_to_image === false) {
         return "Selected model is incompatible with Studio source-image editing.";
@@ -872,9 +992,14 @@ function shouldDisableStudioModel(model) {
 function buildImageModelOption(model, disabled) {
     const availability = effectiveCredentialAvailability(model);
     const provider = model.provider_name ? ` · ${providerDisplayName(model.provider_name)}` : "";
-    const warning = availability === "invalid_credential" ? " · credential warning" : "";
-    const blocker = availability === "missing_required_secret" ? " · configure key" : "";
-    return `<option value="${escapeAttr(imageModelOptionValue(model))}"${disabled ? " disabled" : ""}>${escapeHtml(model.label || model.model_id)}${escapeHtml(provider + warning + blocker)}</option>`;
+    const fallback = hasImageFallback(model)
+        ? hasAvailableImageFallback(model) ? " · fal.ai fallback configured" : " · fal.ai fallback not configured" : "";
+    const warningProvider = primaryCredentialAvailability(model) === "missing_required_secret" && hasAvailableImageFallback(model)
+        ? "fal.ai " : "";
+    const warning = availability === "invalid_credential" ? ` · ${warningProvider}credential warning` : "";
+    const blocker = availability === "missing_required_secret"
+        ? hasImageFallback(model) ? " · configure Gemini or fal.ai key" : " · configure key" : "";
+    return `<option value="${escapeAttr(imageModelOptionValue(model))}"${disabled ? " disabled" : ""}>${escapeHtml(model.label || model.model_id)}${escapeHtml(provider + fallback + warning + blocker)}</option>`;
 }
 
 function applyStudioModelCompatibility() {
@@ -1246,7 +1371,7 @@ async function studioEnhancePrompt() {
         if (text) {
             el.studioPrompt.dataset.originalPrompt = prompt;
             el.studioPrompt.value = text;
-            el.studioEnhanceHint.textContent = "Prompt enhanced.";
+            el.studioEnhanceHint.textContent = promptEnhancementLabel(artifact);
         } else {
             el.studioEnhanceHint.textContent = "Enhancement returned no text.";
         }
@@ -1300,18 +1425,16 @@ async function studioGenerate() {
             el.studioResultImage.src = `/blob/${encodeURIComponent(artifact.artifact_id)}/image?ts=${Date.now()}`;
             setStudioResultMode("generate");
             el.studioResultPanel.classList.remove("hidden");
-            showStudioStatus("Image generated.", "success");
+            showStudioStatus(imageResultNotice(artifact), "success");
         } else {
             showStudioStatus("Generation returned no artifact.", "error");
         }
     } catch (e) {
         const model = selectedImageModel(el.studioModelSelect);
-        if (model && isCredentialFailureMessage(e.message)) {
-            markProviderCredentialInvalid(model.provider_name);
-        }
+        applyImageCredentialWarning(e, model);
         if (model && model.provider_name === "vertex_ai" && (e.message || "").includes("submission outcome is unknown"))
             window.rookUnknownGoogleImageSubmission = true;
-        showStudioStatus(e.message, "error");
+        showStudioStatus(imageErrorMessage(e), "error");
     } finally {
         setGenerating(el.studioGenerateBtn, el.studioGenerateText, el.studioGenerateSpinner, false);
     }
@@ -1337,7 +1460,7 @@ async function studioGenerateImageJob(args, model) {
         el.studioResultImage.src = `/blob/${encodeURIComponent(result.result_artifact_id)}/image?ts=${Date.now()}`;
         setStudioResultMode("generate");
         el.studioResultPanel.classList.remove("hidden");
-        showStudioStatus("Image generated.", "success");
+        showStudioStatus(imageResultNotice(result), "success");
     } else {
         showStudioStatus("Generation returned no artifact.", "error");
     }
@@ -1822,6 +1945,7 @@ async function loadSettingsOverview() {
             el.apiKeyStatus.className = "status-indicator error";
         }
 
+        await Video.refreshAvailability();
         const loadedImageModels = await loadImageModels();
         if (!loadedImageModels) {
             // Populate model dropdowns from the legacy server-side alias
@@ -1932,7 +2056,7 @@ function providerDisplayName(name) {
 
 function providerHelpText(name) {
     if (name === "gemini") {
-        return "Get your key from Google AI Studio. Stored encrypted under your Windows profile.";
+        return "Get your key from Google AI Studio. Stored encrypted under your Windows profile. Nano Banana images and prompt enhancement can use your fal.ai account automatically when the Gemini key is missing or rejected. Configure a fal.ai key to enable fallback.";
     }
     if (name === "fal") {
         return "Get your key from fal.ai. Settings tests avoid generation work by default.";
@@ -2464,7 +2588,12 @@ const Video = (() => {
     let userPersonGenOverride = null;  // null = follow defaults; else sticky.
     let estimateTimer = null;
     let estimatePending = null;
+    let confirmedEstimate = null;
     let submitPending = false;
+    let selectedFraming = "fit", previewRevision = readPreviewRevision(), availabilityRevision = 0;
+    let videoVisible = false, generateAwaiting = false;
+    let framingState = { status: "idle", key: "", result: null, error: null, promise: null };
+    let estimateState = { status: "idle", key: "", result: null, error: null, promise: null };
 
     // Frame-picker state.
     let pickerSlot = null;             // "start" | "end" | "reference"
@@ -2496,6 +2625,7 @@ const Video = (() => {
         ve.resolutionSelect = $("video-resolution-select");
         ve.aspectSelect = $("video-aspect-select");
         ve.personGenSelect = $("video-person-gen-select");
+        ve.peopleHint = $("video-people-hint");
         ve.modeRadios = document.querySelectorAll('input[name="video-mode"]');
         ve.prompt = $("video-prompt");
         ve.promptHint = $("video-prompt-hint");
@@ -2522,6 +2652,11 @@ const Video = (() => {
         ve.queueList = $("video-queue-list");
         ve.queueWarnings = $("video-queue-warnings");
 
+        ve.framing = $("video-framing"); ve.framingFit = $("video-framing-fit"); ve.framingFill = $("video-framing-fill");
+        ve.framingFitPreview = $("video-framing-fit-preview"); ve.framingFillPreview = $("video-framing-fill-preview");
+        ve.framingFitStatus = $("video-framing-fit-status"); ve.framingFillStatus = $("video-framing-fill-status");
+        ve.preflightActions = $("video-preflight-actions"); ve.retryPreflight = $("video-retry-preflight");
+        ve.useFit = $("video-use-fit"); ve.openSettings = $("video-open-settings");
         // Cost-confirm modal.
         ve.costModal = $("video-cost-modal");
         ve.costModalClose = $("video-cost-modal-close");
@@ -2567,6 +2702,18 @@ const Video = (() => {
         ve.framesSection.querySelectorAll(".btn-clear-frame").forEach(btn => {
             btn.addEventListener("click", () => clearFrame(btn.dataset.slot));
         });
+        for (const mode of ["fit", "fill"]) {
+            const card = mode === "fit" ? ve.framingFit : ve.framingFill;
+            card.addEventListener("click", () => selectFraming(mode));
+            card.addEventListener("keydown", event => {
+                if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+                event.preventDefault(); const next = event.key === "Home" ? "fit" : event.key === "End" ? "fill" : selectedFraming === "fit" ? "fill" : "fit";
+                selectFraming(next); (next === "fit" ? ve.framingFit : ve.framingFill).focus();
+            });
+        }
+        ve.retryPreflight.addEventListener("click", retryPreflight);
+        ve.useFit.addEventListener("click", () => selectFraming("fit"));
+        ve.openSettings.addEventListener("click", () => switchView("settings"));
         ve.generateBtn.addEventListener("click", onGenerateClicked);
         ve.refreshQueueBtn.addEventListener("click", refreshQueue);
         ve.queueFilterButtons.forEach(btn => {
@@ -2601,35 +2748,16 @@ const Video = (() => {
     }
 
     async function onEnter() {
-        if (!catalogLoaded) {
-            await hydrateCatalog();
-        }
-        await refreshQueue();
+        videoVisible = true; await refreshAvailability(); await refreshFramingPreview(); await refreshQueue();
+        if (isFormReady()) scheduleEstimate();
     }
-
-    async function hydrateCatalog() {
-        try {
-            const data = await bridgeCall("list_video_models");
-            catalog = data.models || [];
-            catalogLoaded = true;
-            populateModelDropdown();
-            if (catalog.length > 0) {
-                ve.modelSelect.value = catalog[0].model_id;
-                onModelChange();
-            } else {
-                showVideoStatus("No video models registered.", "error");
-            }
-        } catch (e) {
-            showVideoStatus(`Could not load models: ${errorToText(e)}`, "error");
-        }
-    }
-
     function populateModelDropdown() {
         ve.modelSelect.innerHTML = catalog.map(m => {
             const cap = m.capability || {};
             const label = cap.name || m.model_id;
             const status = cap.status ? ` (${cap.status})` : "";
-            return `<option value="${escapeAttr(m.model_id)}">${escapeHtml(label)}${escapeHtml(status)}</option>`;
+            const unavailable = m.new_submission_available === false;
+            return `<option value="${escapeAttr(m.model_id)}"${unavailable ? " disabled" : ""}>${escapeHtml(label)}${escapeHtml(status)}${unavailable ? " · endpoint unavailable" : ""}</option>`;
         }).join("");
     }
 
@@ -2642,7 +2770,7 @@ const Video = (() => {
         const m = currentModel();
         selectedCapability = m ? m.capability : null;
         ve.modelHint.textContent = m
-            ? `${m.provider_name} · ${m.pricing_kind.replace("_", " ")} · ${m.pricing_source}`
+            ? `${m.provider_name} · ${m.pricing_kind.replace("_", " ")} · ${m.pricing_source}${m.new_submission_available === false ? " · " + (m.availability_reason || "unavailable") : ""}`
             : "";
 
         if (!selectedCapability) {
@@ -2825,6 +2953,10 @@ const Video = (() => {
     function applyPersonGenDefault() {
         const selected = currentModel();
         const vertex = selected && selected.provider_name === "vertex_ai";
+        ve.personGenSelect.disabled = !!(selected && selected.provider_name === "fal");
+        if (ve.peopleHint) ve.peopleHint.textContent = selected && selected.provider_name === "fal"
+            ? "fal Veo uses fixed audio, safety, and people defaults. Explicit Google people settings cannot fall back."
+            : "Google defaults apply until you change People. An explicit choice is preserved and may prevent fal fallback.";
         if (![...ve.personGenSelect.options].some(option => option.value === "disallow")) {
             const option = document.createElement("option");
             option.value = "disallow"; option.textContent = "Disallow people";
@@ -3077,6 +3209,7 @@ const Video = (() => {
         if (m && m.provider_name === "fal") {
             return {};
         }
+        if (m && /^veo-3\.1-(generate|fast-generate|lite-generate)-preview$/.test(m.model_id) && userPersonGenOverride === null) return {};
         return { person_generation: ve.personGenSelect.value };
     }
 
@@ -3101,6 +3234,7 @@ const Video = (() => {
         };
         const prompt = ve.prompt.value.trim();
         if (prompt) args.prompt = prompt;
+        if (hasFramingFlow()) args.source_framing = selectedFraming;
         if (startFrame) args.start_frame = stripThumbUrl(startFrame);
         if (endFrame) args.end_frame = stripThumbUrl(endFrame);
         if (referenceFrames.length > 0) {
@@ -3127,62 +3261,58 @@ const Video = (() => {
     }
 
     function updateGenerateEnablement() {
-        ve.generateBtn.disabled = submitPending || !isFormReady();
+        const framingReady = !hasFramingFlow() || selectedVariant()?.success === true;
+        ve.generateBtn.disabled = submitPending || generateAwaiting || !isFormReady() || !!availabilityError() || !framingReady || estimateState.status === "failed";
+        ve.generateSpinner.classList.toggle("hidden", !submitPending && !generateAwaiting);
+        ve.generateText.textContent = generateAwaiting ? "Checking…" : "Generate";
     }
 
     function scheduleEstimate() {
         if (estimateTimer) clearTimeout(estimateTimer);
-        // Codex review: any price-bearing field change MUST invalidate
-        // the cached estimate immediately, regardless of whether the
-        // form is currently valid. Otherwise the user can change inputs,
-        // hit a debounce/error window, and confirm a modal showing the
-        // PREVIOUS price while submitJob() sends the NEW request.
-        clearCachedEstimate();
-        if (!isFormReady()) {
-            ve.costAmount.textContent = "—";
-            ve.costDetail.textContent = "";
-            return;
-        }
-        estimateTimer = setTimeout(runEstimate, 250);
+        estimateTimer = null; clearCachedEstimate();
+        refreshFramingPreview(); renderFraming(); updateGenerateEnablement();
+        if (!isFormReady()) { ve.costAmount.textContent = "—"; ve.costDetail.textContent = ""; return; }
+        estimateTimer = setTimeout(() => { estimateTimer = null; runEstimate(); }, 250);
     }
-
     function clearCachedEstimate() {
-        delete ve.costStrip.dataset.lastEstimate;
-        delete ve.costStrip.dataset.lastEstimateArgs;
-        // PR-V3 Codex review: also invalidate the in-flight estimate
-        // token. Without this, an in-flight runEstimate that started
-        // BEFORE the field change can resolve AFTER scheduleEstimate
-        // ran, pass its `estimatePending === token` check, and write
-        // stale numbers back into the cache. Setting pending to a fresh
-        // sentinel ensures any prior in-flight response no longer
-        // matches.
-        estimatePending = {};
+        confirmedEstimate = null; delete ve.costStrip.dataset.lastEstimate; delete ve.costStrip.dataset.lastEstimateArgs;
+        estimatePending = {}; estimateState = { status: "invalidated", key: "", result: null, error: null, promise: null };
+        closeCostModal();
     }
-
-    async function runEstimate() {
+    function runEstimate(force = false) {
         const args = buildSubmitArgs();
-        if (!args) return;
-        const argsJson = JSON.stringify(args);
-        const token = {};
-        estimatePending = token;
-        try {
-            const data = await bridgeCall("estimate_video_job", args);
-            if (estimatePending !== token) return;
-            ve.costAmount.textContent = videoPriceLabel(data);
-            ve.costDetail.textContent =
-                `${data.resolution} · ${data.duration_seconds}s · ${data.number_of_videos}×`;
-            // Cache BOTH the estimate response AND the args it was
-            // computed against. submitJob() rejects if the cached args
-            // don't match the args it's about to submit.
-            ve.costStrip.dataset.lastEstimate = JSON.stringify(data);
-            ve.costStrip.dataset.lastEstimateArgs = argsJson;
-        } catch (e) {
-            if (estimatePending !== token) return;
-            ve.costAmount.textContent = "—";
-            ve.costDetail.textContent = errorToText(e);
-            // Estimate failed → cached estimate is stale by definition.
-            clearCachedEstimate();
-        }
+        if (!args || !isFormReady()) return Promise.resolve(null);
+        const key = JSON.stringify(args);
+        if (!force && estimateState.key === key && estimateState.status === "pending") return estimateState.promise;
+        const token = {}; estimatePending = token;
+        estimateState = { status: "pending", key, result: null, error: null, promise: null };
+        ve.costAmount.textContent = "…"; ve.costDetail.textContent = "Checking estimate…";
+        const work = (async () => {
+            try {
+                const unavailable = availabilityError(); if (unavailable) throw unavailable;
+                if (hasFramingFlow()) {
+                    await refreshFramingPreview();
+                    if (estimatePending !== token || key !== JSON.stringify(buildSubmitArgs())) return null;
+                    const selected = selectedVariant();
+                    if (!selected?.success) throw selected?.error || framingState.error || { message: "Prepare the selected framing before estimating.", retryable: true };
+                }
+                const data = await bridgeCall("estimate_video_job", args);
+                if (estimatePending !== token || key !== JSON.stringify(buildSubmitArgs())) return null;
+                if (!previewMatchesQuote(data)) throw { code: "invalid_request", detail_code: "estimate_stale", message: "Preview and estimate changed. Retry preparation and estimate.", retryable: true };
+                estimateState = { status: "ready", key, result: data, error: null, promise: null };
+                ve.costAmount.textContent = videoPriceLabel(data); ve.costDetail.textContent = `${data.resolution} · ${data.duration_seconds}s · ${data.number_of_videos}×`;
+                ve.costStrip.dataset.lastEstimate = JSON.stringify(data); ve.costStrip.dataset.lastEstimateArgs = key;
+                renderPreflightActions(null); ve.statusMessage.classList.add("hidden"); updateGenerateEnablement(); return data;
+            } catch (error) {
+                if (estimatePending !== token || key !== JSON.stringify(buildSubmitArgs())) return null;
+                estimateState = { status: "failed", key, result: null, error, promise: null };
+                delete ve.costStrip.dataset.lastEstimate; delete ve.costStrip.dataset.lastEstimateArgs;
+                ve.costAmount.textContent = "—"; ve.costDetail.textContent = preflightText(error);
+                showPreflightError(error); updateGenerateEnablement(); return null;
+            }
+        })();
+        if (estimateState.status === "pending" && estimatePending === token) estimateState.promise = work;
+        return work;
     }
 
     function formatDollars(n) {
@@ -3196,32 +3326,25 @@ const Video = (() => {
             : `$${formatDollars(data.dollars_usd)}`;
     }
 
-    function onGenerateClicked() {
-        if (submitPending) return;
-        const priorUnknown = [...queue.values()].some(job => job.entry.error &&
-            job.entry.error.submission_outcome_unknown === true);
+    async function onGenerateClicked() {
+        if (submitPending || generateAwaiting) return;
+        const unavailable = availabilityError(); if (unavailable) { showPreflightError(unavailable); return; }
+        const priorUnknown = [...queue.values()].some(job => job.entry.error?.submission_outcome_unknown === true);
         if (priorUnknown && !window.confirm("An earlier Google submission outcome is unknown; a new request may create another billed generation. Submit a deliberately new job?")) return;
-        if (!isFormReady()) {
-            showVideoStatus("Fill in the required fields first.", "error");
-            return;
-        }
-        // Re-run estimate one more time before showing the modal so the
-        // breakdown reflects the latest form state regardless of debounce.
-        runEstimate().then(openCostModalIfHaveEstimate);
+        if (!isFormReady()) { showVideoStatus("Fill in the required fields first.", "error"); return; }
+        if (estimateTimer) { clearTimeout(estimateTimer); estimateTimer = null; }
+        generateAwaiting = true; updateGenerateEnablement();
+        try { if (await ensureCurrentEstimate()) openCostModalIfHaveEstimate(); }
+        finally { generateAwaiting = false; updateGenerateEnablement(); }
     }
 
     function openCostModalIfHaveEstimate() {
         const raw = ve.costStrip.dataset.lastEstimate;
         const cachedArgs = ve.costStrip.dataset.lastEstimateArgs;
         const currentArgs = JSON.stringify(buildSubmitArgs() || {});
-        if (!raw || cachedArgs !== currentArgs) {
-            // The cached estimate doesn't match the form right now —
-            // either it never ran, or the user changed something between
-            // the debounced runEstimate and the click. Refuse to open
-            // the modal with potentially stale numbers.
-            showVideoStatus(
-                "Cost estimate is out of date — adjust a field to retry.",
-                "error");
+        if (!raw || cachedArgs !== currentArgs || !previewMatchesQuote(JSON.parse(raw))) {
+            if (estimateState.error) showPreflightError(estimateState.error);
+            else showVideoStatus("Refresh the estimate before confirming.", "info");
             return;
         }
         const data = JSON.parse(raw);
@@ -3232,15 +3355,20 @@ const Video = (() => {
             data.duration_seconds ? `${data.duration_seconds} s` : "—";
         ve.costModalSource.textContent =
             (data.pricing && data.pricing.pricing_source) || "—";
-        ve.costBreakdownBody.innerHTML = data.pricing && data.pricing.pricing_source === "vertex-project-billing-unpriced" ? "" : (data.breakdown || []).map(row => `
+        confirmedEstimate = { data: JSON.parse(raw), args: cachedArgs };
+        const routes = data.candidate_routes || [];
+        const routeRows = routes.map(route => `<tr><td>${escapeHtml(route.provider)} · ${escapeHtml(route.model)}${route.eligible ? "" : " · unavailable: " + escapeHtml(route.incompatible_field || "compatibility")}</td><td>${typeof route.total === "number" ? "$" + formatDollars(route.total) : "Unavailable"}</td></tr>`).join("");
+        ve.costBreakdownBody.innerHTML = routeRows || (data.pricing && data.pricing.pricing_source === "vertex-project-billing-unpriced" ? "" : (data.breakdown || []).map(row => `
             <tr>
                 <td>${escapeHtml(row.label || "")}</td>
                 <td class="video-cost-breakdown-amount">$${formatDollars(row.dollars_usd)}</td>
-            </tr>`).join("");
+            </tr>`).join(""));
+        if (typeof data.maximum_estimated_cost_usd === "number") ve.costModalAmount.textContent += ` · Maximum $${formatDollars(data.maximum_estimated_cost_usd)}`;
         ve.costModal.classList.remove("hidden");
     }
 
     function closeCostModal() {
+        confirmedEstimate = null;
         ve.costModal.classList.add("hidden");
     }
 
@@ -3252,13 +3380,18 @@ const Video = (() => {
         // before opening, recheck right before the bridge call. If the
         // user changed a field while the modal was open, fail closed.
         const cachedArgs = ve.costStrip.dataset.lastEstimateArgs;
-        if (cachedArgs !== JSON.stringify(args)) {
+        if (!confirmedEstimate || confirmedEstimate.args !== JSON.stringify(args) || cachedArgs !== JSON.stringify(args) || !previewMatchesQuote(confirmedEstimate.data)) {
             closeCostModal();
             showVideoStatus(
                 "Form changed since estimate — re-running estimate.",
                 "error");
             scheduleEstimate();
             return;
+        }
+        const confirmed = confirmedEstimate.data;
+        if (confirmed.estimate_fingerprint) {
+            args.estimate_fingerprint = confirmed.estimate_fingerprint;
+            args.max_estimated_cost_usd = confirmed.maximum_estimated_cost_usd;
         }
         submitPending = true;
         updateGenerateEnablement();
@@ -3292,13 +3425,171 @@ const Video = (() => {
             // PR-V3 Codex review: surface the typed `field` from
             // structured server errors so the user sees e.g.
             // "options.person_generation: ..." not just the bare message.
-            showVideoStatus(`Submit failed: ${errorToText(e)}`, "error");
+            applyVideoEvidence(e);
+            closeCostModal();
+            clearCachedEstimate();
+            const uncertainty = !e.code || e.submission_outcome_unknown;
+            showVideoStatus(`Submit failed: ${errorToText(e)}${uncertainty ? " · Submission outcome may be unknown. Inspect history before deliberately starting another job." : " · Obtain a fresh estimate and confirm again."}`, "error");
+            if (uncertainty) await refreshQueue();
         } finally {
             submitPending = false;
             updateGenerateEnablement();
             ve.costConfirmBtn.disabled = false;
             ve.costConfirmBtn.textContent = "Confirm & generate";
         }
+    }
+
+    function readPreviewRevision() {
+        // A WebView document can reload while its managed surface stays alive.
+        let stored = 0;
+        try { stored = Number(window.sessionStorage?.getItem("rookVideoPreviewRevision")) || 0; } catch (_) { }
+        return Math.max(Number.isSafeInteger(stored) && stored > 0 ? stored : 0, Date.now() * 1024);
+    }
+    function nextPreviewRevision() {
+        previewRevision++;
+        try { window.sessionStorage?.setItem("rookVideoPreviewRevision", String(previewRevision)); } catch (_) { }
+        return previewRevision;
+    }
+    function hasFramingFlow() {
+        const id = currentModel()?.model_id || "";
+        return /^(veo-3\.1-(generate|fast-generate|lite-generate)-preview|fal-ai\/veo3\.1(?:\/fast|\/lite)?)$/.test(id)
+            && ["i2v", "interp"].includes(currentMode()) && referenceFrames.length === 0;
+    }
+    function previewArgs() {
+        if (!hasFramingFlow() || !startFrame || currentMode() === "interp" && !endFrame) return null;
+        const args = { model: currentModel().model_id, mode: currentMode(), resolution: ve.resolutionSelect.value, aspect_ratio: ve.aspectSelect.value,
+            start_frame: stripThumbUrl(startFrame) };
+        if (currentMode() === "interp") args.end_frame = stripThumbUrl(endFrame);
+        return args;
+    }
+    function framingKey() { const args = previewArgs(); return args ? JSON.stringify(args) : ""; }
+    function selectedVariant() { return framingState.status === "ready" && framingState.key === framingKey() ? framingState.result?.[selectedFraming] : null; }
+    function preflightText(error) {
+        const label = error?.field === "start_frame" ? "Start image" : error?.field === "end_frame" ? "End image" : "";
+        return (label ? label + ": " : "") + (error?.message || "Image preparation failed. Retry preparation.");
+    }
+    function showPreflightError(error) {
+        showVideoStatus(preflightText(error), "error"); renderPreflightActions(error);
+    }
+    function renderPreflightActions(error) {
+        const retry = !!error;
+        const fit = error?.action === "choose_fit" && selectedFraming === "fill" && framingState.result?.fit?.success === true;
+        const settings = error?.action === "open_settings";
+        ve.preflightActions.classList.toggle("hidden", !retry && !fit && !settings);
+        ve.retryPreflight.classList.toggle("hidden", !retry);
+        ve.useFit.classList.toggle("hidden", !fit);
+        ve.openSettings.classList.toggle("hidden", !settings);
+    }
+    function renderFraming() {
+        const visible = hasFramingFlow(); ve.framing.classList.toggle("hidden", !visible);
+        for (const mode of ["fit", "fill"]) {
+            const button = mode === "fit" ? ve.framingFit : ve.framingFill;
+            const images = mode === "fit" ? ve.framingFitPreview : ve.framingFillPreview;
+            const status = mode === "fit" ? ve.framingFitStatus : ve.framingFillStatus;
+            button.setAttribute("aria-checked", String(mode === selectedFraming)); button.setAttribute("tabindex", mode === selectedFraming ? "0" : "-1");
+            const variant = framingState.status === "ready" && framingState.key === framingKey() ? framingState.result?.[mode] : null;
+            const failure = variant?.error || (framingState.status === "failed" ? framingState.error : null);
+            button.dataset.failed = String(!!failure);
+            status.textContent = failure ? preflightText(failure) : framingState.status === "pending" ? "Preparing preview…" : !previewArgs() ? "Choose source frames to preview." : "";
+            const markup = variant?.success ? (variant.slots || []).map(slot => {
+                const label = slot.role === "end_frame" ? "End image" : "Start image";
+                return `<span class="video-framing-source"><span class="video-framing-source-label">${label}</span><img src="${escapeAttr(slot.preview_url)}" alt="${escapeAttr(mode === "fit" ? "Whole image with padding" : "Image cropped to the output frame")}"><span class="video-framing-dimensions">Source ${slot.original_width} × ${slot.original_height} → ${slot.width} × ${slot.height}${slot.upscaled ? " · Upscaled" : ""}</span></span>`;
+            }).join("") : "";
+            if (images.dataset.markup !== markup) {
+              images.dataset.markup = markup;
+              images.innerHTML = markup;
+              const key = framingState.key, generation = previewRevision;
+              images.querySelectorAll("img").forEach(image => image.addEventListener("error", () => {
+                if (framingState.key !== key || framingState.status !== "ready" || generation !== previewRevision || framingState.result?.[mode] !== variant) return;
+                const error = { message: "Preview expired or could not be loaded. Retry preparation.", retryable: true, framing_mode: mode };
+                framingState = { ...framingState, result: { ...framingState.result, [mode]: { ...variant, success: false, slots: [], error } } };
+                if (mode === selectedFraming) { clearCachedEstimate(); showPreflightError(error); }
+                renderFraming(); updateGenerateEnablement();
+              }));
+            }
+        }
+        const failure = selectedVariant()?.error || framingState.error;
+        if (visible && failure && !availabilityError()) showPreflightError(failure);
+    }
+    function selectFraming(mode) {
+        if (!["fit", "fill"].includes(mode)) return;
+        selectedFraming = mode; renderFraming(); scheduleEstimate();
+    }
+    function onLeave() {
+        videoVisible = false; clearCachedEstimate();
+        framingState = { status: "invalidated", key: "", result: null, error: null, promise: null };
+        bridgeCall("preview_video_framing", { preview_revision: nextPreviewRevision(), cancel_only: true }).catch(() => {});
+        renderFraming();
+    }
+    function refreshFramingPreview(force = false) {
+        const args = previewArgs(), key = args ? JSON.stringify(args) : "";
+        if (!videoVisible || !args) {
+            if (framingState.key || framingState.status === "pending") {
+                bridgeCall("preview_video_framing", { preview_revision: nextPreviewRevision(), cancel_only: true }).catch(() => {});
+            }
+            framingState = { status: "idle", key: "", result: null, error: null, promise: null }; renderFraming(); return Promise.resolve(null);
+        }
+        if (!force && framingState.key === key && ["pending", "ready", "failed"].includes(framingState.status)) return framingState.promise || Promise.resolve(framingState.result);
+        const revision = nextPreviewRevision();
+        framingState = { status: "pending", key, result: null, error: null, promise: null }; renderFraming(); updateGenerateEnablement();
+        const work = (async () => {
+            try {
+                const data = await bridgeCall("preview_video_framing", { ...args, preview_revision: revision });
+                if (revision !== previewRevision || key !== framingKey() || !videoVisible) return null;
+                framingState = { status: "ready", key, result: data, error: null, promise: null }; renderFraming(); updateGenerateEnablement(); return data;
+            } catch (error) {
+                if (revision !== previewRevision || key !== framingKey() || !videoVisible) return null;
+                framingState = { status: "failed", key, error, result: null, promise: null }; renderFraming(); showPreflightError(error); updateGenerateEnablement(); return null;
+            }
+        })();
+        framingState.promise = work; return work;
+    }
+    function previewMatchesQuote(data) {
+        if (!hasFramingFlow()) return true;
+        const variant = selectedVariant(), evidence = data?.source_preparation;
+        if (!variant?.success || evidence?.mode !== selectedFraming) return false;
+        const slots = variant.slots || [], quoted = evidence.slots || [];
+        return slots.length > 0 && slots.length === quoted.length && slots.every((slot, i) => slot.role === quoted[i].role
+            && slot.sha256 === quoted[i].prepared_sha256 && slot.width === quoted[i].width && slot.height === quoted[i].height);
+    }
+    function availabilityError() {
+        const model = currentModel();
+        if (model?.can_generate !== false && model?.new_submission_available !== false) return null;
+        return { code: "dependency_unavailable", detail_code: model.generation_unavailable_detail_code || "video_route_unavailable",
+            message: model.generation_unavailable_reason || "This video endpoint is unavailable.", retryable: false,
+            action: model.provider_name === "veo" && !model.credential_configured ? "open_settings" : undefined };
+    }
+    async function refreshAvailability() {
+        if (!catalogLoaded && !videoVisible) return null;
+        const revision = ++availabilityRevision;
+        try {
+            const data = await bridgeCall("list_video_models");
+            if (revision !== availabilityRevision) return null;
+            const selected = ve.modelSelect.value;
+            catalog = data.models || []; const first = !catalogLoaded; catalogLoaded = true;
+            populateModelDropdown();
+            ve.modelSelect.value = catalog.some(m => m.model_id === selected) ? selected : (catalog.find(m => m.new_submission_available !== false) || catalog[0])?.model_id || "";
+            selectedCapability = currentModel()?.capability || null;
+            if (first) onModelChange();
+            else {
+                clearCachedEstimate();
+                const m = currentModel(); ve.modelHint.textContent = m ? `${m.provider_name} · ${m.pricing_kind.replace("_", " ")} · ${m.pricing_source}` : "";
+                updateGenerateEnablement();
+            }
+            const error = availabilityError(); if (error) showPreflightError(error);
+            return data;
+        } catch (error) { if (revision === availabilityRevision) showPreflightError(error); return null; }
+    }
+    async function retryPreflight() {
+        clearCachedEstimate(); await refreshAvailability();
+        await refreshFramingPreview(true); return runEstimate(true);
+    }
+    async function ensureCurrentEstimate() {
+        const key = JSON.stringify(buildSubmitArgs() || {});
+        if (estimateState.key === key && estimateState.status === "pending") return estimateState.promise;
+        if (estimateState.key === key && estimateState.status === "ready" && previewMatchesQuote(estimateState.result)) return estimateState.result;
+        if (estimateState.key === key && estimateState.status === "failed") { showPreflightError(estimateState.error); return null; }
+        return runEstimate();
     }
 
     // ─── Queue ──────────────────────────────────────────────────────
@@ -3311,6 +3602,7 @@ const Video = (() => {
             const serverIds = new Set();
             (data.jobs || []).forEach(j => {
                 serverIds.add(j.job_id);
+                applyVideoEvidence(j);
                 const existing = queue.get(j.job_id);
                 queue.set(j.job_id, {
                     entry: j,
@@ -3346,8 +3638,10 @@ const Video = (() => {
             if (!cur) return; // disappeared from queue
             try {
                 const data = await bridgeCall("get_video_job", { job_id: jobId });
+                applyVideoEvidence(data);
                 cur.entry = {
                     ...cur.entry,
+                    ...data,
                     state: data.state,
                     updated_at: new Date().toISOString(),
                     result_artifact_id: data.result_artifact_id || null,
@@ -3382,6 +3676,9 @@ const Video = (() => {
             const result = await bridgeCall("cancel_video_job", { job_id: jobId });
             if (localStop && result.state === "interrupted")
                 showVideoStatus("Local monitoring stopped. The Google operation may continue and incur charges.", "info");
+            applyVideoEvidence(result);
+            if (result.execution_stopped) showVideoStatus(videoExecutionNotice(result), "info");
+            await refreshQueue();
             // Server has flipped state; let the next poll surface it.
             // No optimistic write — the cancel race is handled domain-
             // side and we want to display the authoritative outcome.
@@ -3489,7 +3786,7 @@ const Video = (() => {
                 summary.mode || "",
                 summary.resolution ? `${summary.resolution} · ${summary.duration_seconds || "?"}s` : "",
             ].filter(Boolean).join(" · ");
-            const errMsg = j.error && j.error.message ? j.error.message : "";
+            const errMsg = [j.error && j.error.message ? j.error.message : "", videoExecutionNotice(j)].filter(Boolean).join(" · ");
 
             const actions = [];
             if (inFlight) {
@@ -3547,6 +3844,8 @@ const Video = (() => {
         cacheEls,
         wireEvents,
         onEnter,
+        onLeave,
+        refreshAvailability,
     };
 })();
 

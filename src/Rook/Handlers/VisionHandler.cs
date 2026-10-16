@@ -19,6 +19,7 @@ using Rook.Services.Vision.Image;
 using Rook.Services.Vision.Image.Fal;
 using Rook.Services.Vision.Image.Gemini;
 using Rook.Services.Vision.Image.Replicate;
+using Rook.Services.Vision.Video;
 
 namespace Rook.Handlers
 {
@@ -103,6 +104,12 @@ namespace Rook.Handlers
     /// </summary>
     public class VisionHandler
     {
+        private readonly Func<Artifact, bool>? _videoArtifactIsVisible;
+        private bool IsPublishedVideoVisible(Artifact artifact)
+        {
+            if (!VideoPublicationService.IsAffectedArtifact(artifact)) return true;
+            try { return _videoArtifactIsVisible?.Invoke(artifact) ?? false; } catch { return false; }
+        }
         internal sealed class ImageGenerationWorkItemOptions
         {
             public static readonly ImageGenerationWorkItemOptions SyncGenerate = new(
@@ -193,6 +200,7 @@ namespace Rook.Handlers
         private readonly ViewportHandler _viewportHandler;
         private readonly IImageProviderRegistry _imageProviderRegistry;
         private readonly ImageArtifactMaterializer _imageArtifactMaterializer;
+        private readonly ImageSubmissionExecutor _imageSubmissionExecutor;
         private readonly ProviderCredentialMetadataCatalog _credentialMetadata;
 
         internal Func<string, CancellationToken, Task<ProviderSecretValidationResult>>
@@ -210,7 +218,9 @@ namespace Rook.Handlers
             PromptEnhancer enhancer,
             ViewportHandler viewportHandler,
             IImageProviderRegistry? imageProviderRegistry = null,
-            ImageArtifactMaterializer? imageArtifactMaterializer = null)
+            ImageArtifactMaterializer? imageArtifactMaterializer = null,
+            ImageSubmissionExecutor? imageSubmissionExecutor = null,
+            Func<Artifact, bool>? videoArtifactIsVisible = null)
             : this(
                 artifactStore,
                 secrets,
@@ -218,7 +228,7 @@ namespace Rook.Handlers
                 enhancer,
                 viewportHandler,
                 imageProviderRegistry,
-                imageArtifactMaterializer)
+                imageArtifactMaterializer, imageSubmissionExecutor: imageSubmissionExecutor, videoArtifactIsVisible: videoArtifactIsVisible)
         { }
 
         internal VisionHandler(
@@ -227,7 +237,9 @@ namespace Rook.Handlers
             PromptEnhancer enhancer,
             ViewportHandler viewportHandler,
             IImageProviderRegistry? imageProviderRegistry = null,
-            ImageArtifactMaterializer? imageArtifactMaterializer = null)
+            ImageArtifactMaterializer? imageArtifactMaterializer = null,
+            ImageSubmissionExecutor? imageSubmissionExecutor = null,
+            Func<Artifact, bool>? videoArtifactIsVisible = null)
             : this(
                 artifactStore,
                 new VisionSecretStore(generationSecrets),
@@ -235,7 +247,7 @@ namespace Rook.Handlers
                 enhancer,
                 viewportHandler,
                 imageProviderRegistry,
-                imageArtifactMaterializer)
+                imageArtifactMaterializer, imageSubmissionExecutor: imageSubmissionExecutor, videoArtifactIsVisible: videoArtifactIsVisible)
         { }
 
         private VisionHandler(
@@ -246,9 +258,12 @@ namespace Rook.Handlers
             ViewportHandler viewportHandler,
             IImageProviderRegistry? imageProviderRegistry,
             ImageArtifactMaterializer? imageArtifactMaterializer,
-            ProviderCredentialMetadataCatalog? credentialMetadata = null)
+            ProviderCredentialMetadataCatalog? credentialMetadata = null,
+            ImageSubmissionExecutor? imageSubmissionExecutor = null,
+            Func<Artifact, bool>? videoArtifactIsVisible = null)
         {
             _artifactStore = artifactStore ?? throw new ArgumentNullException(nameof(artifactStore));
+            _videoArtifactIsVisible = videoArtifactIsVisible;
             _secrets = secrets ?? throw new ArgumentNullException(nameof(secrets));
             _generationSecrets = generationSecrets;
             _enhancer = enhancer ?? throw new ArgumentNullException(nameof(enhancer));
@@ -262,6 +277,7 @@ namespace Rook.Handlers
                         GetGeminiApiKey,
                         GetFalApiKey,
                         GetReplicateApiToken));
+            _imageSubmissionExecutor = imageSubmissionExecutor ?? new ImageSubmissionExecutor(_imageProviderRegistry);
         }
 
         private string? GetGeminiApiKey()
@@ -454,8 +470,11 @@ namespace Rook.Handlers
         /// the outbound Gemini request is cancelled rather than left to
         /// spend API quota past the deadline.
         /// </summary>
-        public async Task<ApiResponse> DispatchAsync(
-            string? body, CancellationToken cancellationToken = default)
+        public Task<ApiResponse> DispatchAsync(string? body, CancellationToken cancellationToken = default) =>
+            DispatchAsync(body, cancellationToken, new ImageExecutionContext());
+
+        internal async Task<ApiResponse> DispatchAsync(string? body, CancellationToken cancellationToken,
+            ImageExecutionContext imageContext)
         {
             Dictionary<string, JsonElement> args;
             try
@@ -477,7 +496,7 @@ namespace Rook.Handlers
             {
                 return op switch
                 {
-                    "generate" => await GenerateAsync(args, cancellationToken).ConfigureAwait(false),
+                    "generate" => await GenerateAsync(args, cancellationToken, imageContext).ConfigureAwait(false),
                     "enhance_prompt" => await EnhancePromptAsync(args, cancellationToken).ConfigureAwait(false),
                     "test_api_key" => await TestApiKeyAsync(args, cancellationToken).ConfigureAwait(false),
                     "test_provider_secret" => await TestProviderSecretAsync(args, cancellationToken).ConfigureAwait(false),
@@ -513,125 +532,151 @@ namespace Rook.Handlers
 
         // ─── op: generate (async) ───────────────────────────────────────
 
-        internal async Task<ApiResponse> GenerateAsync(
-            Dictionary<string, JsonElement> args, CancellationToken cancellationToken)
+        internal Task<ApiResponse> GenerateAsync(Dictionary<string, JsonElement> args, CancellationToken cancellationToken) =>
+            GenerateAsync(args, cancellationToken, new ImageExecutionContext());
+
+        internal async Task<ApiResponse> GenerateAsync(Dictionary<string, JsonElement> args,
+            CancellationToken cancellationToken, ImageExecutionContext imageContext)
         {
             var workResult = BuildImageGenerationWorkItem(args);
             if (!workResult.Success)
                 return workResult.Failure!;
             var work = workResult.WorkItem!;
 
-            var submit = await work.ResolvedModel.Provider.SubmitAsync(
-                work.Request, work.ResolvedMedia, cancellationToken)
-                .ConfigureAwait(false);
-
-            if (submit is FailedSubmitOutcome failedSubmit)
-            {
-                if (IsGeminiMissingApiKey(failedSubmit.Error)
-                    || IsFalMissingApiKey(failedSubmit.Error))
-                    return Fail(failedSubmit.Error.Message);
-
-                return Fail(
-                    "Image generation failed. " +
-                    GenericizeProviderError(failedSubmit.Error.Message));
-            }
-
-            if (submit is not SyncSubmitOutcome sync)
-            {
-                return Fail("Image generation failed. Provider returned an async job.");
-            }
-
-            if (sync.Result is FailedResultOutcome failedResult)
-            {
-                return Fail(
-                    "Image generation failed. " +
-                    GenericizeProviderError(failedResult.Error.Message));
-            }
-
-            if (sync.Result is not SuccessResultOutcome success)
-            {
-                return Fail("Image generation failed. Provider returned an unknown result shape.");
-            }
-
-            var providerArtifact = success.Envelope.Artifacts
-                .FirstOrDefault(a => string.Equals(
-                    a.Role,
-                    ImageMediaRoles.Image,
-                    StringComparison.Ordinal))
-                ?? success.Envelope.Artifacts.FirstOrDefault();
-            if (providerArtifact is null)
-            {
-                return Fail("Image generation failed. Provider result did not contain an image artifact.");
-            }
-
-            var materialized = await _imageArtifactMaterializer
-                .MaterializeAsync(providerArtifact, cancellationToken)
-                .ConfigureAwait(false);
-            if (!materialized.Success || materialized.Bytes is null)
-            {
-                return Fail(
-                    "Image generation failed. " +
-                    GenericizeProviderError(materialized.Error?.Message
-                        ?? "Image artifact could not be materialized."));
-            }
-
-            var imageBytes = materialized.Bytes;
-            var mimeType = materialized.MimeType ?? "image/png";
-            var extension = ExtensionForMime(mimeType);
-            var generatedAt = DateTime.Now;
-            var providerModel = MetadataString(success.Envelope.EnvelopeMetadata, "modelVersion")
-                ?? MetadataString(providerArtifact.ProviderMetadata, "model")
-                ?? work.ResolvedModel.ModelId;
-
-            var metadata = new Dictionary<string, JsonNode?>
-            {
-                ["prompt"] = work.Request.Prompt,
-                ["model"] = providerModel,
-                ["resolution"] = work.Request.Resolution,
-                ["aspect_ratio"] = string.IsNullOrEmpty(work.Request.AspectRatio)
-                    ? "auto"
-                    : work.Request.AspectRatio,
-                ["mime_type"] = mimeType,
-                ["generated_at"] = generatedAt.ToString("o"),
-                ["reference_count"] = work.Request.ReferenceImages?.Count ?? 0,
-            };
-
-            cancellationToken.ThrowIfCancellationRequested();
-            var publicationGuard = work.ResolvedModel.Provider as IGenerationPublicationGuard;
-            if (publicationGuard is not null)
-            {
-                var error = await publicationGuard.ValidatePublicationAsync(
-                    success.Envelope.EnvelopeMetadata, cancellationToken).ConfigureAwait(false);
-                if (error is not null) return Fail(error.Message);
-            }
-            if (success.Envelope.EnvelopeMetadata.TryGetValue("vertex_binding", out var binding))
-                metadata["vertex_binding"] = binding.DeepClone();
-
-            var blob = new BlobInput("image", imageBytes, extension);
-            var artifact = _artifactStore.Create(
-                kind: ArtifactKindGeneratedImage,
-                blobs: new[] { blob },
-                parentIds: work.ParentArtifactIds,
-                metadata: metadata);
-
+            ApiResponse Failure(GenerationError error, string legacy) =>
+                ImageFailureProjection.FromExecution(error, imageContext) ?? Fail(legacy);
             try
             {
+                var execution = await _imageSubmissionExecutor.SubmitAsync(work.Request, work.ResolvedModel,
+                    work.ResolvedMedia, imageContext, cancellationToken).ConfigureAwait(false);
+                var submit = execution.Outcome;
+                var effectiveModel = execution.Execution.EffectiveModel ?? work.ResolvedModel;
+                var effectiveRequest = execution.Execution.EffectiveRequest ?? work.Request;
                 cancellationToken.ThrowIfCancellationRequested();
+
+                if (submit is FailedSubmitOutcome failedSubmit)
+                {
+                    if (IsGeminiMissingApiKey(failedSubmit.Error)
+                        || IsFalMissingApiKey(failedSubmit.Error))
+                        return Failure(failedSubmit.Error, failedSubmit.Error.Message);
+
+                    return Failure(failedSubmit.Error, "Image generation failed. " +
+                        GenericizeProviderError(failedSubmit.Error.Message));
+                }
+
+                if (submit is not SyncSubmitOutcome sync)
+                {
+                    return Fail("Image generation failed. Provider returned an async job.");
+                }
+
+                if (sync.Result is FailedResultOutcome failedResult)
+                {
+                    return Failure(failedResult.Error, "Image generation failed. " +
+                        GenericizeProviderError(failedResult.Error.Message));
+                }
+
+                if (sync.Result is not SuccessResultOutcome success)
+                {
+                    return Fail("Image generation failed. Provider returned an unknown result shape.");
+                }
+
+                var providerArtifact = success.Envelope.Artifacts
+                    .FirstOrDefault(a => string.Equals(
+                        a.Role,
+                        ImageMediaRoles.Image,
+                        StringComparison.Ordinal))
+                    ?? success.Envelope.Artifacts.FirstOrDefault();
+                if (providerArtifact is null)
+                {
+                    return Fail("Image generation failed. Provider result did not contain an image artifact.");
+                }
+
+                imageContext.SetPhase(ImageExecutionPhase.Materialization);
+                var materialized = await ImageSubmissionExecutor.AwaitAsync(_imageArtifactMaterializer
+                    .MaterializeAsync(providerArtifact, cancellationToken), cancellationToken).ConfigureAwait(false);
+                if (!materialized.Success || materialized.Bytes is null)
+                {
+                    var error = materialized.Error ?? new GenerationError(GenerationErrorCode.ExecutionFailed,
+                        "Image artifact could not be materialized.", false);
+                    return Failure(error, "Image generation failed. " + GenericizeProviderError(error.Message));
+                }
+
+                var imageBytes = materialized.Bytes;
+                var mimeType = materialized.MimeType ?? "image/png";
+                var extension = ExtensionForMime(mimeType);
+                var generatedAt = DateTime.Now;
+                var providerModel = effectiveModel.ProviderName == "fal" && ImageRoutingCodec.IsFalModel(effectiveModel.ModelId)
+                    ? effectiveModel.ModelId : MetadataString(success.Envelope.EnvelopeMetadata, "modelVersion")
+                    ?? MetadataString(providerArtifact.ProviderMetadata, "model")
+                    ?? work.ResolvedModel.ModelId;
+
+                var metadata = new Dictionary<string, JsonNode?>
+                {
+                    ["prompt"] = work.Request.Prompt,
+                    ["model"] = providerModel,
+                    ["resolution"] = effectiveRequest.Resolution,
+                    ["aspect_ratio"] = string.IsNullOrEmpty(effectiveRequest.AspectRatio)
+                        ? "auto"
+                        : effectiveRequest.AspectRatio,
+                    ["mime_type"] = mimeType,
+                    ["generated_at"] = generatedAt.ToString("o"),
+                    ["reference_count"] = work.Request.ReferenceImages?.Count ?? 0,
+                };
+
+                imageContext.SetPhase(ImageExecutionPhase.Publication);
+                ImageFailureProjection.AddArtifactRouting(metadata, imageContext.Snapshot());
+                if (effectiveModel.ProviderName == "fal" && ImageRoutingCodec.IsFalModel(effectiveModel.ModelId))
+                    metadata["provider"] = "fal";
+                cancellationToken.ThrowIfCancellationRequested();
+                var publicationGuard = effectiveModel.Provider as IGenerationPublicationGuard;
                 if (publicationGuard is not null)
                 {
                     var error = await publicationGuard.ValidatePublicationAsync(
                         success.Envelope.EnvelopeMetadata, cancellationToken).ConfigureAwait(false);
-                    if (error is not null)
-                    {
-                        _artifactStore.Delete(artifact.Id);
-                        return Fail(error.Message);
-                    }
+                    if (error is not null) return Fail(error.Message);
                 }
-                return Ok(ArtifactEnvelope(artifact));
+                if (success.Envelope.EnvelopeMetadata.TryGetValue("vertex_binding", out var binding))
+                    metadata["vertex_binding"] = binding.DeepClone();
+
+                var blob = new BlobInput("image", imageBytes, extension);
+                var artifact = _artifactStore.Create(
+                    kind: ArtifactKindGeneratedImage,
+                    blobs: new[] { blob },
+                    parentIds: work.ParentArtifactIds,
+                    metadata: metadata);
+
+                try
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (publicationGuard is not null)
+                    {
+                        var error = await publicationGuard.ValidatePublicationAsync(
+                            success.Envelope.EnvelopeMetadata, cancellationToken).ConfigureAwait(false);
+                        if (error is not null)
+                        {
+                            _artifactStore.Delete(artifact.Id);
+                            return Fail(error.Message);
+                        }
+                    }
+                    return Ok(ArtifactEnvelope(artifact));
+                }
+                catch
+                {
+                    _artifactStore.Delete(artifact.Id);
+                    throw;
+                }
             }
-            catch
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                _artifactStore.Delete(artifact.Id);
+                imageContext.SetCredentialFailure(null); imageContext.SetPhase(ImageExecutionPhase.Interruption);
+                return Failure(new GenerationError(GenerationErrorCode.Interrupted, "Image generation interrupted.", false),
+                    "Image generation interrupted.");
+            }
+            catch (Exception)
+            {
+                var structured = ImageFailureProjection.FromExecution(new GenerationError(
+                    GenerationErrorCode.ExecutionFailed, "Image generation failed during materialization or publication.", false), imageContext);
+                if (structured != null) return structured;
                 throw;
             }
         }
@@ -883,6 +928,11 @@ namespace Rook.Handlers
                 imageRequest, imageRequest.Options, resolvedModel.Capability);
             if (!validation.Success)
             {
+                if (resolvedModel.ProviderName == "fal" && ImageRoutingCodec.IsFalModel(resolvedModel.ModelId))
+                    return ImageGenerationWorkItemResult.Fail(new ApiResponse { Success = false, HttpStatus = 400,
+                        Data = ImageFailureProjection.Build(new GenerationError(GenerationErrorCode.InvalidRequest,
+                            validation.Message ?? "Image provider request is invalid.", false, validation.Field),
+                            resolvedModel.ProviderName, resolvedModel.ModelId, new(null, null), ImageFalDispatchState.NotStarted) });
                 return ImageGenerationWorkItemResult.Fail(
                     Fail(validation.Message ?? "Image provider request is invalid."));
             }
@@ -1027,29 +1077,25 @@ namespace Rook.Handlers
                     $"context exceeds maximum length of {MaxContextLength}.");
             }
 
-            var apiKey = _secrets.GetGeminiApiKey();
-            if (string.IsNullOrEmpty(apiKey))
-            {
-                return Fail(
-                    "Gemini API key is not configured. Set it via the Vision settings " +
-                    "before calling /vision/enhance-prompt.");
-            }
-
-            var result = await _enhancer.EnhancePromptAsync(
-                apiKey!, prompt, context, cancellationToken).ConfigureAwait(false);
+            var result = await _enhancer.EnhanceWithFallbackAsync(
+                GetGeminiApiKey(), GetFalApiKey, prompt, context, cancellationToken).ConfigureAwait(false);
 
             if (!result.Success || string.IsNullOrEmpty(result.EnhancedPrompt))
             {
                 return Fail(
-                    "Prompt enhancement failed. " +
-                    GenericizeProviderError(result.Error));
+                    result.Error ?? "Prompt enhancement failed.");
             }
+
+            cancellationToken.ThrowIfCancellationRequested();
 
             var metadata = new Dictionary<string, JsonNode?>
             {
                 ["original_prompt"] = prompt,
                 ["context"] = context,
-                ["model"] = "gemini-2.5-flash",
+                ["provider"] = result.Provider,
+                ["model"] = result.Model,
+                ["fallback_used"] = result.FallbackUsed,
+                ["fallback_reason"] = result.FallbackReason,
                 // Surface the enhanced text in metadata so bridge consumers
                 // can read it without a secondary fetch against the blob
                 // (CSP `connect-src 'none'` blocks XHR/fetch against the
@@ -1729,7 +1775,7 @@ namespace Rook.Handlers
                 appliedLimit = rawLimit.Value;
             }
 
-            IEnumerable<Artifact> results = _artifactStore.List();
+            IEnumerable<Artifact> results = _artifactStore.List().Where(IsPublishedVideoVisible);
 
             if (kindFilter != null)
             {
@@ -1799,7 +1845,7 @@ namespace Rook.Handlers
         {
             var id = RequireArtifactId(args);
             var artifact = _artifactStore.Get(id);
-            if (artifact is null)
+            if (artifact is null || !IsPublishedVideoVisible(artifact))
             {
                 throw new KeyNotFoundException($"Artifact '{id:D}' not found.");
             }
@@ -2264,7 +2310,7 @@ namespace Rook.Handlers
         {
             var credentialStatus = BuildCredentialStatusForProvider(
                 descriptor.ProviderName);
-            return new Dictionary<string, object?>
+            var result = new Dictionary<string, object?>
             {
                 ["model_id"] = descriptor.ModelId,
                 ["provider_name"] = descriptor.ProviderName,
@@ -2276,6 +2322,18 @@ namespace Rook.Handlers
                 ["credential_message"] = credentialStatus.Message,
                 ["capability"] = ImageCapabilityToObj(descriptor.Capability),
             };
+            var mapped = descriptor.ProviderName == "gemini" ? ImageRoutingCodec.FalModel(descriptor.ModelId) : null;
+            if (mapped != null && _imageProviderRegistry.TryResolve(mapped, out var fallback) && fallback.ProviderName == "fal")
+            {
+                var status = BuildCredentialStatusForProvider("fal");
+                result["fallback_available"] = new Dictionary<string, object?>
+                {
+                    ["provider_name"] = "fal", ["model_id"] = mapped,
+                    ["credential_availability"] = CredentialAvailabilityToString(status.Availability),
+                    ["credential_message"] = status.Message
+                };
+            }
+            return result;
         }
 
         private static string ImageSubmissionModeToString(ImageSubmissionMode mode)

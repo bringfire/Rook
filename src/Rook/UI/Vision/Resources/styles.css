@@ -2973,3 +2973,23 @@ body {
 [data-mode="t3d"] #reconstruct-mv-slots-field { display: none; }
 [data-mode="t3d"] #reconstruct-source-field { display: none; }
 
+
+/* Actual server-prepared image canvases; no browser crop approximation. */
+.video-framing { border: 0; padding: 0; margin: 18px 0; min-width: 0; }
+.video-framing legend { font-size: 12px; letter-spacing: .08em; margin-bottom: 6px; }
+.video-framing-cards { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 12px; margin-top: 10px; }
+.video-framing-card { display: flex; flex-direction: column; gap: 8px; min-width: 0; text-align: left; color: inherit; background: transparent; border: 1px solid var(--border-color, #746b59); padding: 12px; cursor: pointer; font: inherit; }
+.video-framing-card[aria-checked="true"] { border: 2px solid var(--text-primary, #222); padding: 11px; }
+.video-framing-card:focus-visible { outline: 3px solid var(--accent-color, #996400); outline-offset: 3px; }
+.video-framing-title { font-size: 13px; font-weight: 600; }
+.video-framing-check { visibility: hidden; margin-right: 3px; }
+.video-framing-card[aria-checked="true"] .video-framing-check { visibility: visible; }
+.video-framing-copy, .video-framing-status { font-size: 11px; line-height: 1.5; }
+.video-framing-status { overflow-wrap: anywhere; }
+.video-framing-card[data-failed="true"] .video-framing-status { color: var(--error-color, #9a3024); }
+.video-framing-previews { display: grid; grid-template-columns: repeat(auto-fit,minmax(90px,1fr)); width: 100%; gap: 8px; }
+.video-framing-source { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.video-framing-source img { display: block; height: 150px; width: 100%; object-fit: contain; background: rgba(0,0,0,.06); }
+.video-framing-source-label, .video-framing-dimensions { font-size: 10px; line-height: 1.4; overflow-wrap: anywhere; }
+.video-preflight-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+@media (max-width: 440px) { .video-framing-cards { gap: 7px; } .video-framing-card { padding: 8px; } .video-framing-card[aria-checked="true"] { padding: 7px; } }

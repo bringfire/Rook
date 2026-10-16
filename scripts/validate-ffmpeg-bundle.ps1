@@ -53,7 +53,8 @@ function Require-NonEmptyManifestField {
 
 function Normalize-ConfigureLine {
     param([string]$Value)
-    return (($Value -replace '\s+', ' ').Trim())
+    # FFmpeg quotes comma-containing configure values in -version output.
+    return (($Value.Replace("'", '') -replace '\s+', ' ').Trim())
 }
 
 function Get-ConfigureLineFromRecipeText {
@@ -354,6 +355,9 @@ function Assert-SourceBundleManifest {
         Fail "source bundle manifest configure line does not match provenance"
     }
 
+    if (-not [IO.Path]::IsPathRooted($manifest.bundle_path)) {
+        $manifest.bundle_path = Join-Path (Split-Path -Parent ([IO.Path]::GetFullPath($Path))) $manifest.bundle_path
+    }
     if (-not (Test-Path -LiteralPath $manifest.bundle_path -PathType Leaf)) {
         Fail "source bundle is missing: $($manifest.bundle_path)"
     }
@@ -413,6 +417,22 @@ function Assert-SourceBundleManifest {
 
     if ($embeddedConfigureLine -ne (Normalize-ConfigureLine $RuntimeConfigureLine)) {
         Fail "source bundle configure recipe does not match runtime configuration line"
+    }
+    if ($embeddedConfigureLine -match '(?:^|\s)--enable-zlib(?:\s|$)') {
+        $zlibPath = Join-Path (Split-Path -Parent $SourceMetadataPath) 'rook-zlib-source.json'
+        if (-not (Test-Path -LiteralPath $zlibPath -PathType Leaf)) { Fail 'zlib source metadata is missing' }
+        $zlib = Get-Content -LiteralPath $zlibPath -Raw | ConvertFrom-Json
+        foreach ($field in @('name', 'version', 'source_url', 'source_archive', 'source_sha256', 'license', 'linkage')) {
+            Require-NonEmptyField -Provenance $zlib -Field $field
+            if ($Provenance.zlib.$field -ne $zlib.$field -or $manifest.zlib.$field -ne $zlib.$field) { Fail "zlib provenance mismatch: $field" }
+        }
+        if ($zlib.license -ne 'Zlib' -or $zlib.linkage -notmatch '^static archive') { Fail 'zlib must be the approved static archive' }
+        if ($Provenance.zlib_static_archive_sha256 -notmatch '^[A-Fa-f0-9]{64}$' -or $manifest.zlib_static_archive_sha256 -ne $Provenance.zlib_static_archive_sha256) { Fail 'zlib static archive checksum evidence is missing or mismatched' }
+        Assert-ZipEntrySha256 -ZipPath $manifest.bundle_path -EntryName $zlib.source_archive -Expected $zlib.source_sha256 -Message 'zlib source archive checksum mismatch'
+        Assert-ZipEntryMatchesFile -ZipPath $manifest.bundle_path -EntryName 'rook-zlib-source.json' -ExpectedPath $zlibPath -Message 'zlib source metadata mismatch'
+        $licensePath = Join-Path $PayloadDir 'LICENSE.zlib.txt'
+        if (-not (Test-Path -LiteralPath $licensePath -PathType Leaf)) { Fail 'zlib license is missing' }
+        Assert-ZipEntryMatchesFile -ZipPath $manifest.bundle_path -EntryName 'LICENSE.zlib.txt' -ExpectedPath $licensePath -Message 'zlib license mismatch'
     }
 }
 
@@ -732,6 +752,9 @@ $installerSourceLines = $installerContent -split "`r?`n" |
 
 foreach ($requiredInstallerFile in @('ffmpeg.exe', 'ffmpeg-provenance.json', 'LICENSE.FFmpeg.txt', 'NOTICE.FFmpeg.txt', 'SOURCE.FFmpeg.txt', 'README.md')) {
     Assert-InstallerSourceEntry -SourceLines $installerSourceLines -FileName $requiredInstallerFile
+}
+if ($provenance.configure_line -match '(?:^|\s)--enable-zlib(?:\s|$)') {
+    Assert-InstallerSourceEntry -SourceLines $installerSourceLines -FileName 'LICENSE.zlib.txt'
 }
 
 if (-not $SkipFunctionalSmoke) {

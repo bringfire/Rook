@@ -66,7 +66,7 @@ namespace Rook.Services.Vision.Video.Extraction
     internal static class FfmpegBundledBinaryLocator
     {
         public static string? GetInstalledFfmpegPath()
-            => GetInstalledFfmpegPath(typeof(global::Rook.RookPlugin).Assembly.Location);
+            => GetInstalledFfmpegPath(typeof(FfmpegBundledBinaryLocator).Assembly.Location);
 
         internal static string? GetInstalledFfmpegPath(string? managedAssemblyLocation)
         {

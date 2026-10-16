@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Rhino;
 using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Image.Jobs;
+using Rook.Services.Vision.Image;
 
 namespace Rook.Handlers
 {
@@ -142,13 +143,13 @@ namespace Rook.Handlers
                 .ConfigureAwait(false);
 
             if (result.Error is not null)
-                return Fail(result.Error);
+                return Fail(result.Error, result.Provider, result.Model, result.Routing, result.FalDispatchState);
 
-            return Ok(new Dictionary<string, object?>
+            return Ok(WithRouting(new Dictionary<string, object?>
             {
                 ["job_id"] = result.JobId!.Value.ToString("D"),
                 ["state"] = StateToString(result.State),
-            });
+            }, result.Provider, result.Model, result.Routing, result.FalDispatchState));
         }
 
         private async Task<ApiResponse> CancelAsync(
@@ -162,13 +163,13 @@ namespace Rook.Handlers
                 .ConfigureAwait(false);
 
             if (result.Error is not null)
-                return Fail(result.Error);
+                return Fail(result.Error, result.Provider, result.Model, result.Routing, result.FalDispatchState);
 
-            return Ok(new Dictionary<string, object?>
+            return Ok(WithRouting(new Dictionary<string, object?>
             {
                 ["job_id"] = jobId.ToString("D"),
                 ["state"] = StateToString(result.State),
-            });
+            }, result.Provider, result.Model, result.Routing, result.FalDispatchState));
         }
 
         private ApiResponse Status(Dictionary<string, JsonElement> args)
@@ -180,9 +181,9 @@ namespace Rook.Handlers
                 .GetAwaiter().GetResult();
 
             if (result.Error is { Code: GenerationErrorCode.InvalidRequest })
-                return Fail(result.Error);
+                return Fail(result.Error, result.Provider, result.Model, result.Routing, result.FalDispatchState);
 
-            return Ok(new Dictionary<string, object?>
+            return Ok(WithRouting(new Dictionary<string, object?>
             {
                 ["job_id"] = jobId.ToString("D"),
                 ["state"] = StateToString(result.State),
@@ -190,8 +191,8 @@ namespace Rook.Handlers
                     ? null
                     : ProgressToObj(result.Progress),
                 ["result_artifact_id"] = result.ResultArtifactId?.ToString("D"),
-                ["error"] = result.Error is null ? null : ErrorToObj(result.Error),
-            });
+                ["error"] = result.Error is null ? null : ErrorToObj(result.Error, result.Provider, result.Model, result.Routing, result.FalDispatchState),
+            }, result.Provider, result.Model, result.Routing, result.FalDispatchState));
         }
 
         private ApiResponse Result(Dictionary<string, JsonElement> args)
@@ -203,7 +204,7 @@ namespace Rook.Handlers
                 .GetAwaiter().GetResult();
 
             if (result.Error is not null)
-                return Fail(result.Error);
+                return Fail(result.Error, result.Provider, result.Model, result.Routing, result.FalDispatchState);
 
             var files = new List<Dictionary<string, object?>>(
                 result.Files!.Count);
@@ -216,14 +217,14 @@ namespace Rook.Handlers
                 });
             }
 
-            return Ok(new Dictionary<string, object?>
+            return Ok(WithRouting(new Dictionary<string, object?>
             {
                 ["job_id"] = jobId.ToString("D"),
                 ["state"] = StateToString(result.State),
                 ["result_artifact_id"] =
                     result.ResultArtifactId!.Value.ToString("D"),
                 ["files"] = files,
-            });
+            }, result.Provider, result.Model, result.Routing, result.FalDispatchState));
         }
 
         private ApiResponse List(Dictionary<string, JsonElement> args)
@@ -248,7 +249,7 @@ namespace Rook.Handlers
 
         private static Dictionary<string, object?> JobToObj(
             ImageJobRecord job) =>
-            new()
+            WithRouting(new Dictionary<string, object?>()
             {
                 ["job_id"] = job.JobId.ToString("D"),
                 ["state"] = StateToString(job.State),
@@ -258,8 +259,15 @@ namespace Rook.Handlers
                     "o",
                     CultureInfo.InvariantCulture),
                 ["result_artifact_id"] = job.ResultArtifactId?.ToString("D"),
-                ["error"] = job.Error is null ? null : ErrorToObj(job.Error),
-            };
+                ["error"] = job.Error is null ? null : ErrorToObj(job.Error, job.Provider, job.Model, job.Routing, job.FalDispatchState),
+            }, job.Provider, job.Model, job.Routing, job.FalDispatchState);
+
+        private static Dictionary<string, object?> WithRouting(Dictionary<string, object?> data,
+            string? provider, string? model, ImageRoutingContext? routing, ImageFalDispatchState? dispatch)
+        {
+            ImageFailureProjection.AddRouting(data, provider, model, routing, dispatch);
+            return data;
+        }
 
         private static bool TryParseJobId(
             Dictionary<string, JsonElement> args,
@@ -320,8 +328,10 @@ namespace Rook.Handlers
             };
 
         private static Dictionary<string, object?> ErrorToObj(
-            GenerationError error)
+            GenerationError error, string? provider = null, string? model = null,
+            ImageRoutingContext? routing = null, ImageFalDispatchState? dispatch = null)
         {
+            if (provider != null && model != null) return ImageFailureProjection.Build(error, provider, model, routing, dispatch);
             var safe = ImageJobLedgerRecordFactory.SanitizeError(error)
                 ?? error;
             return new Dictionary<string, object?>
@@ -350,11 +360,12 @@ namespace Rook.Handlers
         private static ApiResponse Ok(object? data) =>
             new() { Success = true, Data = data, HttpStatus = 200 };
 
-        private static ApiResponse Fail(GenerationError error) =>
+        private static ApiResponse Fail(GenerationError error, string? provider = null, string? model = null,
+            ImageRoutingContext? routing = null, ImageFalDispatchState? dispatch = null) =>
             new()
             {
                 Success = false,
-                Data = ErrorToObj(error),
+                Data = ErrorToObj(error, provider, model, routing, dispatch),
                 HttpStatus = MapStatusFromCode(error.Code),
             };
 

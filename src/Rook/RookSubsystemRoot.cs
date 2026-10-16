@@ -232,6 +232,7 @@ namespace Rook
                     var selector = new ReplicateImageArtifactRequestFactorySelector(
                         () => SharedGenerationSecretStore.GetSecret(
                             GenerationSecretKeys.ReplicateApiToken));
+                    var executor = new ImageSubmissionExecutor(registry);
                     var manager = new ImageJobManager(
                         registry,
                         SharedArtifactStore,
@@ -241,8 +242,9 @@ namespace Rook
                         maxConcurrentJobs: ImageJobManager.DefaultMaxConcurrentJobs,
                         materializer: null,
                         requestFactorySelector: selector.Select,
-                        ledger: imageLedger ?? new JsonlImageJobLedger());
-                    return new ImageJobSubsystemBundle(manager, registry);
+                        ledger: imageLedger ?? new JsonlImageJobLedger(),
+                        submissionExecutor: executor);
+                    return new ImageJobSubsystemBundle(manager, registry, executor);
                 },
                 LazyThreadSafetyMode.ExecutionAndPublication);
         }
@@ -490,6 +492,7 @@ namespace Rook
             if (_video.IsValueCreated)
             {
                 _video.Value.Manager.Dispose();
+                _video.Value.Framing.Cache.Dispose();
             }
 
             if (_reconstruction.IsValueCreated)

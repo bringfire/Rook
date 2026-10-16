@@ -24,7 +24,27 @@
     "--enable-filter=select",
     "--enable-filter=reverse",
     "--enable-filter=scale",
-    "--enable-encoder=mjpeg"
+    "--enable-encoder=mjpeg",
+    "--enable-zlib",
+    "--enable-demuxer=image2",
+    "--enable-decoder=png",
+    "--enable-decoder=webp",
+    "--enable-parser=png",
+    "--enable-parser=webp",
+    "--enable-encoder=png",
+    "--enable-filter=format",
+    "--enable-filter=pad",
+    "--enable-filter=crop",
+    "--enable-filter=transpose",
+    "--enable-filter=hflip",
+    "--enable-filter=vflip",
+    "--enable-filter=setsar",
+    "--enable-filter=drawbox",
+    "--enable-filter=split",
+    "--enable-filter=overlay",
+    "--enable-filter=sidedata",
+    "--enable-filter=metadata",
+    "--enable-filter=setparams"
   ],
   "external_provenance_overrides": []
 }

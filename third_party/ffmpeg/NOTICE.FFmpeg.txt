@@ -1,4 +1,4 @@
-Rook includes FFmpeg for generated-video thumbnail and frame sidecar extraction.
+Rook includes FFmpeg for video sidecar extraction and still-image Fit/Fill framing.
 FFmpeg is third-party software. Rook invokes ffmpeg.exe as a subprocess and does
 not link FFmpeg libraries.
 
@@ -10,3 +10,7 @@ published beside the Rook installer.
 
 License policy for Rook release packaging: LGPL-only; release validation rejects
 GPL-enabled, nonfree, broad third-party, or unexpected externally-enabled builds.
+
+This build also prepares still-image Fit/Fill video sources. It statically links
+zlib 1.3.2 inside ffmpeg.exe under the zlib license (LICENSE.zlib.txt). Rook's
+MIT code remains separate from the LGPL subprocess. No zlib DLL is required.

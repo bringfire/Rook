@@ -28,7 +28,7 @@ namespace Rook.Services.Vision.Video
                     nameof(maxGeneratedVideoBytes),
                     "Maximum generated video bytes must be positive.");
 
-            _httpClient = new HttpClient();
+            _httpClient = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false });
             _maxGeneratedVideoBytes = maxGeneratedVideoBytes;
         }
 

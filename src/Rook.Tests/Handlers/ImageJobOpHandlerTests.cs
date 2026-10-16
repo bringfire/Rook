@@ -694,7 +694,7 @@ namespace Rook.Tests.Handlers
             Assert.Equal("polling", job["state"]);
             Assert.Equal("nano-banana-2", job["model"]);
             Assert.Equal("gemini", job["provider_name"]);
-            Assert.False(job.ContainsKey("provider"));
+            Assert.Equal("gemini", job["provider"]);
             Assert.Null(job["result_artifact_id"]);
         }
 

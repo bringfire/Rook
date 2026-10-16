@@ -201,7 +201,8 @@ namespace Rook.Tests.InternalBridge
         {
             var registry = CreateRegistry();
             var receipt = IssueScheduled(registry, DocumentA);
-            var waitTask = Task.Run(() => registry.Wait(receipt.ReceiptId, TimeSpan.FromSeconds(5), CancellationToken.None));
+            using var waiter = new BlockingTestWorker<GhReadinessWaitResult>(ct => registry.Wait(receipt.ReceiptId, Timeout.InfiniteTimeSpan, ct));
+            var waitTask = waiter.Task;
 
             Assert.True(SpinWait.SpinUntil(() => !registry.CanAcquireWaiterForTests(receipt.ReceiptId), TimeSpan.FromSeconds(1)));
             Assert.False(waitTask.Wait(TimeSpan.FromMilliseconds(50)));
@@ -219,7 +220,8 @@ namespace Rook.Tests.InternalBridge
         {
             var registry = CreateRegistry();
             var receipt = IssueScheduled(registry, DocumentA);
-            var firstWait = Task.Run(() => registry.Wait(receipt.ReceiptId, TimeSpan.FromSeconds(5), CancellationToken.None));
+            using var waiter = new BlockingTestWorker<GhReadinessWaitResult>(ct => registry.Wait(receipt.ReceiptId, Timeout.InfiniteTimeSpan, ct));
+            var firstWait = waiter.Task;
             Assert.True(SpinWait.SpinUntil(() => !registry.CanAcquireWaiterForTests(receipt.ReceiptId), TimeSpan.FromSeconds(1)));
 
             var secondWait = registry.Wait(receipt.ReceiptId, TimeSpan.FromMilliseconds(1), CancellationToken.None);
@@ -264,7 +266,8 @@ namespace Rook.Tests.InternalBridge
         {
             var registry = CreateRegistry();
             var older = IssueScheduled(registry, DocumentA);
-            var waitTask = Task.Run(() => registry.Wait(older.ReceiptId, TimeSpan.FromSeconds(5), CancellationToken.None));
+            using var waiter = new BlockingTestWorker<GhReadinessWaitResult>(ct => registry.Wait(older.ReceiptId, Timeout.InfiniteTimeSpan, ct));
+            var waitTask = waiter.Task;
             Assert.True(SpinWait.SpinUntil(() => !registry.CanAcquireWaiterForTests(older.ReceiptId), TimeSpan.FromSeconds(1)));
 
             registry.IssueMutation(DocumentA);
@@ -280,7 +283,8 @@ namespace Rook.Tests.InternalBridge
         {
             var registry = CreateRegistry();
             var receipt = IssueScheduled(registry, DocumentA);
-            var waitTask = Task.Run(() => registry.Wait(receipt.ReceiptId, TimeSpan.FromSeconds(5), CancellationToken.None));
+            using var waiter = new BlockingTestWorker<GhReadinessWaitResult>(ct => registry.Wait(receipt.ReceiptId, Timeout.InfiniteTimeSpan, ct));
+            var waitTask = waiter.Task;
             Assert.True(SpinWait.SpinUntil(() => !registry.CanAcquireWaiterForTests(receipt.ReceiptId), TimeSpan.FromSeconds(1)));
 
             registry.ReplaceDocument(DocumentB);
@@ -475,26 +479,29 @@ namespace Rook.Tests.InternalBridge
                 beforeWaiterReacquire: () =>
                 {
                     waiterReachedReacquire.Set();
-                    releaseWaiter.Wait(TimeSpan.FromSeconds(1));
+                    releaseWaiter.Wait();
                 });
             var receipt = IssueScheduled(registry, DocumentA);
-            var waitTask = Task.Run(() => registry.Wait(receipt.ReceiptId, TimeSpan.FromSeconds(5), CancellationToken.None));
-            Assert.True(SpinWait.SpinUntil(() => !registry.CanAcquireWaiterForTests(receipt.ReceiptId), TimeSpan.FromSeconds(1)));
-
-            registry.MarkMutationFailed(receipt.ReceiptId);
-            Assert.True(waiterReachedReacquire.Wait(TimeSpan.FromSeconds(1)));
-            for (var index = 0; index < 256; index++)
+            using var waiter = new BlockingTestWorker<GhReadinessWaitResult>(ct => registry.Wait(receipt.ReceiptId, Timeout.InfiniteTimeSpan, ct));
+            var waitTask = waiter.Task;
+            try
             {
-                var issue = registry.IssueMutation(DocumentA);
-                registry.MarkMutationFailed(issue.Receipt!.ReceiptId);
+                Assert.True(SpinWait.SpinUntil(() => !registry.CanAcquireWaiterForTests(receipt.ReceiptId), TimeSpan.FromSeconds(1)));
+                registry.MarkMutationFailed(receipt.ReceiptId);
+                Assert.True(waiterReachedReacquire.Wait(TimeSpan.FromSeconds(1)));
+                for (var index = 0; index < 256; index++)
+                {
+                    var issue = registry.IssueMutation(DocumentA);
+                    registry.MarkMutationFailed(issue.Receipt!.ReceiptId);
+                }
+
+                releaseWaiter.Set();
+                Assert.True(waitTask.Wait(TimeSpan.FromSeconds(1)));
+                Assert.Equal(GhReadinessWaitStatus.Terminal, waitTask.Result.WaitStatus);
+                Assert.Equal(GhSolveReadinessStatus.Unknown, waitTask.Result.Receipt!.Status);
+                Assert.Equal("mutation_failed", waitTask.Result.Receipt.Reason);
             }
-
-            releaseWaiter.Set();
-
-            Assert.True(waitTask.Wait(TimeSpan.FromSeconds(1)));
-            Assert.Equal(GhReadinessWaitStatus.Terminal, waitTask.Result.WaitStatus);
-            Assert.Equal(GhSolveReadinessStatus.Unknown, waitTask.Result.Receipt!.Status);
-            Assert.Equal("mutation_failed", waitTask.Result.Receipt.Reason);
+            finally { releaseWaiter.Set(); }
         }
 
         [Fact]

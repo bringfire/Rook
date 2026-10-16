@@ -19,5 +19,8 @@ namespace Rook.Services.Vision.Video
         DateTimeOffset UpdatedAt,
         JobRequestSummary Summary,
         Guid? ResultArtifactId,
-        VideoJobError? Error);
+        VideoJobError? Error)
+    {
+        internal VideoExecutionProjection? Execution { get; init; }
+    }
 }

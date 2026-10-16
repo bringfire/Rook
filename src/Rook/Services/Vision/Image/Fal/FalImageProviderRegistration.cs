@@ -45,6 +45,12 @@ namespace Rook.Services.Vision.Image.Fal
         private static readonly IReadOnlyDictionary<string, (ImageCapability Capability, IPricingModel<ImageGenerationRequest, ImageCapability> PricingModel)> _models =
             new Dictionary<string, (ImageCapability, IPricingModel<ImageGenerationRequest, ImageCapability>)>(StringComparer.Ordinal)
             {
+                [FalImageCapabilities.NanoBanana2] = (
+                    FalImageCapabilities.Models[FalImageCapabilities.NanoBanana2],
+                    new FalNanoBananaPricingModel(FalImageCapabilities.NanoBanana2)),
+                [FalImageCapabilities.NanoBananaPro] = (
+                    FalImageCapabilities.Models[FalImageCapabilities.NanoBananaPro],
+                    new FalNanoBananaPricingModel(FalImageCapabilities.NanoBananaPro)),
                 [FalImageCapabilities.FluxSchnell] = (
                     FalImageCapabilities.Models[FalImageCapabilities.FluxSchnell],
                     new FalFluxSchnellPricingModel()),
