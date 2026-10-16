@@ -36,7 +36,7 @@ namespace Rook.Services.Vision.Video.Fal
             foreach (var slot in snapshot.Slots)
             {
                 if (slot.ByteLength > 8_000_000 || slot.MimeType is not ("image/png" or "image/jpeg" or "image/webp")) return Error("fal Veo source must be PNG/JPEG/WebP and at most 8,000,000 bytes.", slot.Role);
-                var inspected = VideoStillImageInspector.Inspect(slot.Buffer, slot.Role);
+                var inspected = VideoStillImageInspector.Inspect(slot.Buffer, slot.Role, allowLegacyPngAnimation: request.SourceFraming == null);
                 if (inspected.Info is not { } info)
                     return Error("fal Veo source must be a valid still image with a shorter side of at least 720 pixels.", slot.Role);
                 if (Math.Min(info.OrientedWidth, info.OrientedHeight) < 720)

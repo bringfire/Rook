@@ -11,8 +11,8 @@ class Element {
   addEventListener(name, fn) { this.handlers[name]=fn; }
   fire(name,event={}) { return this.handlers[name]?.({target:this,preventDefault(){},...event}); }
   appendChild(x){this.options.push(x);} focus(){this.focused=true;}
-  querySelectorAll(){return [];} querySelector(){return null;} setAttribute(k,v){this.attributes[k]=v;} getAttribute(k){return this.attributes[k];}
-  set innerHTML(value) { this.htmlWrites=(this.htmlWrites||0)+1; this.html=value; this.options=[...value.matchAll(/<option value="([^"]*)"[^>]*>/g)].map(m=>({value:m[1]})); if(this.options.length)this.value=this.options[0].value; }
+  querySelectorAll(selector){return selector==='img'?(this.images||[]):[];} querySelector(){return null;} setAttribute(k,v){this.attributes[k]=v;} getAttribute(k){return this.attributes[k];}
+  set innerHTML(value) { this.htmlWrites=(this.htmlWrites||0)+1; this.html=value; this.images=[...value.matchAll(/<img /g)].map(()=>new Element()); this.options=[...value.matchAll(/<option value="([^"]*)"[^>]*>/g)].map(m=>({value:m[1]})); if(this.options.length)this.value=this.options[0].value; }
   get innerHTML(){return this.html||'';}
 }
 const input={kind:'artifact_id',artifact_id:'11111111-1111-1111-1111-111111111111',role:'image'};
@@ -86,4 +86,24 @@ test('prompt edits and framing selection do not reload unchanged preview images'
 });
 test('document reload continues the surface preview revision rather than being rejected as old',async()=>{
   const h=await harness({},'1000');await h.mode();assert.ok(h.calls.find(c=>c.op==='preview_video_framing'&&!c.cancel_only).preview_revision>1000);
+});
+test('unselected image failure preserves the selected preview and ready estimate',async()=>{
+  const h=await harness();await h.mode();await h.run('Video.ensureCurrentEstimate()');
+  h.get('video-framing-fill-preview').querySelectorAll('img')[0].fire('error');
+  assert.equal(h.run('Video.testState().framing.status'),'ready');assert.equal(h.run('Video.testState().framing.result.fit.success'),true);
+  assert.equal(h.run('Video.testState().framing.result.fill.success'),false);assert.equal(h.run('Video.testState().estimate.status'),'ready');
+  assert.match(h.get('video-framing-fit-preview').innerHTML,/<img /);assert.equal(h.get('video-generate-btn').disabled,false);
+});
+test('selected image failure blocks confirmation but leaves the alternative usable',async()=>{
+  const h=await harness();await h.mode();await h.run('Video.ensureCurrentEstimate()');
+  h.get('video-framing-fit-preview').querySelectorAll('img')[0].fire('error');
+  await h.run('Video.onGenerateClicked()');assert.equal(h.get('video-generate-btn').disabled,true);
+  assert.equal(h.get('video-cost-modal').classList.contains('hidden'),true);assert.equal(h.calls.filter(c=>c.op==='submit_video_job').length,0);
+  assert.equal(h.run('Video.testState().framing.result.fill.success'),true);assert.match(h.get('video-framing-fill-preview').innerHTML,/<img /);
+  h.run('Video.selectFraming("fill")');await h.run('Video.ensureCurrentEstimate()');assert.equal(h.get('video-generate-btn').disabled,false);
+});
+test('old image error cannot poison a successful same-key preview retry',async()=>{
+  const h=await harness();await h.mode();const old=h.get('video-framing-fit-preview').querySelectorAll('img')[0];
+  await h.run('Video.refreshFramingPreview(true)');await h.run('Video.ensureCurrentEstimate()');old.fire('error');
+  assert.equal(h.run('Video.testState().framing.status'),'ready');assert.equal(h.run('Video.testState().estimate.status'),'ready');assert.equal(h.get('video-generate-btn').disabled,false);
 });

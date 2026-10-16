@@ -8,13 +8,13 @@ namespace Rook.Services.Vision.Video.Framing
     internal static class VideoStillImageInspector
     {
         private static readonly uint[] CrcTable = MakeCrcTable();
-        public static VideoStillInspectionResult Inspect(VideoFrozenBuffer source, string field)
+        public static VideoStillInspectionResult Inspect(VideoFrozenBuffer source, string field, bool allowLegacyPngAnimation = false)
         {
-            try { return source.Read(bytes => InspectBytes(bytes, field)); }
+            try { return source.Read(bytes => InspectBytes(bytes, field, allowLegacyPngAnimation)); }
             catch (Exception ex) when (ex is InvalidContainerException or OverflowException or ArgumentOutOfRangeException or IndexOutOfRangeException)
             { return new(null, VideoSourcePreparationErrors.Create("source_preparation_failed", field, detail: "invalid_source")); }
         }
-        private static VideoStillInspectionResult InspectBytes(ReadOnlySpan<byte> bytes, string field)
+        private static VideoStillInspectionResult InspectBytes(ReadOnlySpan<byte> bytes, string field, bool allowLegacyPngAnimation)
         {
             (VideoStillImageInfo Info, bool Animated) parsed;
             if (bytes.Length >= 8 && bytes[0] == 137 && Tag(bytes, 1, "PNG") &&
@@ -22,7 +22,10 @@ namespace Rook.Services.Vision.Video.Framing
             else if (bytes.Length >= 12 && Tag(bytes, 0, "RIFF") && Tag(bytes, 8, "WEBP")) parsed = Webp(bytes);
             else if (bytes.Length >= 4 && bytes[0] == 255 && bytes[1] == 216) parsed = (Jpeg(bytes), false);
             else throw new InvalidContainerException();
-            return parsed.Animated ? new(null, VideoSourcePreparationErrors.Create("source_animation_unsupported", field)) : new(parsed.Info, null);
+            // Legacy fal PNG admission read its default image. Explicit framing always
+            // requires stillness; this metadata-only exception does not admit animated WebP.
+            return parsed.Animated && !(allowLegacyPngAnimation && parsed.Info.MimeType == "image/png")
+                ? new(null, VideoSourcePreparationErrors.Create("source_animation_unsupported", field)) : new(parsed.Info, null);
         }
         private static (VideoStillImageInfo, bool) Png(ReadOnlySpan<byte> bytes)
         {

@@ -5,15 +5,52 @@ using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
 using System.Text.Json.Nodes;
+using System.Threading.Tasks;
+using Rook.Artifacts;
 using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video;
 using Rook.Services.Vision.Video.Fal;
+using Rook.Services.Vision.Video.Framing;
 using Xunit;
 
 namespace Rook.Tests.Services.Vision.Video.Fal
 {
     public class FalVeoCompatibilityTests
     {
+        [Fact]
+        public async Task OmittedFramingPreservesLegacyApngWhileExplicitInspectionRejectsAnimation()
+        {
+            var png = File.ReadAllBytes(VideoStillImageInspectorTests.Fixture("matching.png"));
+            using var output = new MemoryStream(); output.Write(png, 0, 33);
+            void Big(Stream stream, uint n) { stream.WriteByte((byte)(n >> 24)); stream.WriteByte((byte)(n >> 16)); stream.WriteByte((byte)(n >> 8)); stream.WriteByte((byte)n); }
+            void Chunk(string tag, byte[] payload)
+            {
+                var name = System.Text.Encoding.ASCII.GetBytes(tag); Big(output, (uint)payload.Length); output.Write(name, 0, 4); output.Write(payload, 0, payload.Length);
+                uint crc = uint.MaxValue;
+                foreach (byte b in name.Concat(payload)) { crc ^= b; for (int n = 0; n < 8; n++) crc = (crc & 1) == 0 ? crc >> 1 : 0xedb88320 ^ (crc >> 1); }
+                Big(output, crc ^ uint.MaxValue);
+            }
+            Chunk("acTL", new byte[] { 0, 0, 0, 1, 0, 0, 0, 0 });
+            using var frame = new MemoryStream(); foreach (uint value in new uint[] { 0, 1280, 720, 0, 0 }) Big(frame, value);
+            frame.Write(new byte[] { 0, 1, 0, 10, 0, 0 }, 0, 6); Chunk("fcTL", frame.ToArray());
+            output.Write(png, 33, png.Length - 33); var bytes = output.ToArray();
+            var reference = MediaRef.ForArtifact(Guid.NewGuid(), "image");
+            var request = TestVideoFixtures.DefaultT2vRequest(model: "fal-ai/veo3.1", mode: VideoMode.I2V, resolution: "720p", startFrame: reference).With(options: new FalVeoOptions());
+            var intent = VideoRequestIntent.Normalize(request, new JsonObject());
+            var binding = new FalVeoBindingCatalog().GetCandidate(request).Binding!; Assert.False(binding.ContinuityVerified);
+            using var original = VideoFrozenBuffer.CopyOf(bytes, new VideoBufferBudget());
+            Assert.Equal("source_animation_unsupported", VideoStillImageInspector.Inspect(original, "start_frame").Error!.ProviderErrorCode);
+            Assert.Null(FalVeoCompatibility.Validate(intent, binding, new Dictionary<MediaRef, ResolvedMedia> { [reference] = new(bytes, "image/png") }));
+            using var webp = VideoFrozenBuffer.CopyOf(File.ReadAllBytes(VideoStillImageInspectorTests.Fixture("animated.webp")), new VideoBufferBudget());
+            Assert.Equal("source_animation_unsupported", VideoStillImageInspector.Inspect(webp, "start_frame", allowLegacyPngAnimation: true).Error!.ProviderErrorCode);
+            using var rig = new VideoFramingQuoteTests.Rig();
+            var source = rig.Store.Create("generated_image", new[] { new BlobInput("image", bytes, "png") });
+            var preview = await rig.Preparation.PreviewAsync(new(rig.Intent.Request.Model, VideoMode.I2V,
+                new[] { new VideoFramingSourceSlot("start_frame", MediaRef.ForArtifact(source.Id, "image")) }, "720p", "16:9"), default);
+            Assert.Equal("source_animation_unsupported", preview.Fit!.Error!.ProviderErrorCode);
+            Assert.Equal("source_animation_unsupported", preview.Fill!.Error!.ProviderErrorCode);
+            Assert.Equal(0, rig.Cache.BundleCount);
+        }
         internal static FalVeoBindingCatalog ActiveCatalog() => new(new FalVeoBindingCatalog().All.Select(b => b with { ContinuityVerified = true, ReferenceFramingVerified = true, NewSubmissionCutoffUtc = null }));
         internal static ResolvedMedia Image(int width, int height)
         {

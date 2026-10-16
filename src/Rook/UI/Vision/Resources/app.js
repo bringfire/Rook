@@ -3498,11 +3498,13 @@ const Video = (() => {
             if (images.dataset.markup !== markup) {
               images.dataset.markup = markup;
               images.innerHTML = markup;
-              const key = framingState.key;
+              const key = framingState.key, generation = previewRevision;
               images.querySelectorAll("img").forEach(image => image.addEventListener("error", () => {
-                if (framingState.key !== key || framingState.status !== "ready") return;
-                framingState = { status: "failed", key, error: { message: "Preview expired or could not be loaded. Retry preparation.", retryable: true }, result: null, promise: null };
-                clearCachedEstimate(); renderFraming(); showPreflightError(framingState.error); updateGenerateEnablement();
+                if (framingState.key !== key || framingState.status !== "ready" || generation !== previewRevision || framingState.result?.[mode] !== variant) return;
+                const error = { message: "Preview expired or could not be loaded. Retry preparation.", retryable: true, framing_mode: mode };
+                framingState = { ...framingState, result: { ...framingState.result, [mode]: { ...variant, success: false, slots: [], error } } };
+                if (mode === selectedFraming) { clearCachedEstimate(); showPreflightError(error); }
+                renderFraming(); updateGenerateEnablement();
               }));
             }
         }

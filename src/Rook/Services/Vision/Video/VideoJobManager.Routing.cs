@@ -165,11 +165,20 @@ namespace Rook.Services.Vision.Video
         private async Task<ProviderSubmitOutcome> SubmitOwnedRoutedAttemptAsync(RoutedJob job, VideoRouteCandidate candidate, VideoPreparedBundleLease pin)
         {
             using (pin)
-            using (var phase = await _routeQuotes!.Preparation.Resources.AcquireAsync(job.Budget.Token).ConfigureAwait(false))
             {
-                phase.OwnRetainedMedia(pin.Retain());
-                return await _routeCoordinator!.SubmitAttemptAsync(candidate, pin.Prepared,
-                    () => AdmitGenerationDispatch(job, candidate, pin, phase), job.Budget.Token, phase).ConfigureAwait(false);
+                VideoPreparationLease phase;
+                try { phase = await _routeQuotes!.Preparation.Resources.AcquireAsync(job.Budget.Token).ConfigureAwait(false); }
+                catch (VideoPreparationBusyException)
+                {
+                    // Admission failed locally, before a coordinator call or durable dispatch intent.
+                    return new FailedSubmitOutcome(VideoSourcePreparationErrors.Busy("source_framing"));
+                }
+                using (phase)
+                {
+                    phase.OwnRetainedMedia(pin.Retain());
+                    return await _routeCoordinator!.SubmitAttemptAsync(candidate, pin.Prepared,
+                        () => AdmitGenerationDispatch(job, candidate, pin, phase), job.Budget.Token, phase).ConfigureAwait(false);
+                }
             }
         }
         private async Task RunRoutedAsync(RoutedJob job)

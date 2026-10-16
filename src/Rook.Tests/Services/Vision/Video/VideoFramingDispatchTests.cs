@@ -21,6 +21,45 @@ namespace Rook.Tests.Services.Vision.Video
     public sealed class VideoFramingDispatchTests
     {
         [Fact]
+        public async Task Dispatch_ResourceSaturationBeforeIntentIsRetryableLocalFailure()
+        {
+            var provider = new VideoFalFallbackManagerTests.Provider();
+            using var rig = new VideoFramingQuoteTests.Rig(google: provider);
+            var quote = (await rig.Quotes.QuoteAsync(rig.Intent, default)).Quote!;
+            var ledger = new VideoFalFallbackManagerTests.Ledger(Path.Combine(rig.Root, "saturated.jsonl"));
+            using var queuedStop = new CancellationTokenSource();
+            VideoPreparationLease? first = null, second = null;
+            Task<VideoPreparationLease>? third = null, fourth = null;
+            ledger.BeforeAppend = record => {
+                if (record.Extensions?["video_execution"]?["phase"]?.GetValue<string>() != "preparation" || first != null) return;
+                first = rig.Resources.AcquireAsync(default).GetAwaiter().GetResult();
+                second = rig.Resources.AcquireAsync(default).GetAwaiter().GetResult();
+                third = rig.Resources.AcquireAsync(queuedStop.Token); fourth = rig.Resources.AcquireAsync(queuedStop.Token);
+            };
+            using var manager = Manager(rig, ledger); var done = Signal(); manager.AfterRunForTests = _ => done.TrySetResult(true);
+            try
+            {
+                var submitted = await ((IVideoConfirmedJobManager)manager).SubmitConfirmedAsync(rig.Intent, new(quote.EstimateFingerprint, quote.MaximumEstimatedCostUsd), default);
+                Assert.NotNull(submitted.JobId); await Limit(done.Task);
+                var record = ledger.ReadAll().Records.Single();
+                Assert.Equal(VideoJobState.Error, record.State);
+                Assert.Equal("source_preparation_failed", record.Error!.ProviderErrorCode); Assert.True(record.Error.Retryable);
+                Assert.Empty(record.Extensions!["video_execution"]!["attempts"]!.AsArray());
+                Assert.Equal(0, provider.Submits); Assert.Equal(0, provider.Polls);
+                var status = await manager.GetStatusAsync(submitted.JobId!.Value, default);
+                Assert.Equal("preparation_busy", status.Execution!.Fields["source_preparation_error"]!["preparation_detail"]!.GetValue<string>());
+                Assert.NotEqual(true, status.Execution.Fields["submission_outcome_unknown"]?.GetValue<bool>());
+            }
+            finally
+            {
+                queuedStop.Cancel();
+                foreach (var queued in new[] { third, fourth }) if (queued != null)
+                    try { using var unexpected = await queued; } catch (OperationCanceledException) { }
+                first?.Dispose(); second?.Dispose();
+            }
+            Assert.Equal(0, rig.Resources.ActiveBundles);
+        }
+        [Fact]
         public async Task Dispatch_SeparateJobsKeepModesRoutesPricesAndStops()
         {
             var googleEntered = Signal(); var falEntered = Signal(); var releaseGoogle = Signal(); var releaseFal = Signal();
