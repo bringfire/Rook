@@ -192,6 +192,7 @@ p { margin: 8px 0; line-height: 1.4; }
                 // fork happens at the bridge level via VideoOps lookup.
                 [VideoOpHandler.OpSubmit] = VisionOpRoute.Async,
                 [VideoOpHandler.OpCancel] = VisionOpRoute.Async,
+                [VideoOpHandler.OpPreviewFraming] = VisionOpRoute.Async,
                 [VideoOpHandler.OpStatus] = VisionOpRoute.OffUi,
                 [VideoOpHandler.OpResult] = VisionOpRoute.OffUi,
                 [VideoOpHandler.OpEstimate] = VisionOpRoute.OffUi,
@@ -234,6 +235,7 @@ p { margin: 8px 0; line-height: 1.4; }
                 VideoOpHandler.OpEstimate,
                 VideoOpHandler.OpListJobs,
                 VideoOpHandler.OpListModels,
+                VideoOpHandler.OpPreviewFraming,
             };
 
         private static readonly HashSet<string> ImageJobOps =
@@ -288,6 +290,7 @@ p { margin: 8px 0; line-height: 1.4; }
 
         private readonly VisionHandler _handler;
         private readonly VideoOpHandler? _videoHandler;
+        private readonly VideoFramingPreviewSession _framingPreviews = new();
         private readonly ImageJobOpHandler? _imageJobHandler;
         private readonly MediaImportOpHandler? _mediaImportHandler;
         private readonly ArtifactStore _artifactStore;
@@ -381,7 +384,7 @@ p { margin: 8px 0; line-height: 1.4; }
         private static VideoOpHandler BuildSharedVideoHandler()
         {
             var bundle = RookSubsystemRoot.Instance.Video;
-            return new VideoOpHandler(bundle.Manager, bundle.Registry, bundle.Estimator);
+            return new VideoOpHandler(bundle.Manager, bundle.Registry, bundle.Estimator, bundle.Framing);
         }
 
         private readonly Func<Artifact, bool>? _videoArtifactIsVisible;
@@ -468,7 +471,9 @@ p { margin: 8px 0; line-height: 1.4; }
                 switch (route)
                 {
                     case VisionOpRoute.Async:
-                        response = isImageJobOp
+                        response = op == VideoOpHandler.OpPreviewFraming
+                            ? await DispatchFramingPreviewAsync(body!).ConfigureAwait(false)
+                            : isImageJobOp
                             ? await DispatchImageJobAsyncWithTimeoutAsync(op!, body).ConfigureAwait(false)
                             : isVideoOp
                                 ? await DispatchVideoAsyncWithTimeoutAsync(op!, body).ConfigureAwait(false)
@@ -586,6 +591,26 @@ p { margin: 8px 0; line-height: 1.4; }
                 op,
                 AsyncOpTimeout,
                 token => _videoHandler!.DispatchAsync(body, token));
+
+        private Task<ApiResponse> DispatchFramingPreviewAsync(string body)
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(body);
+            var args = document.RootElement;
+            if (!args.TryGetProperty("preview_revision", out var value) || value.ValueKind != System.Text.Json.JsonValueKind.Number || !value.TryGetInt64(out var revision) || revision <= 0)
+                return Task.FromResult(new ApiResponse { Success = false, HttpStatus = 400, Data = "A positive preview_revision is required." });
+            bool cancel = false;
+            if (args.TryGetProperty("cancel_only", out var cancelValue))
+            {
+                if (cancelValue.ValueKind is not (System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False))
+                    return Task.FromResult(new ApiResponse { Success = false, HttpStatus = 400, Data = "cancel_only must be a boolean." });
+                cancel = cancelValue.GetBoolean();
+            }
+            if (cancel) { _framingPreviews.Cancel(revision); return Task.FromResult(new ApiResponse { Success = true }); }
+            return _framingPreviews.RunAsync(revision, ct => Task.Run(() => _videoHandler!.DispatchAsync(body, ct)), CancellationToken.None);
+        }
+
+        protected override void Dispose(bool disposing)
+        { if (disposing) _framingPreviews.Dispose(); base.Dispose(disposing); }
 
         private Task<ApiResponse> DispatchImageJobAsyncWithTimeoutAsync(string op, string? body)
             => DispatchWithTimeoutAsync(
@@ -789,6 +814,10 @@ p { margin: 8px 0; line-height: 1.4; }
                 // real issue.
                 return BuildPlainText404($"Invalid blob URI: {uri.AbsolutePath}");
             }
+
+            string? preparedMime = null;
+            var preparedStream = _videoHandler?.Framing?.Cache.TryOpenPreview(artifactId, role, out preparedMime);
+            if (preparedStream != null) return new VirtualResource(preparedStream, preparedMime ?? "application/octet-stream", 200, extraHeaders: "Cache-Control: no-store");
 
             string absPath;
             try

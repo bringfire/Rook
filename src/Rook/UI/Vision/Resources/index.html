@@ -523,7 +523,7 @@
                                 </div>
                             </div>
                             <div class="option-group">
-                                <label class="select-label" for="video-aspect-select">Aspect</label>
+                                <label class="select-label" for="video-aspect-select">Output aspect</label>
                                 <div class="select-wrapper">
                                     <select id="video-aspect-select">
                                         <option value="">—</option>
@@ -549,6 +549,25 @@
                                 <span class="option-hint">Provider safety policy</span>
                             </div>
                         </div>
+
+                        <fieldset id="video-framing" class="video-framing hidden">
+                            <legend>Framing</legend>
+                            <p class="field-hint">Rook prepares your source automatically. The previews show the images sent for generation.</p>
+                            <div class="video-framing-cards" role="radiogroup" aria-label="Source framing">
+                                <button type="button" id="video-framing-fit" class="video-framing-card" role="radio" aria-checked="true" tabindex="0">
+                                    <span class="video-framing-title"><span class="video-framing-check" aria-hidden="true">✓</span> Fit — keep whole image</span>
+                                    <span class="video-framing-copy">Adds padding automatically. Nothing is cut off.</span>
+                                    <span id="video-framing-fit-preview" class="video-framing-previews"></span>
+                                    <span id="video-framing-fit-status" class="video-framing-status" aria-live="polite"></span>
+                                </button>
+                                <button type="button" id="video-framing-fill" class="video-framing-card" role="radio" aria-checked="false" tabindex="-1">
+                                    <span class="video-framing-title"><span class="video-framing-check" aria-hidden="true">✓</span> Fill — crop to frame</span>
+                                    <span class="video-framing-copy">Fills the output shape. Some edges may be cropped.</span>
+                                    <span id="video-framing-fill-preview" class="video-framing-previews"></span>
+                                    <span id="video-framing-fill-status" class="video-framing-status" aria-live="polite"></span>
+                                </button>
+                            </div>
+                        </fieldset>
 
                         <!-- Prompt -->
                         <div class="prompt-input-container">
@@ -607,6 +626,11 @@
                         </button>
 
                         <div id="video-status-message" class="status-message hidden"></div>
+                        <div id="video-preflight-actions" class="video-preflight-actions hidden">
+                            <button type="button" id="video-retry-preflight" class="btn btn-secondary hidden">Retry preparation &amp; estimate</button>
+                            <button type="button" id="video-use-fit" class="btn btn-secondary hidden">Use Fit</button>
+                            <button type="button" id="video-open-settings" class="btn btn-secondary hidden">Open Settings</button>
+                        </div>
                     </div>
 
                     <!-- Queue panel -->

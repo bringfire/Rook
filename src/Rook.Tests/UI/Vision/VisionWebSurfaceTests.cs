@@ -251,7 +251,7 @@ namespace Rook.Tests.UI.Vision
                 // V2 video — bridge mirrors of the native HTTP routes.
                 "submit_video_job", "cancel_video_job",
                 "get_video_job", "get_video_job_result",
-                "estimate_video_job",
+                "estimate_video_job", "preview_video_framing",
                 // V3 video — bridge-only (NOT in native trampoline).
                 "list_video_jobs", "list_video_models",
                 // Presentation reconciler (spec 2026-06-10) — substrate-
@@ -312,6 +312,7 @@ namespace Rook.Tests.UI.Vision
         // V3 video — both off-UI: ledger reads + registry enumeration.
         [InlineData("list_video_jobs", "OffUi")]
         [InlineData("list_video_models", "OffUi")]
+        [InlineData("preview_video_framing", "Async")]
         // Presentation reconciler — UI-thread (touches the WebView2
         // controller and the Eto async-invoke scheduler).
         [InlineData("get_presentation_diagnostics", "Ui")]
@@ -331,6 +332,7 @@ namespace Rook.Tests.UI.Vision
         [InlineData("estimate_video_job")]
         [InlineData("list_video_jobs")]
         [InlineData("list_video_models")]
+        [InlineData("preview_video_framing")]
         public void VideoOps_Set_Tracks_VideoOpHandler_Constants(string op)
         {
             // Pin: bridge-side video op set is wired to VideoOpHandler's
@@ -341,13 +343,13 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
-        public void VideoOps_Set_HasExactly7Entries()
+        public void VideoOps_Set_HasExactly8Entries()
         {
             // Defensive count pin — no drift between OpRoutes-side video
             // entries and VideoOps-side membership.
             //   5 V2 ops (submit/cancel/status/result/estimate)
             // + 2 V3 bridge-only ops (list_video_jobs, list_video_models)
-            Assert.Equal(7, VisionWebSurface.VideoOps.Count);
+            Assert.Equal(8, VisionWebSurface.VideoOps.Count);
         }
 
         [Theory]

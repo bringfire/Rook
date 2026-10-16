@@ -126,6 +126,7 @@ document.addEventListener("DOMContentLoaded", init);
 // ─── Navigation ───────────────────────────────────────────────────
 
 function switchView(view) {
+    if (currentView === "video" && view !== "video") Video.onLeave();
     currentView = view;
     $$(".nav-btn").forEach(btn => {
         btn.classList.toggle("active", btn.dataset.view === view);
@@ -847,7 +848,7 @@ function effectiveCredentialAvailability(model) {
 
 function copyVideoExecutionFields(target, source) {
     if (!source) return target;
-    for (const key of ["detail_code", "requested_provider", "requested_model", "effective_provider", "effective_model", "video_route", "credential_failure", "submission_outcome_unknown", "stop_persistence", "execution_stopped", "cleanup", "cleanup_persistence", "warnings", "effective_estimated_cost_usd", "effective_pricing_source"]) {
+    for (const key of ["detail_code", "requested_provider", "requested_model", "effective_provider", "effective_model", "video_route", "credential_failure", "submission_outcome_unknown", "stop_persistence", "execution_stopped", "cleanup", "cleanup_persistence", "warnings", "effective_estimated_cost_usd", "effective_pricing_source", "source_preparation", "source_preparation_error", "preparation_detail", "framing_mode", "action"]) {
         if (Object.prototype.hasOwnProperty.call(source, key)) target[key] = source[key];
     }
     return target;
@@ -1944,6 +1945,7 @@ async function loadSettingsOverview() {
             el.apiKeyStatus.className = "status-indicator error";
         }
 
+        await Video.refreshAvailability();
         const loadedImageModels = await loadImageModels();
         if (!loadedImageModels) {
             // Populate model dropdowns from the legacy server-side alias
@@ -2588,6 +2590,10 @@ const Video = (() => {
     let estimatePending = null;
     let confirmedEstimate = null;
     let submitPending = false;
+    let selectedFraming = "fit", previewRevision = 0, availabilityRevision = 0;
+    let videoVisible = false, generateAwaiting = false;
+    let framingState = { status: "idle", key: "", result: null, error: null, promise: null };
+    let estimateState = { status: "idle", key: "", result: null, error: null, promise: null };
 
     // Frame-picker state.
     let pickerSlot = null;             // "start" | "end" | "reference"
@@ -2646,6 +2652,11 @@ const Video = (() => {
         ve.queueList = $("video-queue-list");
         ve.queueWarnings = $("video-queue-warnings");
 
+        ve.framing = $("video-framing"); ve.framingFit = $("video-framing-fit"); ve.framingFill = $("video-framing-fill");
+        ve.framingFitPreview = $("video-framing-fit-preview"); ve.framingFillPreview = $("video-framing-fill-preview");
+        ve.framingFitStatus = $("video-framing-fit-status"); ve.framingFillStatus = $("video-framing-fill-status");
+        ve.preflightActions = $("video-preflight-actions"); ve.retryPreflight = $("video-retry-preflight");
+        ve.useFit = $("video-use-fit"); ve.openSettings = $("video-open-settings");
         // Cost-confirm modal.
         ve.costModal = $("video-cost-modal");
         ve.costModalClose = $("video-cost-modal-close");
@@ -2691,6 +2702,18 @@ const Video = (() => {
         ve.framesSection.querySelectorAll(".btn-clear-frame").forEach(btn => {
             btn.addEventListener("click", () => clearFrame(btn.dataset.slot));
         });
+        for (const mode of ["fit", "fill"]) {
+            const card = mode === "fit" ? ve.framingFit : ve.framingFill;
+            card.addEventListener("click", () => selectFraming(mode));
+            card.addEventListener("keydown", event => {
+                if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+                event.preventDefault(); const next = event.key === "Home" ? "fit" : event.key === "End" ? "fill" : selectedFraming === "fit" ? "fill" : "fit";
+                selectFraming(next); (next === "fit" ? ve.framingFit : ve.framingFill).focus();
+            });
+        }
+        ve.retryPreflight.addEventListener("click", retryPreflight);
+        ve.useFit.addEventListener("click", () => selectFraming("fit"));
+        ve.openSettings.addEventListener("click", () => switchView("settings"));
         ve.generateBtn.addEventListener("click", onGenerateClicked);
         ve.refreshQueueBtn.addEventListener("click", refreshQueue);
         ve.queueFilterButtons.forEach(btn => {
@@ -2725,29 +2748,9 @@ const Video = (() => {
     }
 
     async function onEnter() {
-        if (!catalogLoaded) {
-            await hydrateCatalog();
-        }
-        await refreshQueue();
+        videoVisible = true; await refreshAvailability(); await refreshFramingPreview(); await refreshQueue();
+        if (isFormReady()) scheduleEstimate();
     }
-
-    async function hydrateCatalog() {
-        try {
-            const data = await bridgeCall("list_video_models");
-            catalog = data.models || [];
-            catalogLoaded = true;
-            populateModelDropdown();
-            if (catalog.length > 0) {
-                ve.modelSelect.value = (catalog.find(m => m.new_submission_available !== false) || catalog[0]).model_id;
-                onModelChange();
-            } else {
-                showVideoStatus("No video models registered.", "error");
-            }
-        } catch (e) {
-            showVideoStatus(`Could not load models: ${errorToText(e)}`, "error");
-        }
-    }
-
     function populateModelDropdown() {
         ve.modelSelect.innerHTML = catalog.map(m => {
             const cap = m.capability || {};
@@ -3231,6 +3234,7 @@ const Video = (() => {
         };
         const prompt = ve.prompt.value.trim();
         if (prompt) args.prompt = prompt;
+        if (hasFramingFlow()) args.source_framing = selectedFraming;
         if (startFrame) args.start_frame = stripThumbUrl(startFrame);
         if (endFrame) args.end_frame = stripThumbUrl(endFrame);
         if (referenceFrames.length > 0) {
@@ -3245,7 +3249,7 @@ const Video = (() => {
     }
 
     function isFormReady() {
-        if (!selectedCapability || currentModel()?.new_submission_available === false) return false;
+        if (!selectedCapability) return false;
         if (!ve.durationSelect.value) return false;
         if (!ve.resolutionSelect.value) return false;
         if (!ve.aspectSelect.value) return false;
@@ -3257,63 +3261,58 @@ const Video = (() => {
     }
 
     function updateGenerateEnablement() {
-        ve.generateBtn.disabled = submitPending || !isFormReady();
+        const framingReady = !hasFramingFlow() || selectedVariant()?.success === true;
+        ve.generateBtn.disabled = submitPending || generateAwaiting || !isFormReady() || !!availabilityError() || !framingReady || estimateState.status === "failed";
+        ve.generateSpinner.classList.toggle("hidden", !submitPending && !generateAwaiting);
+        ve.generateText.textContent = generateAwaiting ? "Checking…" : "Generate";
     }
 
     function scheduleEstimate() {
         if (estimateTimer) clearTimeout(estimateTimer);
-        // Codex review: any price-bearing field change MUST invalidate
-        // the cached estimate immediately, regardless of whether the
-        // form is currently valid. Otherwise the user can change inputs,
-        // hit a debounce/error window, and confirm a modal showing the
-        // PREVIOUS price while submitJob() sends the NEW request.
-        clearCachedEstimate();
-        if (!isFormReady()) {
-            ve.costAmount.textContent = "—";
-            ve.costDetail.textContent = "";
-            return;
-        }
-        estimateTimer = setTimeout(runEstimate, 250);
+        estimateTimer = null; clearCachedEstimate();
+        refreshFramingPreview(); renderFraming(); updateGenerateEnablement();
+        if (!isFormReady()) { ve.costAmount.textContent = "—"; ve.costDetail.textContent = ""; return; }
+        estimateTimer = setTimeout(() => { estimateTimer = null; runEstimate(); }, 250);
     }
-
     function clearCachedEstimate() {
-        confirmedEstimate = null;
-        delete ve.costStrip.dataset.lastEstimate;
-        delete ve.costStrip.dataset.lastEstimateArgs;
-        // PR-V3 Codex review: also invalidate the in-flight estimate
-        // token. Without this, an in-flight runEstimate that started
-        // BEFORE the field change can resolve AFTER scheduleEstimate
-        // ran, pass its `estimatePending === token` check, and write
-        // stale numbers back into the cache. Setting pending to a fresh
-        // sentinel ensures any prior in-flight response no longer
-        // matches.
-        estimatePending = {};
+        confirmedEstimate = null; delete ve.costStrip.dataset.lastEstimate; delete ve.costStrip.dataset.lastEstimateArgs;
+        estimatePending = {}; estimateState = { status: "invalidated", key: "", result: null, error: null, promise: null };
+        closeCostModal();
     }
-
-    async function runEstimate() {
+    function runEstimate(force = false) {
         const args = buildSubmitArgs();
-        if (!args) return;
-        const argsJson = JSON.stringify(args);
-        const token = {};
-        estimatePending = token;
-        try {
-            const data = await bridgeCall("estimate_video_job", args);
-            if (estimatePending !== token || argsJson !== JSON.stringify(buildSubmitArgs())) return;
-            ve.costAmount.textContent = videoPriceLabel(data);
-            ve.costDetail.textContent =
-                `${data.resolution} · ${data.duration_seconds}s · ${data.number_of_videos}×`;
-            // Cache BOTH the estimate response AND the args it was
-            // computed against. submitJob() rejects if the cached args
-            // don't match the args it's about to submit.
-            ve.costStrip.dataset.lastEstimate = JSON.stringify(data);
-            ve.costStrip.dataset.lastEstimateArgs = argsJson;
-        } catch (e) {
-            if (estimatePending !== token) return;
-            ve.costAmount.textContent = "—";
-            ve.costDetail.textContent = errorToText(e);
-            // Estimate failed → cached estimate is stale by definition.
-            clearCachedEstimate();
-        }
+        if (!args || !isFormReady()) return Promise.resolve(null);
+        const key = JSON.stringify(args);
+        if (!force && estimateState.key === key && estimateState.status === "pending") return estimateState.promise;
+        const token = {}; estimatePending = token;
+        estimateState = { status: "pending", key, result: null, error: null, promise: null };
+        ve.costAmount.textContent = "…"; ve.costDetail.textContent = "Checking estimate…";
+        const work = (async () => {
+            try {
+                const unavailable = availabilityError(); if (unavailable) throw unavailable;
+                if (hasFramingFlow()) {
+                    await refreshFramingPreview();
+                    if (estimatePending !== token || key !== JSON.stringify(buildSubmitArgs())) return null;
+                    const selected = selectedVariant();
+                    if (!selected?.success) throw selected?.error || framingState.error || { message: "Prepare the selected framing before estimating.", retryable: true };
+                }
+                const data = await bridgeCall("estimate_video_job", args);
+                if (estimatePending !== token || key !== JSON.stringify(buildSubmitArgs())) return null;
+                if (!previewMatchesQuote(data)) throw { code: "invalid_request", detail_code: "estimate_stale", message: "Preview and estimate changed. Retry preparation and estimate.", retryable: true };
+                estimateState = { status: "ready", key, result: data, error: null, promise: null };
+                ve.costAmount.textContent = videoPriceLabel(data); ve.costDetail.textContent = `${data.resolution} · ${data.duration_seconds}s · ${data.number_of_videos}×`;
+                ve.costStrip.dataset.lastEstimate = JSON.stringify(data); ve.costStrip.dataset.lastEstimateArgs = key;
+                renderPreflightActions(null); ve.statusMessage.classList.add("hidden"); updateGenerateEnablement(); return data;
+            } catch (error) {
+                if (estimatePending !== token || key !== JSON.stringify(buildSubmitArgs())) return null;
+                estimateState = { status: "failed", key, result: null, error, promise: null };
+                delete ve.costStrip.dataset.lastEstimate; delete ve.costStrip.dataset.lastEstimateArgs;
+                ve.costAmount.textContent = "—"; ve.costDetail.textContent = preflightText(error);
+                showPreflightError(error); updateGenerateEnablement(); return null;
+            }
+        })();
+        if (estimateState.status === "pending" && estimatePending === token) estimateState.promise = work;
+        return work;
     }
 
     function formatDollars(n) {
@@ -3327,32 +3326,25 @@ const Video = (() => {
             : `$${formatDollars(data.dollars_usd)}`;
     }
 
-    function onGenerateClicked() {
-        if (submitPending) return;
-        const priorUnknown = [...queue.values()].some(job => job.entry.error &&
-            job.entry.error.submission_outcome_unknown === true);
+    async function onGenerateClicked() {
+        if (submitPending || generateAwaiting) return;
+        const unavailable = availabilityError(); if (unavailable) { showPreflightError(unavailable); return; }
+        const priorUnknown = [...queue.values()].some(job => job.entry.error?.submission_outcome_unknown === true);
         if (priorUnknown && !window.confirm("An earlier Google submission outcome is unknown; a new request may create another billed generation. Submit a deliberately new job?")) return;
-        if (!isFormReady()) {
-            showVideoStatus("Fill in the required fields first.", "error");
-            return;
-        }
-        // Re-run estimate one more time before showing the modal so the
-        // breakdown reflects the latest form state regardless of debounce.
-        runEstimate().then(openCostModalIfHaveEstimate);
+        if (!isFormReady()) { showVideoStatus("Fill in the required fields first.", "error"); return; }
+        if (estimateTimer) { clearTimeout(estimateTimer); estimateTimer = null; }
+        generateAwaiting = true; updateGenerateEnablement();
+        try { if (await ensureCurrentEstimate()) openCostModalIfHaveEstimate(); }
+        finally { generateAwaiting = false; updateGenerateEnablement(); }
     }
 
     function openCostModalIfHaveEstimate() {
         const raw = ve.costStrip.dataset.lastEstimate;
         const cachedArgs = ve.costStrip.dataset.lastEstimateArgs;
         const currentArgs = JSON.stringify(buildSubmitArgs() || {});
-        if (!raw || cachedArgs !== currentArgs) {
-            // The cached estimate doesn't match the form right now —
-            // either it never ran, or the user changed something between
-            // the debounced runEstimate and the click. Refuse to open
-            // the modal with potentially stale numbers.
-            showVideoStatus(
-                "Cost estimate is out of date — adjust a field to retry.",
-                "error");
+        if (!raw || cachedArgs !== currentArgs || !previewMatchesQuote(JSON.parse(raw))) {
+            if (estimateState.error) showPreflightError(estimateState.error);
+            else showVideoStatus("Refresh the estimate before confirming.", "info");
             return;
         }
         const data = JSON.parse(raw);
@@ -3388,7 +3380,7 @@ const Video = (() => {
         // before opening, recheck right before the bridge call. If the
         // user changed a field while the modal was open, fail closed.
         const cachedArgs = ve.costStrip.dataset.lastEstimateArgs;
-        if (!confirmedEstimate || confirmedEstimate.args !== JSON.stringify(args) || cachedArgs !== JSON.stringify(args)) {
+        if (!confirmedEstimate || confirmedEstimate.args !== JSON.stringify(args) || cachedArgs !== JSON.stringify(args) || !previewMatchesQuote(confirmedEstimate.data)) {
             closeCostModal();
             showVideoStatus(
                 "Form changed since estimate — re-running estimate.",
@@ -3445,6 +3437,146 @@ const Video = (() => {
             ve.costConfirmBtn.disabled = false;
             ve.costConfirmBtn.textContent = "Confirm & generate";
         }
+    }
+
+    function hasFramingFlow() {
+        const id = currentModel()?.model_id || "";
+        return /^(veo-3\.1-(generate|fast-generate|lite-generate)-preview|fal-ai\/veo3\.1(?:\/fast|\/lite)?)$/.test(id)
+            && ["i2v", "interp"].includes(currentMode()) && referenceFrames.length === 0;
+    }
+    function previewArgs() {
+        if (!hasFramingFlow() || !startFrame || currentMode() === "interp" && !endFrame) return null;
+        const args = { model: currentModel().model_id, mode: currentMode(), resolution: ve.resolutionSelect.value, aspect_ratio: ve.aspectSelect.value,
+            start_frame: stripThumbUrl(startFrame) };
+        if (currentMode() === "interp") args.end_frame = stripThumbUrl(endFrame);
+        return args;
+    }
+    function framingKey() { const args = previewArgs(); return args ? JSON.stringify(args) : ""; }
+    function selectedVariant() { return framingState.status === "ready" && framingState.key === framingKey() ? framingState.result?.[selectedFraming] : null; }
+    function preflightText(error) {
+        const label = error?.field === "start_frame" ? "Start image" : error?.field === "end_frame" ? "End image" : "";
+        return (label ? label + ": " : "") + (error?.message || "Image preparation failed. Retry preparation.");
+    }
+    function showPreflightError(error) {
+        showVideoStatus(preflightText(error), "error"); renderPreflightActions(error);
+    }
+    function renderPreflightActions(error) {
+        const retry = !!error;
+        const fit = error?.action === "choose_fit" && selectedFraming === "fill" && framingState.result?.fit?.success === true;
+        const settings = error?.action === "open_settings";
+        ve.preflightActions.classList.toggle("hidden", !retry && !fit && !settings);
+        ve.retryPreflight.classList.toggle("hidden", !retry);
+        ve.useFit.classList.toggle("hidden", !fit);
+        ve.openSettings.classList.toggle("hidden", !settings);
+    }
+    function renderFraming() {
+        const visible = hasFramingFlow(); ve.framing.classList.toggle("hidden", !visible);
+        for (const mode of ["fit", "fill"]) {
+            const button = mode === "fit" ? ve.framingFit : ve.framingFill;
+            const images = mode === "fit" ? ve.framingFitPreview : ve.framingFillPreview;
+            const status = mode === "fit" ? ve.framingFitStatus : ve.framingFillStatus;
+            button.setAttribute("aria-checked", String(mode === selectedFraming)); button.setAttribute("tabindex", mode === selectedFraming ? "0" : "-1");
+            const variant = framingState.status === "ready" && framingState.key === framingKey() ? framingState.result?.[mode] : null;
+            const failure = variant?.error || (framingState.status === "failed" ? framingState.error : null);
+            button.dataset.failed = String(!!failure);
+            status.textContent = failure ? preflightText(failure) : framingState.status === "pending" ? "Preparing preview…" : !previewArgs() ? "Choose source frames to preview." : "";
+            const markup = variant?.success ? (variant.slots || []).map(slot => {
+                const label = slot.role === "end_frame" ? "End image" : "Start image";
+                return `<span class="video-framing-source"><span class="video-framing-source-label">${label}</span><img src="${escapeAttr(slot.preview_url)}" alt="${escapeAttr(mode === "fit" ? "Whole image with padding" : "Image cropped to the output frame")}"><span class="video-framing-dimensions">Source ${slot.original_width} × ${slot.original_height} → ${slot.width} × ${slot.height}${slot.upscaled ? " · Upscaled" : ""}</span></span>`;
+            }).join("") : "";
+            if (images.dataset.markup !== markup) {
+              images.dataset.markup = markup;
+              images.innerHTML = markup;
+              const key = framingState.key;
+              images.querySelectorAll("img").forEach(image => image.addEventListener("error", () => {
+                if (framingState.key !== key || framingState.status !== "ready") return;
+                framingState = { status: "failed", key, error: { message: "Preview expired or could not be loaded. Retry preparation.", retryable: true }, result: null, promise: null };
+                clearCachedEstimate(); renderFraming(); showPreflightError(framingState.error); updateGenerateEnablement();
+              }));
+            }
+        }
+        const failure = selectedVariant()?.error || framingState.error;
+        if (visible && failure && !availabilityError()) showPreflightError(failure);
+    }
+    function selectFraming(mode) {
+        if (!["fit", "fill"].includes(mode)) return;
+        selectedFraming = mode; renderFraming(); scheduleEstimate();
+    }
+    function onLeave() {
+        videoVisible = false; clearCachedEstimate();
+        framingState = { status: "invalidated", key: "", result: null, error: null, promise: null };
+        bridgeCall("preview_video_framing", { preview_revision: ++previewRevision, cancel_only: true }).catch(() => {});
+        renderFraming();
+    }
+    function refreshFramingPreview(force = false) {
+        const args = previewArgs(), key = args ? JSON.stringify(args) : "";
+        if (!videoVisible || !args) {
+            if (framingState.key || framingState.status === "pending") {
+                bridgeCall("preview_video_framing", { preview_revision: ++previewRevision, cancel_only: true }).catch(() => {});
+            }
+            framingState = { status: "idle", key: "", result: null, error: null, promise: null }; renderFraming(); return Promise.resolve(null);
+        }
+        if (!force && framingState.key === key && ["pending", "ready", "failed"].includes(framingState.status)) return framingState.promise || Promise.resolve(framingState.result);
+        const revision = ++previewRevision;
+        framingState = { status: "pending", key, result: null, error: null, promise: null }; renderFraming(); updateGenerateEnablement();
+        const work = (async () => {
+            try {
+                const data = await bridgeCall("preview_video_framing", { ...args, preview_revision: revision });
+                if (revision !== previewRevision || key !== framingKey() || !videoVisible) return null;
+                framingState = { status: "ready", key, result: data, error: null, promise: null }; renderFraming(); updateGenerateEnablement(); return data;
+            } catch (error) {
+                if (revision !== previewRevision || key !== framingKey() || !videoVisible) return null;
+                framingState = { status: "failed", key, error, result: null, promise: null }; renderFraming(); showPreflightError(error); updateGenerateEnablement(); return null;
+            }
+        })();
+        framingState.promise = work; return work;
+    }
+    function previewMatchesQuote(data) {
+        if (!hasFramingFlow()) return true;
+        const variant = selectedVariant(), evidence = data?.source_preparation;
+        if (!variant?.success || evidence?.mode !== selectedFraming) return false;
+        const slots = variant.slots || [], quoted = evidence.slots || [];
+        return slots.length > 0 && slots.length === quoted.length && slots.every((slot, i) => slot.role === quoted[i].role
+            && slot.sha256 === quoted[i].prepared_sha256 && slot.width === quoted[i].width && slot.height === quoted[i].height);
+    }
+    function availabilityError() {
+        const model = currentModel();
+        if (model?.can_generate !== false && model?.new_submission_available !== false) return null;
+        return { code: "dependency_unavailable", detail_code: model.generation_unavailable_detail_code || "video_route_unavailable",
+            message: model.generation_unavailable_reason || "This video endpoint is unavailable.", retryable: false,
+            action: model.provider_name === "veo" && !model.credential_configured ? "open_settings" : undefined };
+    }
+    async function refreshAvailability() {
+        if (!catalogLoaded && !videoVisible) return null;
+        const revision = ++availabilityRevision;
+        try {
+            const data = await bridgeCall("list_video_models");
+            if (revision !== availabilityRevision) return null;
+            const selected = ve.modelSelect.value;
+            catalog = data.models || []; const first = !catalogLoaded; catalogLoaded = true;
+            populateModelDropdown();
+            ve.modelSelect.value = catalog.some(m => m.model_id === selected) ? selected : (catalog.find(m => m.new_submission_available !== false) || catalog[0])?.model_id || "";
+            selectedCapability = currentModel()?.capability || null;
+            if (first) onModelChange();
+            else {
+                clearCachedEstimate();
+                const m = currentModel(); ve.modelHint.textContent = m ? `${m.provider_name} · ${m.pricing_kind.replace("_", " ")} · ${m.pricing_source}` : "";
+                updateGenerateEnablement();
+            }
+            const error = availabilityError(); if (error) showPreflightError(error);
+            return data;
+        } catch (error) { if (revision === availabilityRevision) showPreflightError(error); return null; }
+    }
+    async function retryPreflight() {
+        clearCachedEstimate(); await refreshAvailability();
+        await refreshFramingPreview(true); return runEstimate(true);
+    }
+    async function ensureCurrentEstimate() {
+        const key = JSON.stringify(buildSubmitArgs() || {});
+        if (estimateState.key === key && estimateState.status === "pending") return estimateState.promise;
+        if (estimateState.key === key && estimateState.status === "ready" && previewMatchesQuote(estimateState.result)) return estimateState.result;
+        if (estimateState.key === key && estimateState.status === "failed") { showPreflightError(estimateState.error); return null; }
+        return runEstimate();
     }
 
     // ─── Queue ──────────────────────────────────────────────────────
@@ -3699,6 +3831,8 @@ const Video = (() => {
         cacheEls,
         wireEvents,
         onEnter,
+        onLeave,
+        refreshAvailability,
     };
 })();
 

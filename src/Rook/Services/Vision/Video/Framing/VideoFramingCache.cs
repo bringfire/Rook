@@ -62,12 +62,16 @@ namespace Rook.Services.Vision.Video.Framing
             }
         }
         public Stream? TryOpenPreview(Guid id, string role)
+            => TryOpenPreview(id, role, out _);
+        internal Stream? TryOpenPreview(Guid id, string role, out string? mimeType)
         {
             lock (_gate)
             {
+                mimeType = null;
                 SweepCore();
                 if (_closed || role != "image" || !_previews.TryGetValue(id, out var preview)) return null;
                 var pin = Pin(preview.Entry);
+                mimeType = preview.Entry.Bundle.Prepared.Slots.First(s => ReferenceEquals(s.Buffer.StorageIdentity, preview.Bytes.StorageIdentity)).MimeType;
                 try { return new PinnedStream(preview.Bytes.OpenRead(), pin); }
                 catch { pin.Dispose(); throw; }
             }

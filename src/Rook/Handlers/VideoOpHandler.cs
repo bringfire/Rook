@@ -63,6 +63,8 @@ namespace Rook.Handlers
         public const string OpCancel = "cancel_video_job";
         public const string OpResult = "get_video_job_result";
         public const string OpEstimate = "estimate_video_job";
+        // Panel-only: no native HTTP route or MCP tool.
+        public const string OpPreviewFraming = "preview_video_framing";
 
         // V3 introduced these as bridge-only read ops (VisionWebSurface
         // .OpRoutes only). PR-V4 promotes them to native HTTP + MCP
@@ -84,15 +86,20 @@ namespace Rook.Handlers
         private readonly IVideoJobManager _manager;
         private readonly IVideoProviderRegistry _registry;
         private readonly IVideoCostEstimator _estimator;
+        internal VideoFramingPreparationService? Framing { get; }
 
         public VideoOpHandler(
             IVideoJobManager manager,
             IVideoProviderRegistry registry,
             IVideoCostEstimator estimator)
+            : this(manager, registry, estimator, null) { }
+        internal VideoOpHandler(IVideoJobManager manager, IVideoProviderRegistry registry, IVideoCostEstimator estimator,
+            VideoFramingPreparationService? framing)
         {
             _manager = manager ?? throw new ArgumentNullException(nameof(manager));
             _registry = registry ?? throw new ArgumentNullException(nameof(registry));
             _estimator = estimator ?? throw new ArgumentNullException(nameof(estimator));
+            Framing = framing;
         }
 
         // ─── Async dispatcher (submit, cancel) ───────────────────────────
@@ -117,6 +124,7 @@ namespace Rook.Handlers
                 {
                     OpSubmit => await SubmitAsync(args, cancellationToken).ConfigureAwait(false),
                     OpCancel => await CancelAsync(args, cancellationToken).ConfigureAwait(false),
+                    OpPreviewFraming => await PreviewFramingAsync(args, cancellationToken).ConfigureAwait(false),
                     OpStatus or OpResult or OpEstimate or OpListJobs or OpListModels => FailInvalidRequest(
                         $"op '{op}' must be routed through the off-UI dispatcher, not the async dispatcher."),
                     _ => FailInvalidRequest($"Unknown video op '{op}'."),
@@ -164,7 +172,7 @@ namespace Rook.Handlers
                     OpEstimate => Estimate(args, cancellationToken),
                     OpListJobs => ListJobs(args),
                     OpListModels => ListModels(),
-                    OpSubmit or OpCancel => FailInvalidRequest(
+                    OpSubmit or OpCancel or OpPreviewFraming => FailInvalidRequest(
                         $"op '{op}' must be routed through the async dispatcher, not the off-UI dispatcher."),
                     _ => FailInvalidRequest($"Unknown video op '{op}'."),
                 };
@@ -284,6 +292,36 @@ namespace Rook.Handlers
             }));
         }
 
+        private async Task<ApiResponse> PreviewFramingAsync(Dictionary<string, JsonElement> args, CancellationToken ct)
+        {
+            if (Framing == null) return FailWithError(VideoSourcePreparationErrors.Busy("source_framing"));
+            string model = GetStringArg(args, "model") ?? "";
+            if (!_registry.TryResolve(model, out _) || !VideoSubmissionCoordinator.IsAffectedModel(model)) return FailWithError(BadField("model", "Framing supports Veo 3.1 image-to-video and interpolation."));
+            if (!TryParseMode(GetStringArg(args, "mode") ?? "", out var mode) || mode is not (VideoMode.I2V or VideoMode.Interp)) return FailWithError(BadField("mode", "Framing preview requires i2v or interp."));
+            var sources = new List<VideoFramingSourceSlot>();
+            foreach (var role in mode == VideoMode.Interp ? new[] { "start_frame", "end_frame" } : new[] { "start_frame" })
+            {
+                var (element, error) = GetOptionalObject(args, role);
+                if (error != null) return FailWithError(error);
+                if (element == null) return FailWithError(BadField(role, "Choose the source image to preview framing."));
+                var (reference, invalid) = ParseMediaRef(element.Value, role);
+                if (invalid != null) return FailWithError(invalid);
+                sources.Add(new(role, reference!));
+            }
+            if (mode == VideoMode.I2V && args.ContainsKey("end_frame") || args.ContainsKey("reference_frames")) return FailWithError(BadField("sources", "Supply only the start/end frames required by this preview mode."));
+            var result = await Framing.PreviewAsync(new(model, mode, sources, GetStringArg(args, "resolution") ?? "", GetStringArg(args, "aspect_ratio") ?? ""), ct).ConfigureAwait(false);
+            if (result.Error != null) return FailWithError(result.Error);
+            object Variant(VideoFramingPreviewVariant value) => new Dictionary<string, object?> {
+                ["success"] = value.Success, ["error"] = value.Error == null ? null : ErrorToObj(value.Error),
+                ["slots"] = value.Slots.Select(slot => new Dictionary<string, object?> {
+                    ["role"] = slot.Role, ["preview_id"] = slot.PreviewId.ToString("D"), ["preview_role"] = "image",
+                    ["preview_url"] = $"/blob/{slot.PreviewId:D}/image", ["sha256"] = slot.Sha256,
+                    ["width"] = slot.Width, ["height"] = slot.Height, ["original_width"] = slot.OriginalWidth,
+                    ["original_height"] = slot.OriginalHeight, ["upscaled"] = slot.Upscaled }).ToArray()
+            };
+            return Ok(new Dictionary<string, object?> { ["fit"] = Variant(result.Fit!), ["fill"] = Variant(result.Fill!) });
+        }
+
         private ApiResponse Estimate(Dictionary<string, JsonElement> args, CancellationToken ct)
         {
             if (ConfirmedManager is { } confirmed && VideoSubmissionCoordinator.IsAffectedModel(GetStringArg(args, "model") ?? ""))
@@ -304,6 +342,7 @@ namespace Rook.Handlers
                     ["maximum_estimated_cost_usd"] = quote.MaximumEstimatedCostUsd,
                     ["candidate_routes"] = quote.CanonicalSnapshot["candidates"],
                     ["primary_provider"] = quote.Candidates.First(c => c.Model.ModelId == quotedEstimate.Model).Model.ProviderName,
+                    ["source_preparation"] = quote.SourcePreparation,
                 });
             }
             var (request, parseErr) = ParseGenerationRequest(args);
