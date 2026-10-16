@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Video.Framing;
 
 namespace Rook.Services.Vision.Video
 {
@@ -73,6 +74,17 @@ namespace Rook.Services.Vision.Video
             var json = JsonSerializer.Serialize(body, JsonOptions);
 
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
+            return await SendStartAsync(apiKey, request.Model, content, ct, beforeDispatch).ConfigureAwait(false);
+        }
+        internal async Task<VeoStartResponse> StartPreparedGenerationAsync(string apiKey, VideoGenerationRequest request, VeoOptions options,
+            VideoPreparedMediaSnapshot prepared, VideoPreparationLease phase, CancellationToken ct, Action beforeDispatch)
+        {
+            using var content = new VeoPreparedContent(request, prepared, BuildParameters(request, options), phase, ct);
+            return await SendStartAsync(apiKey, request.Model, content, ct, beforeDispatch).ConfigureAwait(false);
+        }
+        private async Task<VeoStartResponse> SendStartAsync(string apiKey, string model, HttpContent content, CancellationToken ct, Action? beforeDispatch)
+        {
+            string url = $"{BaseUrl}/models/{model}:predictLongRunning";
             using var httpRequest = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
             httpRequest.Headers.Add("x-goog-api-key", apiKey);
 
@@ -249,6 +261,10 @@ namespace Rook.Services.Vision.Video
         {
             var instance = VeoInputCodec.BuildInstance(request, resolvedMedia);
 
+            return new { instances = new[] { instance }, parameters = BuildParameters(request, options) };
+        }
+        private static Dictionary<string, object?> BuildParameters(VideoGenerationRequest request, VeoOptions options)
+        {
             var parameters = new Dictionary<string, object?>
             {
                 ["aspectRatio"] = request.AspectRatio,
@@ -269,11 +285,7 @@ namespace Rook.Services.Vision.Video
 
             if (request.Seed.HasValue) parameters["seed"] = request.Seed.Value;
 
-            return new
-            {
-                instances = new[] { instance },
-                parameters,
-            };
+            return parameters;
         }
 
         private static string MapPersonGeneration(PersonGenerationPolicy policy) => policy switch

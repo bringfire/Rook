@@ -31,14 +31,14 @@ namespace Rook.Tests.Services.Vision.Video
         [Theory]
         [InlineData(false)]
         [InlineData(true)]
-        public async Task FinishedJobsReleasePreparedSourceBuffers(bool fail)
+        public async Task FinishedJobsReleasePreparedSourcePins(bool fail)
         {
             using var rig = new Rig(); var input = MediaRef.ForArtifact(Guid.NewGuid(), "image"); rig.Media.Values[input] = Rook.Tests.Services.Vision.Video.Fal.FalVeoCompatibilityTests.Image(1280, 720);
             var intent = VideoRequestIntent.Normalize(TestVideoFixtures.DefaultT2vRequest(model: "veo-3.1-generate-preview", mode: VideoMode.I2V, startFrame: input), new JsonObject());
             if (fail) rig.Google.Poll = (h, ct) => Task.FromResult<ProviderStatusOutcome>(new FailedStatusOutcome(new GenerationError(GenerationErrorCode.ExecutionFailed, "Failed test provider.", false)));
             await rig.Submit(intent); await Limit(rig.Done.Task);
             var jobs = (System.Collections.IDictionary)typeof(VideoJobManager).GetField("_routedJobs", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(rig.Manager)!;
-            foreach (var job in jobs.Values) Assert.Null(job.GetType().GetField("Media", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(job));
+            foreach (var job in jobs.Values) Assert.Null(job.GetType().GetField("Bundle", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(job));
         }
         [Theory]
         [InlineData("poll")]

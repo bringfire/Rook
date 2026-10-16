@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Rook.Services.Vision.Fal;
 using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Video.Framing;
 using Rook.Services.Vision.Video;
 using Rook.Services.Vision.Video.Fal;
 using Xunit;
@@ -26,7 +27,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
         internal sealed class Uploads : IFalVeoSourceFrameTransport
         {
             internal List<byte[]> Bytes = new();
-            public Task<(FalVeoSourceUrls? Urls, GenerationError? Error)> ResolveAndUploadVeoAsync(FalVeoBinding binding, VideoGenerationRequest request, VideoPreparedMediaSnapshot preparedMedia, string apiKey, CancellationToken ct)
+            public Task<(FalVeoSourceUrls? Urls, GenerationError? Error)> ResolveAndUploadVeoAsync(FalVeoBinding binding, VideoGenerationRequest request, VideoPreparedMediaSnapshot preparedMedia, string apiKey, CancellationToken ct, VideoPreparationLease? phase = null)
             {
                 foreach (var slot in preparedMedia.Slots) Bytes.Add(slot.CopyBytes());
                 return Task.FromResult<(FalVeoSourceUrls?, GenerationError?)>((new("https://v3.fal.media/a.png", request.EndFrame != null ? "https://v3.fal.media/b.png" : null, Array.AsReadOnly(preparedMedia.Slots.Where(s => s.Role.StartsWith("reference_frames")).Select(s => "https://v3.fal.media/" + s.Ref.ArtifactId + ".png").ToArray())), null));

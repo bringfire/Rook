@@ -15,6 +15,9 @@ namespace Rook.Services.Vision.Video.Framing
         private readonly IVideoSourceRenderer _renderer;
         internal VideoPreparationResources Resources { get; }
         internal VideoFramingCache Cache => _cache;
+        internal GenerationError? ValidateProfile(VideoRequestIntent intent)
+            => intent.Request.SourceFraming != null && _renderer.VerifyProfile() is string failure
+                ? VideoSourcePreparationErrors.Create("source_preparation_failed", "source_framing", intent.Request.SourceFraming.Value.Wire(), failure) : null;
         public VideoFramingPreparationService(IMediaResolver media, VideoFramingCache cache, IVideoSourceRenderer? renderer = null, VideoPreparationResources? resources = null)
         { _media = media; _cache = cache; _renderer = renderer ?? new FfmpegVideoSourceRenderer(); Resources = resources ?? VideoPreparationResources.Shared; }
         internal static GenerationError? ValidateUse(VideoGenerationRequest request)

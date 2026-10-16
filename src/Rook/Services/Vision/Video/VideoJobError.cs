@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Text.Json.Nodes;
 using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Video.Framing;
 
 namespace Rook.Services.Vision.Video
 {
@@ -12,6 +13,7 @@ namespace Rook.Services.Vision.Video
         string? Field = null)
     {
         internal string? DetailCode { get; init; }
+        internal VideoPreparationFailure? PreparationFailure { get; init; }
         /// <summary>Closed Rook marker for a dispatched Google submit whose outcome was lost.</summary>
         public bool SubmissionOutcomeUnknown { get; init; }
         public static implicit operator GenerationError(VideoJobError error)
@@ -23,6 +25,8 @@ namespace Rook.Services.Vision.Video
                     [VideoErrorDetailKeys.ProviderMessage] =
                         JsonValue.Create(error.ProviderMessage)!,
                 };
+            if (error.PreparationFailure != null)
+            { providerDetail ??= new Dictionary<string, JsonNode>(); foreach (var kv in error.PreparationFailure.Details()) providerDetail[kv.Key] = kv.Value; }
 
             return new GenerationError(
                 ToGenerationErrorCode(error.Code),

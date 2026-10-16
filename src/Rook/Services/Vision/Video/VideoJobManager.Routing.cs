@@ -54,7 +54,7 @@ namespace Rook.Services.Vision.Video
             internal readonly VideoExecutionBudget Budget;
             internal VideoRouteCandidate Candidate;
             internal volatile ProviderJobHandle? KnownHandle;
-            internal VideoPreparedMediaSnapshot? Media;
+            internal VideoPreparedBundleLease? Bundle;
             internal volatile VideoStopPersistence StopPersistence;
             internal volatile bool PersistenceFailed;
             internal int CleanupRunning;
@@ -80,29 +80,35 @@ namespace Rook.Services.Vision.Video
             if (VideoFramingPreparationService.ValidateUse(intent.Request) is { } framingError) return JobSubmitResult.Fail(framingError);
             if (intent.Request.SourceFraming != null && (confirmation.EstimateFingerprint == null || confirmation.MaxEstimatedCostUsd == null))
                 return JobSubmitResult.Fail(new GenerationError(GenerationErrorCode.InvalidRequest, "Framed video requires a fresh estimate fingerprint and numeric cost cap.", false, "estimate_fingerprint"));
-            var quoteResult = await _routeQuotes.QuoteAsync(intent, ct).ConfigureAwait(false);
-            if (quoteResult.Error != null) return JobSubmitResult.Fail(quoteResult.Error);
-            var quote = quoteResult.Quote!;
-            var candidate = _routeCoordinator.SelectInitial(quote);
-            if (_routeQuotes.ValidateConfirmation(quote, confirmation, candidate) is { } confirmationError) return JobSubmitResult.Fail(confirmationError);
-            var now = _clock.UtcNow();
-            var record = VideoJobRecordFactory.From(_idGenerator.NewJobId(), candidate.Request, candidate.Model, candidate.Estimate!, VideoJobState.Queued, now);
-            var data = new JsonObject { ["requested_provider"] = VideoSubmissionCoordinator.IsGoogleModel(intent.Request.Model) ? "veo" : "fal", ["requested_model"] = intent.Request.Model, ["supplied_options"] = intent.SuppliedOptions, ["normalized_google_options"] = intent.Request.Options is VeoOptions veo ? new VeoOptionsCodec().Serialize(veo) : null, ["accepted_quote"] = quote.CanonicalSnapshot, ["estimate_fingerprint"] = confirmation.EstimateFingerprint, ["max_estimated_cost_usd"] = confirmation.MaxEstimatedCostUsd, ["deadline_utc"] = now.AddMinutes(20).ToString("O"), ["phase"] = "queued", ["attempts"] = new JsonArray() };
-            record = VideoExecutionSnapshot.Write(record, new VideoExecutionSnapshot(1, data));
-            ct.ThrowIfCancellationRequested();
-            try { _ledger.Append(record); _routeRecordCache[record.JobId] = record; }
-            catch { return JobSubmitResult.Fail(PersistenceError()) with { Execution = new VideoExecutionProjection(new JsonObject { ["execution_stopped"] = true, ["stop_persistence"] = "failed", ["durability_unknown"] = true, ["job_id"] = record.JobId.ToString("D") }) }; }
-            var job = new RoutedJob(record, intent, quote, confirmation, new VideoExecutionBudget(now.AddMinutes(20), _clock, _routeTimer), candidate);
-            _routedJobs[record.JobId] = job;
-            job.Budget.Token.Register(() => {
-                if (job.Budget.FirstStopReason is null) return;
-                job.StopPersistence = VideoStopPersistence.Pending;
-                _ = PersistObservedStopAsync(job);
-                if (job.KnownHandle is { } known) _ = Task.Run(() => CleanupRoutedHandleAsync(job, known));
-            });
-            if (_shutdownCts.IsCancellationRequested) ObserveStop(job, VideoStopReason.Shutdown);
-            _ = Task.Run(() => RunRoutedAsync(job));
-            return JobSubmitResult.Ok(record.JobId, VideoJobState.Queued) with { Execution = RouteProjection(record) };
+            var prepared = await _routeQuotes.PrepareSubmissionAsync(intent, ct).ConfigureAwait(false);
+            if (prepared.Error != null) return JobSubmitResult.Fail(prepared.Error);
+            var bundle = prepared.Bundle!; bool transferred = false;
+            try
+            {
+                var quote = prepared.Quote!;
+                var candidate = _routeCoordinator.SelectInitial(quote);
+                if (_routeQuotes.ValidateConfirmation(quote, confirmation, candidate) is { } confirmationError) return JobSubmitResult.Fail(confirmationError);
+                var now = _clock.UtcNow();
+                var record = VideoJobRecordFactory.From(_idGenerator.NewJobId(), candidate.Request, candidate.Model, candidate.Estimate!, VideoJobState.Queued, now);
+                var data = new JsonObject { ["requested_provider"] = VideoSubmissionCoordinator.IsGoogleModel(intent.Request.Model) ? "veo" : "fal", ["requested_model"] = intent.Request.Model, ["supplied_options"] = intent.SuppliedOptions, ["normalized_google_options"] = intent.Request.Options is VeoOptions veo ? new VeoOptionsCodec().Serialize(veo) : null, ["accepted_quote"] = quote.CanonicalSnapshot, ["estimate_fingerprint"] = confirmation.EstimateFingerprint, ["max_estimated_cost_usd"] = confirmation.MaxEstimatedCostUsd, ["deadline_utc"] = now.AddMinutes(20).ToString("O"), ["phase"] = "queued", ["attempts"] = new JsonArray() };
+                if (bundle.SourcePreparation != null) data["source_preparation"] = bundle.SourcePreparation;
+                record = VideoExecutionSnapshot.Write(record, new VideoExecutionSnapshot(1, data));
+                ct.ThrowIfCancellationRequested();
+                try { _ledger.Append(record); _routeRecordCache[record.JobId] = record; }
+                catch { return JobSubmitResult.Fail(PersistenceError()) with { Execution = new VideoExecutionProjection(new JsonObject { ["execution_stopped"] = true, ["stop_persistence"] = "failed", ["durability_unknown"] = true, ["job_id"] = record.JobId.ToString("D") }) }; }
+                var job = new RoutedJob(record, intent, quote, confirmation, new VideoExecutionBudget(now.AddMinutes(20), _clock, _routeTimer), candidate) { Bundle = bundle };
+                _routedJobs[record.JobId] = job; transferred = true;
+                job.Budget.Token.Register(() => {
+                    if (job.Budget.FirstStopReason is null) return;
+                    job.StopPersistence = VideoStopPersistence.Pending;
+                    _ = PersistObservedStopAsync(job);
+                    if (job.KnownHandle is { } known) _ = Task.Run(() => CleanupRoutedHandleAsync(job, known));
+                });
+                if (_shutdownCts.IsCancellationRequested) ObserveStop(job, VideoStopReason.Shutdown);
+                _ = Task.Run(() => RunRoutedAsync(job));
+                return JobSubmitResult.Ok(record.JobId, VideoJobState.Queued) with { Execution = RouteProjection(record) };
+            }
+            finally { if (!transferred) bundle.Dispose(); }
         }
 
         private void CommitRouted(RoutedJob job, Func<VideoJobRecord, VideoJobRecord> update)
@@ -156,6 +162,16 @@ namespace Rook.Services.Vision.Video
             ct.ThrowIfCancellationRequested();
             return await work.ConfigureAwait(false);
         }
+        private async Task<ProviderSubmitOutcome> SubmitOwnedRoutedAttemptAsync(RoutedJob job, VideoRouteCandidate candidate, VideoPreparedBundleLease pin)
+        {
+            using (pin)
+            using (var phase = await _routeQuotes!.Preparation.Resources.AcquireAsync(job.Budget.Token).ConfigureAwait(false))
+            {
+                phase.OwnRetainedMedia(pin.Retain());
+                return await _routeCoordinator!.SubmitAttemptAsync(candidate, pin.Prepared,
+                    () => AdmitGenerationDispatch(job, candidate, pin, phase), job.Budget.Token, phase).ConfigureAwait(false);
+            }
+        }
         private async Task RunRoutedAsync(RoutedJob job)
         {
             bool acquired = false;
@@ -164,22 +180,15 @@ namespace Rook.Services.Vision.Video
                 await _concurrency.WaitAsync(job.Budget.Token).ConfigureAwait(false); acquired = true;
                 CheckRouted(job);
                 PrepareRoutedBinding(job, job.Candidate);
-                using (var resolved = await AwaitRouted(job, () => _mediaResolver is ArtifactOnlyVideoMediaResolver artifacts
-                    ? artifacts.ResolveMediaAsync(job.Intent.Request, job.Budget.Token)
-                    : _mediaResolver.ResolveAllAsync(VideoRouteQuoteService.VideoMediaReferences(job.Intent.Request), job.Budget.Token)).ConfigureAwait(false))
-                {
-                    if (!resolved.Success) throw new RouteFailure(resolved.Error!);
-                    job.Media = VideoPreparedMediaSnapshot.Capture(job.Intent.Request, resolved.Resolved!);
-                }
-                if (_routeQuotes!.ValidatePreparedMedia(job.Media, job.Quote) is { } changed) throw new RouteFailure(changed);
+                if (_routeQuotes!.ValidatePreparedMedia(job.Bundle!.Prepared, job.Quote) is { } changed) throw new RouteFailure(changed);
                 while (true)
                 {
-                    var prepared = await AwaitRouted(job, () => _routeQuotes.QuotePreparedAsync(job.Intent, job.Media, job.Budget.Token)).ConfigureAwait(false);
+                    var prepared = await AwaitRouted(job, () => _routeQuotes.QuotePreparedAsync(job.Intent, job.Bundle!, job.Budget.Token)).ConfigureAwait(false);
                     if (prepared.Error != null) throw new RouteFailure(prepared.Error);
                     if (_routeQuotes.ValidateConfirmation(prepared.Quote!, job.Confirmation, job.Candidate) is { } stale) throw new RouteFailure(stale);
-                    var preparedMedia = job.Media!;
+                    var attemptPin = job.Bundle!.Retain();
                     var attempt = job.Candidate;
-                    var submit = Task.Run(() => _routeCoordinator!.SubmitAttemptAsync(attempt, preparedMedia, () => AdmitGenerationDispatch(job, attempt, preparedMedia), job.Budget.Token));
+                    var submit = Task.Run(() => SubmitOwnedRoutedAttemptAsync(job, attempt, attemptPin));
                     ProviderSubmitOutcome outcome;
                     try { outcome = await AwaitCancellation(submit, job.Budget.Token).ConfigureAwait(false); }
                     catch (OperationCanceledException) { _ = ObserveLateSubmitAsync(job, submit); throw; }
@@ -237,7 +246,7 @@ namespace Rook.Services.Vision.Video
             }
             finally
             {
-                job.Media?.Dispose(); job.Media = null;
+                job.Bundle?.Dispose(); job.Bundle = null;
                 if (job.KnownHandle != null && (job.PersistenceFailed || job.Budget.FirstStopReason != null)) await CleanupRoutedHandleAsync(job, job.KnownHandle).ConfigureAwait(false);
                 job.Finished.TrySetResult(true);
                 job.Budget.Dispose();
@@ -247,12 +256,15 @@ namespace Rook.Services.Vision.Video
         }
         private async Task PersistRoutedFailureAsync(RoutedJob job, VideoJobState state, GenerationError error)
         {
+            var preparationError = VideoSourcePreparationErrors.Project(error);
+            var persistedError = preparationError == null ? error : error with { ProviderDetail = null };
             try
             {
                 CommitRouted(job, record => UpdateRouted(record, data => {
                     data["phase"] = "failed";
                     if (VideoCredentialErrors.FromError(record.Provider, error) is { } credential) data["credential_failure"] = VideoCredentialErrors.Project(credential);
-                }, state, error));
+                    if (preparationError != null) data["source_preparation_error"] = preparationError.DeepClone();
+                }, state, persistedError));
             }
             catch (OperationCanceledException)
             {
@@ -282,14 +294,12 @@ namespace Rook.Services.Vision.Video
                 return UpdateRouted(next, data => { data["phase"] = "preparation"; data["effective_binding"] = candidate.Binding?.SubmitEndpoint; data["profile_revision"] = candidate.Binding?.ProfileRevision; data["effective_provider"] = candidate.Model.ProviderName; data["effective_model"] = candidate.Model.ModelId; data["effective_options"] = candidate.Model.OptionsCodec.Serialize(candidate.Request.Options); data["effective_pricing"] = new JsonObject { ["estimated_cost_usd"] = candidate.Estimate!.DollarsUsd, ["currency"] = candidate.Estimate.Pricing.Currency, ["source"] = candidate.Estimate.Pricing.PricingSource }; data["route_receipt"] = next.Extensions?["video_route"]?.DeepClone(); }, VideoJobState.Submitting);
             });
         }
-        private void AdmitGenerationDispatch(RoutedJob job, VideoRouteCandidate candidate, VideoPreparedMediaSnapshot preparedMedia)
+        private void AdmitGenerationDispatch(RoutedJob job, VideoRouteCandidate candidate, VideoPreparedBundleLease held, VideoPreparationLease phase)
         {
             CheckRouted(job);
-            var prepared = _routeQuotes!.QuotePreparedAsync(job.Intent, preparedMedia, job.Budget.Token).GetAwaiter().GetResult();
-            var current = _routeQuotes.QuoteAsync(job.Intent, job.Budget.Token).GetAwaiter().GetResult();
-            if (prepared.Error != null || current.Error != null) throw new RouteFailure(prepared.Error ?? current.Error!);
-            var invalid = _routeQuotes.ValidatePreparedMedia(preparedMedia, job.Quote) ?? _routeQuotes.ValidatePreparedMedia(preparedMedia, current.Quote!) ?? _routeQuotes.ValidateConfirmation(prepared.Quote!, job.Confirmation, candidate) ?? _routeQuotes.ValidateConfirmation(current.Quote!, job.Confirmation, candidate);
-            if (invalid != null) throw new RouteFailure(invalid);
+            var current = _routeQuotes!.RevalidateForDispatchAsync(job.Intent, held, job.Quote, job.Confirmation, candidate, phase, job.Budget.Token).GetAwaiter().GetResult();
+            if (current.Error != null) throw new RouteFailure(current.Error);
+            var preparedMedia = held.Prepared;
             var fresh = current.Quote!.Candidates.First(c => c.Model.ProviderName == candidate.Model.ProviderName && c.Model.ModelId == candidate.Model.ModelId && c.Binding?.SubmitEndpoint == candidate.Binding?.SubmitEndpoint);
             CommitRouted(job, record => {
                 CheckRouted(job);

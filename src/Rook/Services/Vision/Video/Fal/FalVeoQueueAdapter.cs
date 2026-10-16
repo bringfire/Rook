@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Rook.Services.Vision.Fal;
 using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Video.Framing;
 
 namespace Rook.Services.Vision.Video.Fal
 {
@@ -18,31 +19,42 @@ namespace Rook.Services.Vision.Video.Fal
         private readonly FalVeoBindingCatalog _catalog;
         private readonly IFalVeoSourceFrameTransport _sources;
         public FalVeoQueueAdapter(Func<string?> key, FalApiClient client, FalVeoBindingCatalog catalog, IFalVeoSourceFrameTransport sources) { _key = key; _client = client; _catalog = catalog; _sources = sources; }
-        public async Task<ProviderSubmitOutcome> SubmitPreparedAsync(VideoGenerationRequest request, VideoPreparedMediaSnapshot preparedMedia, Action beforeDispatch, CancellationToken ct)
+        public async Task<ProviderSubmitOutcome> SubmitPreparedAsync(VideoGenerationRequest request, VideoPreparedMediaSnapshot preparedMedia, Action beforeDispatch, CancellationToken ct, VideoPreparationLease? phase = null)
         {
             string? key;
             try { key = _key(); } catch { return new FailedSubmitOutcome(VideoCredentialErrors.AccessFailed()); }
             if (string.IsNullOrWhiteSpace(key)) return new FailedSubmitOutcome(VideoCredentialErrors.Missing("fal"));
+            using var ownedPhase = phase == null ? await VideoPreparationResources.Shared.AcquireAsync(ct).ConfigureAwait(false) : null;
+            phase ??= ownedPhase!;
             var resolution = _catalog.Resolve(request, DateTimeOffset.UtcNow);
             if (resolution.Error != null) return new FailedSubmitOutcome(resolution.Error);
             var binding = resolution.Binding!;
-            var validation = FalVeoCompatibility.Validate(VideoRequestIntent.Normalize(request, new FalVeoOptionsCodec().Serialize(request.Options)), binding, preparedMedia.ToResolvedMedia());
+            var validation = FalVeoCompatibility.Validate(VideoRequestIntent.Normalize(request, new FalVeoOptionsCodec().Serialize(request.Options)), binding, preparedMedia);
             if (validation != null) return new FailedSubmitOutcome(validation);
             (FalVeoSourceUrls? Urls, GenerationError? Error) uploaded;
-            try { uploaded = await _sources.ResolveAndUploadVeoAsync(binding, request, preparedMedia, key!, ct).ConfigureAwait(false); }
+            try { uploaded = await _sources.ResolveAndUploadVeoAsync(binding, request, preparedMedia, key!, ct, phase).ConfigureAwait(false); }
+            catch (VideoPreparationBusyException) { return new FailedSubmitOutcome(VideoSourcePreparationErrors.Busy("source_framing")); }
             catch (FalApiException ex) when (ex.StatusCode != null && (ex.StatusCode != 401 || ex.AuthenticatedRequest)) { return new FailedSubmitOutcome(VideoCredentialErrors.FromHttp("fal", ex.StatusCode.Value, string.Empty)); }
             catch (Exception ex) when (ex is HttpRequestException or FalApiException) { return new FailedSubmitOutcome(Error("fal source upload failed.")); }
             if (uploaded.Error != null) return new FailedSubmitOutcome(uploaded.Error);
+            long textUnits = (request.Prompt?.Length ?? 0) + (uploaded.Urls!.Start?.Length ?? 0) + (uploaded.Urls.End?.Length ?? 0) + uploaded.Urls.References.Sum(u => (long)u.Length);
+            long capacity = 1_048_576 + textUnits * 64;
+            if (capacity > VideoPreparationLimits.TransientBytes) return new FailedSubmitOutcome(VideoSourcePreparationErrors.Busy("source_framing"));
+            VideoBufferReservation serialized;
+            try { serialized = phase.Buffers.Reserve((int)capacity); }
+            catch (VideoPreparationBusyException) { return new FailedSubmitOutcome(VideoSourcePreparationErrors.Busy("source_framing")); }
+            using var serializationOwner = serialized;
             var body = new JsonObject { ["prompt"] = request.Prompt, ["duration"] = request.DurationSeconds + "s", ["resolution"] = request.Resolution, ["aspect_ratio"] = request.AspectRatio, ["generate_audio"] = true, ["auto_fix"] = false, ["safety_tolerance"] = "4" };
             if (request.Seed.HasValue) body["seed"] = request.Seed.Value;
             if (request.Mode == VideoMode.I2V) body["image_url"] = uploaded.Urls!.Start;
             if (request.Mode == VideoMode.Interp) { body["first_frame_url"] = uploaded.Urls!.Start; body["last_frame_url"] = uploaded.Urls.End; }
             if ((request.ReferenceFrames?.Count ?? 0) > 0) body["image_urls"] = new JsonArray(uploaded.Urls!.References.Select(s => (JsonNode?)JsonValue.Create(s)).ToArray());
+            string payload = body.ToJsonString();
             beforeDispatch();
             ct.ThrowIfCancellationRequested();
             if (_catalog.Resolve(request, DateTimeOffset.UtcNow).Error is { } expired) return new FailedSubmitOutcome(expired);
             FalHttpResponse response;
-            try { response = await _client.PostJsonAsync(key!, new Uri("https://queue.fal.run/" + binding.SubmitEndpoint), body.ToJsonString(), FalJsonPlatformHeaders.ForVeoSubmit(3600), ct).ConfigureAwait(false); }
+            try { response = await _client.PostJsonAsync(key!, new Uri("https://queue.fal.run/" + binding.SubmitEndpoint), payload, FalJsonPlatformHeaders.ForVeoSubmit(3600), ct).ConfigureAwait(false); }
             catch (Exception ex) when (ex is HttpRequestException || ex is OperationCanceledException && !ct.IsCancellationRequested) { return new FailedSubmitOutcome(VideoCredentialErrors.Unknown()); }
             if (!response.IsSuccessStatusCode) return new FailedSubmitOutcome(VideoCredentialErrors.FromHttp("fal", response.StatusCode, response.Body));
             try

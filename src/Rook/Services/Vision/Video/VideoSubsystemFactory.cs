@@ -67,7 +67,7 @@ namespace Rook.Services.Vision.Video
             var estimator = new VideoCostEstimator();
             var clock = new SystemVideoJobClock();
             var coordinator = new VideoSubmissionCoordinator(registry, new Fal.FalVeoBindingCatalog(), generationSecrets);
-            var routeQuotes = new VideoRouteQuoteService(coordinator, mediaResolver, clock);
+            var routeQuotes = new VideoRouteQuoteService(coordinator, mediaResolver, clock, framing);
 
             var manager = new VideoJobManager(
                 registry: registry,

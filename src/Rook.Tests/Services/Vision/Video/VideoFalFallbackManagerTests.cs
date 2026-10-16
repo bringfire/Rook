@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Rook.Artifacts;
 using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Video.Framing;
 using Rook.Services.Vision.Video;
 using Rook.Services.Vision.Video.Fal;
 using Rook.Tests.Services.Vision.Video.Fal;
@@ -74,7 +75,7 @@ namespace Rook.Tests.Services.Vision.Video
             internal Func<ProviderJobHandle, CancellationToken, Task<ProviderResultOutcome>>? Fetch;
             internal Func<VideoGenerationRequest, CancellationToken, Task<ProviderSubmitOutcome>> Submit = (r, ct) => Task.FromResult<ProviderSubmitOutcome>(new QueuedSubmitOutcome(new ProviderJobHandle(r.Prompt ?? "handle")));
             internal Func<ProviderJobHandle, CancellationToken, Task<ProviderStatusOutcome>> Poll = (h, ct) => Task.FromResult<ProviderStatusOutcome>(new ProviderCompleteStatusOutcome(h));
-            public async Task<ProviderSubmitOutcome> SubmitPreparedAsync(VideoGenerationRequest request, VideoPreparedMediaSnapshot media, Action beforeDispatch, CancellationToken ct) { if (Prepare != null) await Prepare(media); beforeDispatch(); Interlocked.Increment(ref Submits); return await Submit(request, ct); }
+            public async Task<ProviderSubmitOutcome> SubmitPreparedAsync(VideoGenerationRequest request, VideoPreparedMediaSnapshot media, Action beforeDispatch, CancellationToken ct, VideoPreparationLease? phase = null) { if (Prepare != null) await Prepare(media); beforeDispatch(); Interlocked.Increment(ref Submits); return await Submit(request, ct); }
             public Task<ProviderSubmitOutcome> SubmitAsync(VideoGenerationRequest r, IReadOnlyDictionary<MediaRef, ResolvedMedia> m, CancellationToken ct) => throw new InvalidOperationException("Mutable submit seam used.");
             public Task<ProviderStatusOutcome> GetStatusAsync(ProviderJobHandle h, CancellationToken ct) { Interlocked.Increment(ref Polls); return Poll(h, ct); }
             public Task<ProviderCancelOutcome> CancelAsync(ProviderJobHandle h, CancellationToken ct) { Interlocked.Increment(ref Cancels); return Task.FromResult<ProviderCancelOutcome>(new CanceledOutcome()); }

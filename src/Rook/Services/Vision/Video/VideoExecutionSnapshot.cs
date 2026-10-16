@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Linq;
 using System.Text.Json.Nodes;
 using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Video.Framing;
 
 namespace Rook.Services.Vision.Video
 {
@@ -35,7 +36,8 @@ namespace Rook.Services.Vision.Video
                 ["credential_failure"] = data["credential_failure"]?.DeepClone(), ["video_route"] = durable.Extensions?["video_route"]?.DeepClone(),
                 ["estimate_fingerprint"] = data["estimate_fingerprint"]?.DeepClone(), ["max_estimated_cost_usd"] = data["max_estimated_cost_usd"]?.DeepClone(),
                 ["accepted_quote"] = data["accepted_quote"]?.DeepClone(), ["effective_estimated_cost_usd"] = durable.Pricing.TotalUsd,
-                ["pricing_source"] = durable.Pricing.PricingSource, ["warnings"] = data["warnings"]?.DeepClone()
+                ["pricing_source"] = durable.Pricing.PricingSource, ["warnings"] = data["warnings"]?.DeepClone(),
+                ["source_preparation"] = data["source_preparation"]?.DeepClone(), ["source_preparation_error"] = data["source_preparation_error"]?.DeepClone()
             };
             fields["provider"] = durable.Provider; fields["model"] = durable.Model;
             fields["execution_phase"] = data["phase"]?.DeepClone(); fields["stop_reason"] = stop;
@@ -61,6 +63,7 @@ namespace Rook.Services.Vision.Video
                     if (attempt is not JsonObject obj || obj["provider"]?.GetValue<string>() is not ("veo" or "fal") || obj["dispatch_state"]?.GetValue<string>() is not ("not_started" or "intent_recorded" or "accepted" or "rejected" or "unknown")) return Invalid();
                 }
                 if (data["first_stop_reason"] != null && data["first_stop_reason"]!.GetValue<string>() is not ("user" or "deadline" or "shutdown")) return Invalid();
+                if (!VideoSourcePreparationEvidence.Validate(record, data)) return Invalid();
                 return (new VideoExecutionSnapshot(1, data), null);
             }
             catch (Exception ex) when (ex is InvalidOperationException or FormatException or NullReferenceException) { return Invalid(); }

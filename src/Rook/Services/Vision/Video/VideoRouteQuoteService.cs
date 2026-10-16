@@ -11,31 +11,63 @@ namespace Rook.Services.Vision.Video
     internal sealed class VideoRouteQuoteService
     {
         private readonly VideoSubmissionCoordinator _coordinator;
-        private readonly IMediaResolver _media;
         private readonly IVideoJobClock _clock;
-        public VideoRouteQuoteService(VideoSubmissionCoordinator coordinator, IMediaResolver mediaResolver, IVideoJobClock clock) { _coordinator = coordinator; _media = mediaResolver; _clock = clock; }
-
+        internal VideoFramingPreparationService Preparation { get; }
+        public VideoRouteQuoteService(VideoSubmissionCoordinator coordinator, IMediaResolver mediaResolver, IVideoJobClock clock,
+            VideoFramingPreparationService? preparation = null)
+        { _coordinator = coordinator; _clock = clock; Preparation = preparation ?? new(mediaResolver, new VideoFramingCache()); }
         public async Task<VideoRouteQuoteResult> QuoteAsync(VideoRequestIntent intent, CancellationToken ct)
         {
+            var prepared = await PrepareSubmissionAsync(intent, ct).ConfigureAwait(false);
+            using var bundle = prepared.Bundle;
+            return new(prepared.Quote, prepared.Error);
+        }
+        internal async Task<(VideoPreparedBundleLease? Bundle, VideoRouteQuote? Quote, GenerationError? Error)> PrepareSubmissionAsync(VideoRequestIntent intent, CancellationToken ct)
+        {
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct); deadline.CancelAfter(TimeSpan.FromSeconds(15));
+            if (VideoFramingPreparationService.ValidateUse(intent.Request) is { } invalid) return (null, null, invalid);
             var available = _coordinator.Availability(intent, _clock.UtcNow());
-            if (available.Error != null) return new(null, available.Error);
-            if (_media is ArtifactOnlyVideoMediaResolver artifacts)
+            if (available.Error != null) return (null, null, available.Error);
+            VideoPreparedBundleLease? pin = null;
+            try
             {
-                using var lease = await VideoPreparationResources.Shared.AcquireAsync(ct).ConfigureAwait(false);
-                var read = await artifacts.ResolveSnapshotAsync(intent.Request, lease, ct).ConfigureAwait(false);
-                if (read.Error != null) return new(null, read.Error);
-                using var snapshot = read.Snapshot!;
-                return await QuotePreparedAsync(intent, snapshot, ct).ConfigureAwait(false);
+                using var phase = await Preparation.Resources.AcquireAsync(deadline.Token).ConfigureAwait(false);
+                var prepared = await Preparation.PrepareSelectedAsync(intent, phase, deadline.Token).ConfigureAwait(false);
+                if (prepared.Bundle == null) return (null, null, prepared.Error);
+                pin = prepared.Bundle;
+                var quoted = await QuotePreparedAsync(intent, pin, deadline.Token).ConfigureAwait(false);
+                if (quoted.Error != null) return (null, null, quoted.Error);
+                var transferred = pin; pin = null; return (transferred, quoted.Quote, null);
             }
-            var refs = VideoMediaReferences(intent.Request);
-            using var resolution = await _media.ResolveAllAsync(refs, ct).ConfigureAwait(false);
-            if (!resolution.Success) return new(null, resolution.Error);
-            try { using var snapshot = VideoPreparedMediaSnapshot.Capture(intent.Request, resolution.Resolved!); return await QuotePreparedAsync(intent, snapshot, ct).ConfigureAwait(false); }
-            catch (ArgumentException) { return new(null, Error("Source media could not be captured.", "media")); }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested) { return (null, null, VideoSourcePreparationErrors.Busy("source_framing")); }
+            catch (VideoPreparationBusyException) { return (null, null, VideoSourcePreparationErrors.Busy("source_framing")); }
+            finally { pin?.Dispose(); }
+        }
+        public Task<VideoRouteQuoteResult> QuotePreparedAsync(VideoRequestIntent intent, VideoPreparedBundleLease held, CancellationToken ct)
+        {
+            if (Preparation.ValidateProfile(intent) is { } profile) return Task.FromResult(new VideoRouteQuoteResult(null, profile));
+            return QuoteCoreAsync(intent, held.Prepared, held.SourcePreparation, held.Originals, ct);
+        }
+        public async Task<VideoRouteQuoteResult> RevalidateForDispatchAsync(VideoRequestIntent intent, VideoPreparedBundleLease held,
+            VideoRouteQuote accepted, VideoSubmitConfirmation confirmation, VideoRouteCandidate selected, VideoPreparationLease phase, CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+            var fresh = await Preparation.ReadOriginalsAsync(intent.Request, phase, ct).ConfigureAwait(false);
+            if (fresh.Snapshot == null) return new(null, fresh.Error);
+            using var originals = fresh.Snapshot;
+            if (!JsonNode.DeepEquals(ProjectMedia(originals), ProjectMedia(held.Originals)) || ValidatePreparedMedia(held.Prepared, accepted) != null ||
+                !JsonNode.DeepEquals(held.SourcePreparation, accepted.SourcePreparation))
+                return new(null, Error("Source or prepared media changed; obtain a fresh estimate and confirm a new job.", "media", "estimate_stale"));
+            var current = await QuotePreparedAsync(intent, held, ct).ConfigureAwait(false);
+            if (current.Error != null) return current;
+            var invalid = ValidateConfirmation(current.Quote!, confirmation, selected);
+            return invalid == null ? current : new(null, invalid);
         }
         internal static MediaRef[] VideoMediaReferences(VideoGenerationRequest request) => new[] { request.StartFrame, request.EndFrame }.Where(r => r != null).Cast<MediaRef>().Concat(request.ReferenceFrames ?? Array.Empty<MediaRef>()).ToArray();
 
         public Task<VideoRouteQuoteResult> QuotePreparedAsync(VideoRequestIntent intent, VideoPreparedMediaSnapshot preparedMedia, CancellationToken ct)
+            => QuoteCoreAsync(intent, preparedMedia, null, preparedMedia, ct);
+        private Task<VideoRouteQuoteResult> QuoteCoreAsync(VideoRequestIntent intent, VideoPreparedMediaSnapshot preparedMedia, JsonObject? sourcePreparation, VideoPreparedMediaSnapshot originals, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
             var availability = _coordinator.Availability(intent, _clock.UtcNow());
@@ -74,6 +106,13 @@ namespace Rook.Services.Vision.Video
                 ["media"] = ProjectMedia(preparedMedia), ["google_configured"] = googleConfigured, ["fal_configured"] = falConfigured,
                 ["candidates"] = candidateJson, ["maximum_estimated_cost_usd"] = maximum
             };
+            if (request.SourceFraming != null)
+            {
+                if (sourcePreparation == null) return Task.FromResult(new VideoRouteQuoteResult(null, Error("Prepared framing evidence is required.", "source_framing", "estimate_stale")));
+                canonical["request"]!["source_framing"] = request.SourceFraming.Value.Wire();
+                canonical["original_media"] = ProjectMedia(originals);
+                canonical["source_preparation"] = sourcePreparation.DeepClone();
+            }
             return Task.FromResult(new VideoRouteQuoteResult(new VideoRouteQuote(canonical, candidates, primary.Estimate, maximum, VideoEstimateFingerprint.Compute(canonical)), null));
         }
         internal static JsonArray ProjectMedia(VideoPreparedMediaSnapshot preparedMedia) => new(preparedMedia.Slots.Select(s => (JsonNode?)new JsonObject { ["role"] = s.Role, ["artifact_id"] = s.Ref.ArtifactId?.ToString("D"), ["source_role"] = s.Ref.Role, ["mime_type"] = s.MimeType, ["sha256"] = s.Sha256, ["byte_length"] = s.ByteLength }).ToArray());

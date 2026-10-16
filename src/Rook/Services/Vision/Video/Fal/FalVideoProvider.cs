@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Rook.Services.Vision.Fal;
 using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Video.Framing;
 
 namespace Rook.Services.Vision.Video.Fal
 {
@@ -47,8 +48,8 @@ namespace Rook.Services.Vision.Video.Fal
         private readonly IFalSourceFrameTransport _sourceFrameTransport;
         private readonly FalVeoQueueAdapter _veo;
 
-        Task<ProviderSubmitOutcome> IPreparedMediaVideoProvider.SubmitPreparedAsync(VideoGenerationRequest request, VideoPreparedMediaSnapshot preparedMedia, Action beforeDispatch, CancellationToken ct) =>
-            _veo.SubmitPreparedAsync(request, preparedMedia, beforeDispatch, ct);
+        Task<ProviderSubmitOutcome> IPreparedMediaVideoProvider.SubmitPreparedAsync(VideoGenerationRequest request, VideoPreparedMediaSnapshot preparedMedia, Action beforeDispatch, CancellationToken ct, VideoPreparationLease? phase = null) =>
+            _veo.SubmitPreparedAsync(request, preparedMedia, beforeDispatch, ct, phase);
 
         public FalVideoProvider(Func<string?> apiKeyProvider, FalApiClient? client = null)
             : this(apiKeyProvider, client, sourceFrameTransport: null)

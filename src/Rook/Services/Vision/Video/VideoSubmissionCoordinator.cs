@@ -41,8 +41,8 @@ namespace Rook.Services.Vision.Video
             message, false, "model", "video_route_unavailable", settings ? new Dictionary<string, System.Text.Json.Nodes.JsonNode> { ["action"] = System.Text.Json.Nodes.JsonValue.Create("open_settings")! } : null);
         public VideoRouteCandidate SelectInitial(VideoRouteQuote quote) => quote.Candidates.First(c => c.Model.ModelId == quote.PrimaryEstimate.Model);
         public VideoRouteCandidate? SelectFallback(VideoRouteQuote quote, GenerationError error) => VideoCredentialErrors.FromError("veo", error) != null ? quote.Candidates.FirstOrDefault(c => c.Model.ProviderName == "fal" && c.EligibilityError is null) : null;
-        public Task<ProviderSubmitOutcome> SubmitAttemptAsync(VideoRouteCandidate candidate, VideoPreparedMediaSnapshot media, Action beforeDispatch, CancellationToken ct) => candidate.Model.Provider is IPreparedMediaVideoProvider prepared
-            ? prepared.SubmitPreparedAsync(candidate.Request, media, beforeDispatch, ct)
+        public Task<ProviderSubmitOutcome> SubmitAttemptAsync(VideoRouteCandidate candidate, VideoPreparedMediaSnapshot media, Action beforeDispatch, CancellationToken ct, VideoPreparationLease? phase = null) => candidate.Model.Provider is IPreparedMediaVideoProvider prepared
+            ? prepared.SubmitPreparedAsync(candidate.Request, media, beforeDispatch, ct, phase)
             : Task.FromResult<ProviderSubmitOutcome>(new FailedSubmitOutcome(new GenerationError(GenerationErrorCode.DependencyUnavailable, "Video provider lacks durable prepared dispatch support.", false)));
         public IReadOnlyList<VideoRouteCandidate> ResolveCandidates(VideoRequestIntent intent, IReadOnlyDictionary<MediaRef, ResolvedMedia> media, DateTimeOffset now)
         { using var snapshot = VideoPreparedMediaSnapshot.Capture(intent.Request, media); return ResolveCandidates(intent, snapshot, now); }

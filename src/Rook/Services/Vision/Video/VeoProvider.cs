@@ -5,6 +5,7 @@ using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Video.Framing;
 
 namespace Rook.Services.Vision.Video
 {
@@ -41,19 +42,22 @@ namespace Rook.Services.Vision.Video
 
         public string ProviderName => VeoCapabilities.ProviderName;
 
-        async Task<ProviderSubmitOutcome> IPreparedMediaVideoProvider.SubmitPreparedAsync(VideoGenerationRequest request, VideoPreparedMediaSnapshot preparedMedia, Action beforeDispatch, CancellationToken ct)
+        async Task<ProviderSubmitOutcome> IPreparedMediaVideoProvider.SubmitPreparedAsync(VideoGenerationRequest request, VideoPreparedMediaSnapshot preparedMedia, Action beforeDispatch, CancellationToken ct, VideoPreparationLease? phase = null)
         {
             string? key;
             try { key = _apiKeyProvider(); } catch { return new FailedSubmitOutcome(VideoCredentialErrors.AccessFailed()); }
             if (string.IsNullOrWhiteSpace(key)) return new FailedSubmitOutcome(VideoCredentialErrors.Missing("veo"));
+            using var ownedPhase = phase == null ? await VideoPreparationResources.Shared.AcquireAsync(ct).ConfigureAwait(false) : null;
+            phase ??= ownedPhase!;
             bool admitted = false;
             try
             {
-                var response = await _client.StartGenerationAsync(key!, request, (VeoOptions)request.Options, preparedMedia.ToResolvedMedia(), ct, () => { beforeDispatch(); ct.ThrowIfCancellationRequested(); admitted = true; }).ConfigureAwait(false);
+                var response = await _client.StartPreparedGenerationAsync(key!, request, (VeoOptions)request.Options, preparedMedia, phase, ct, () => { beforeDispatch(); ct.ThrowIfCancellationRequested(); admitted = true; }).ConfigureAwait(false);
                 if (!response.Success) return new FailedSubmitOutcome(response.StatusCode is >= 200 and < 300 ? VideoCredentialErrors.Unknown() : VideoCredentialErrors.FromHttp("veo", response.StatusCode ?? 0, response.ErrorBody ?? ""));
                 if (!IsSupportedOperationName(response.OperationName, request.Model)) return new FailedSubmitOutcome(VideoCredentialErrors.Unknown());
                 return new QueuedSubmitOutcome(new ProviderJobHandle(response.OperationName!));
             }
+            catch (VideoPreparationBusyException) { return new FailedSubmitOutcome(VideoSourcePreparationErrors.Busy("source_framing")); }
             catch (System.Text.Json.JsonException) { return new FailedSubmitOutcome(VideoCredentialErrors.Unknown()); }
             catch (HttpRequestException) { return new FailedSubmitOutcome(admitted ? VideoCredentialErrors.Unknown() : new GenerationError(GenerationErrorCode.DependencyUnavailable, "Google preparation failed.", false)); }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested) { return new FailedSubmitOutcome(VideoCredentialErrors.Unknown()); }

@@ -40,6 +40,7 @@ namespace Rook.Services.Vision.Video.Framing
     {
         private readonly Action _release;
         private int _disposed, _released;
+        private IDisposable? _retainedOwner;
         private long _originalBytes;
         public VideoBufferBudget Buffers { get; }
         public long AdmittedOriginalBytes => Interlocked.Read(ref _originalBytes);
@@ -55,11 +56,26 @@ namespace Rook.Services.Vision.Video.Framing
                 _originalBytes += length; return true;
             }
         }
-        public void Dispose() { Interlocked.Exchange(ref _disposed, 1); TryRelease(); }
+        public void Dispose() { Buffers.Close(); lock (this) _disposed = 1; TryRelease(); }
+        internal void OwnRetainedMedia(IDisposable owner)
+        {
+            bool accepted;
+            lock (this)
+            {
+                accepted = _disposed == 0 && _retainedOwner == null;
+                if (accepted) _retainedOwner = owner;
+            }
+            if (!accepted) { owner.Dispose(); throw new InvalidOperationException("Preparation ownership is already closed."); }
+        }
         private void TryRelease()
         {
-            if (Volatile.Read(ref _disposed) != 0 && Buffers.ReservedBytes == 0 &&
-                Interlocked.Exchange(ref _released, 1) == 0) _release();
+            IDisposable? owner;
+            lock (this)
+            {
+                if (_disposed == 0 || Buffers.ReservedBytes != 0 || _released != 0) return;
+                _released = 1; owner = _retainedOwner; _retainedOwner = null;
+            }
+            try { owner?.Dispose(); } finally { _release(); }
         }
     }
 
@@ -69,6 +85,7 @@ namespace Rook.Services.Vision.Video.Framing
         private readonly long _limit;
         private readonly Action? _changed;
         private long _reserved, _peak;
+        private bool _closed;
         public VideoBufferBudget(long limit = VideoPreparationLimits.TransientBytes, Action? changed = null)
         { _limit = limit; _changed = changed; }
         public long ReservedBytes { get { lock (_gate) return _reserved; } }
@@ -77,6 +94,7 @@ namespace Rook.Services.Vision.Video.Framing
         {
             lock (_gate)
             {
+                if (_closed) throw new ObjectDisposedException(nameof(VideoBufferBudget));
                 if (capacity < 0 || capacity > _limit - _reserved) throw new VideoPreparationBusyException();
                 _reserved += capacity; _peak = Math.Max(_peak, _reserved);
                 return new VideoBufferReservation(this, capacity);
@@ -84,6 +102,7 @@ namespace Rook.Services.Vision.Video.Framing
         }
         internal void Release(int capacity)
         { lock (_gate) _reserved -= capacity; _changed?.Invoke(); }
+        internal void Close() { lock (_gate) _closed = true; }
     }
 
     internal sealed class VideoBufferReservation : IDisposable

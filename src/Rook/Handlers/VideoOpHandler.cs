@@ -512,7 +512,17 @@ namespace Rook.Handlers
         internal static void ProjectExecution(VideoExecutionProjection? execution, Dictionary<string, object?> response)
         { if (execution != null) foreach (var kv in execution.Fields) response[kv.Key] = kv.Value; }
         private static Dictionary<string, object?> WithExecution(VideoExecutionProjection? execution, Dictionary<string, object?> response)
-        { ProjectExecution(execution, response); return response; }
+        {
+            ProjectExecution(execution, response);
+            if (execution?.Fields["source_preparation_error"] is JsonObject preparedError)
+            {
+                var target = response.TryGetValue("error", out var nested) && nested is Dictionary<string, object?> error
+                    ? error : response.ContainsKey("code") ? response : null;
+                if (target != null) foreach (string key in new[] { "detail_code", "preparation_detail", "framing_mode", "action" })
+                    if (preparedError[key] is JsonValue value && value.TryGetValue<string>(out var text)) target[key] = text;
+            }
+            return response;
+        }
 
         // ─── Request parsing ─────────────────────────────────────────────
 
@@ -820,7 +830,8 @@ namespace Rook.Handlers
                 ["field"] = err.Field,
             };
             if (err.ProviderErrorCode == "vertex_submission_unknown" || err.ProviderErrorCode == "submission_unknown") result["submission_outcome_unknown"] = true;
-            if (err.ProviderErrorCode is "estimate_stale" or "cost_cap_exceeded" or "submission_unknown" or "persistence_failed" or "secret_access_failed" or "provider_timeout") result["detail_code"] = err.ProviderErrorCode;
+            if (VideoSourcePreparationErrors.IsLocalCode(err.ProviderErrorCode) || err.ProviderErrorCode is "estimate_stale" or "cost_cap_exceeded" or "submission_unknown" or "persistence_failed" or "secret_access_failed" or "provider_timeout") result["detail_code"] = err.ProviderErrorCode;
+            if (VideoSourcePreparationErrors.Extract(err) is { } prepared) foreach (var detail in prepared.Details()) result[detail.Key] = detail.Value.GetValue<string>();
             return result;
         }
 
