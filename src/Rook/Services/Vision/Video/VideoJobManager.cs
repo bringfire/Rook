@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Rook.Artifacts;
 using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Video.Framing;
 
 namespace Rook.Services.Vision.Video
 {
@@ -127,6 +128,10 @@ namespace Rook.Services.Vision.Video
         public async Task<JobSubmitResult> SubmitAsync(
             VideoGenerationRequest request, CancellationToken ct)
         {
+            if (request != null && VideoFramingPreparationService.ValidateUse(request) is { } framingError)
+                return JobSubmitResult.Fail(framingError);
+            if (request?.SourceFraming != null)
+                return JobSubmitResult.Fail(new GenerationError(GenerationErrorCode.InvalidRequest, "Framed video requires confirmed submission with a fresh estimate fingerprint and numeric cost cap.", false, "estimate_fingerprint"));
             if (request != null && _routeQuotes != null && VideoSubmissionCoordinator.IsAffectedModel(request.Model))
             {
                 var supplied = _registry.TryResolve(request.Model, out var requestedModel) ? requestedModel.OptionsCodec.Serialize(request.Options) : new JsonObject();

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Rook.Services.Vision.Video.Framing;
 
 namespace Rook.Services.Vision.Video
 {
@@ -24,5 +25,6 @@ namespace Rook.Services.Vision.Video
         NormalizedMediaRef? EndFrame,
         IReadOnlyList<NormalizedMediaRef>? ReferenceFrames,
         int? Seed,
-        int NumberOfVideos);
+        int NumberOfVideos,
+        SourceFramingMode? SourceFraming = null);
 }

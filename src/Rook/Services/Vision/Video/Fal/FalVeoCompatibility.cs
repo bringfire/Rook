@@ -4,12 +4,18 @@ using System.Linq;
 using System.IO;
 using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Image;
+using Rook.Services.Vision.Video.Framing;
 
 namespace Rook.Services.Vision.Video.Fal
 {
     internal static class FalVeoCompatibility
     {
         public static GenerationError? Validate(VideoRequestIntent intent, FalVeoBinding binding, IReadOnlyDictionary<MediaRef, ResolvedMedia> media)
+        {
+            try { using var snapshot = VideoPreparedMediaSnapshot.Capture(intent.Request, media); return Validate(intent, binding, snapshot); }
+            catch (ArgumentException) { return Error("A source frame could not be resolved.", "start_frame"); }
+        }
+        public static GenerationError? Validate(VideoRequestIntent intent, FalVeoBinding binding, VideoPreparedMediaSnapshot snapshot)
         {
             var request = intent.Request;
             if (intent.PersonGenerationSupplied) return Error("Explicit Google person_generation cannot be translated to fal provider defaults.", "options.person_generation");
@@ -27,51 +33,32 @@ namespace Rook.Services.Vision.Video.Fal
                 if (supplied.Count != 0) return Error("Google-specific options cannot be translated.", "options");
             }
             else if (new FalVeoOptionsCodec().Deserialize(supplied).Error is { } optionError) return optionError;
-            VideoPreparedMediaSnapshot snapshot;
-            try { snapshot = VideoPreparedMediaSnapshot.Capture(request, media); }
-            catch (ArgumentException) { return Error("A source frame could not be resolved.", "start_frame"); }
-            using var captured = snapshot;
             foreach (var slot in snapshot.Slots)
             {
                 if (slot.ByteLength > 8_000_000 || slot.MimeType is not ("image/png" or "image/jpeg" or "image/webp")) return Error("fal Veo source must be PNG/JPEG/WebP and at most 8,000,000 bytes.", slot.Role);
-                var bytes = slot.CopyBytes();
-                if (!ImageDimensions.TryRead(bytes, slot.MimeType, out var size) || !HasCompleteImage(bytes, slot.MimeType) || Math.Min(size.Width, size.Height) < 720) return Error("fal Veo source must be a valid image with a shorter side of at least 720 pixels.", slot.Role);
+                var inspected = VideoStillImageInspector.Inspect(slot.Buffer, slot.Role);
+                if (inspected.Info is not { } info)
+                    return Error("fal Veo source must be a valid still image with a shorter side of at least 720 pixels.", slot.Role);
+                if (Math.Min(info.OrientedWidth, info.OrientedHeight) < 720)
+                    return request.SourceFraming == null && request.Mode is VideoMode.I2V or VideoMode.Interp
+                        ? VideoSourcePreparationErrors.Create("framing_choice_required", "source_framing")
+                        : Error("fal Veo source must have a shorter side of at least 720 pixels.", slot.Role);
+                var size = (Width: info.OrientedWidth, Height: info.OrientedHeight);
+                if (request.SourceFraming != null)
+                {
+                    var target = request.Resolution switch { "720p" => (W: 1280, H: 720), "1080p" => (W: 1920, H: 1080), "4k" => (W: 3840, H: 2160), _ => (W: 0, H: 0) };
+                    if (request.AspectRatio == "9:16") target = (target.H, target.W);
+                    if (size.Width != target.W || size.Height != target.H || info.Orientation != 1)
+                        return Error("Prepared source does not match the selected video canvas. Retry preparation.", slot.Role);
+                }
                 if (request.Mode is VideoMode.I2V or VideoMode.Interp)
                 {
                     var matches = request.AspectRatio == "16:9" ? (long)size.Width * 9 == (long)size.Height * 16 : (long)size.Width * 16 == (long)size.Height * 9;
-                    if (!matches) return Error($"fal.ai Veo 3.1 requires a source matching the selected {request.AspectRatio} ratio; this source is {size.Width}x{size.Height}. Supply a matching source or use the Google route.", slot.Role);
+                    if (!matches) return VideoSourcePreparationErrors.Create("framing_choice_required", "source_framing");
                 }
             }
             return null;
         }
         private static GenerationError Error(string message, string field) => FalVeoBindingCatalog.Error(message, field);
-        private static bool HasCompleteImage(byte[] bytes, string mime)
-        {
-            if (mime == "image/webp")
-            {
-                // Windows GDI+ has no built-in WebP decoder. Require a complete RIFF
-                // container and an actual bounded image bitstream, not only VP8X dimensions.
-                if (bytes.Length < 20 || (long)BitConverter.ToUInt32(bytes, 4) + 8 != bytes.Length) return false;
-                bool image = false;
-                for (long offset = 12; offset + 8 <= bytes.Length;)
-                {
-                    int index = (int)offset; long length = BitConverter.ToUInt32(bytes, index + 4);
-                    long end = offset + 8 + length + (length & 1);
-                    if (end > bytes.Length) return false;
-                    var chunk = System.Text.Encoding.ASCII.GetString(bytes, index, 4);
-                    if ((chunk == "VP8 " && length >= 10) || (chunk == "VP8L" && length >= 5)) image = true;
-                    offset = end;
-                    if (offset == bytes.Length) return image;
-                }
-                return false;
-            }
-            try
-            {
-                using var stream = new MemoryStream(bytes, false);
-                using var image = System.Drawing.Image.FromStream(stream, false, true);
-                return image.Width > 0 && image.Height > 0;
-            }
-            catch (Exception ex) when (ex is ArgumentException or OutOfMemoryException or System.Runtime.InteropServices.ExternalException) { return false; }
-        }
     }
 }

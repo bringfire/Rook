@@ -652,3 +652,36 @@ def test_tool_groups_video_entries_match_list_tools():
                 f"tool_groups['{group}'] references {name!r} which is "
                 f"not registered in list_tools()"
             )
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", ["rhino_render_video", "rhino_video_estimate"])
+async def test_video_framing_schema_is_optional_strict_scalar(name):
+    tools = {tool.name: tool for tool in await server.list_tools()}
+    schema = tools[name].inputSchema
+    field = schema["properties"]["source_framing"]
+    assert field["type"] == "string"
+    assert field["enum"] == ["fit", "fill"]
+    assert "source_framing" not in schema["required"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", ["rhino_render_video", "rhino_video_estimate"])
+@pytest.mark.parametrize("framing", [None, "fit", "fill"])
+async def test_video_framing_preserves_confirmation_and_scalar_on_both_paths(name, framing):
+    args = {"model": "veo-3.1-generate-preview", "mode": "i2v", "options": {},
+            "estimate_fingerprint": "v1:" + "a" * 64, "max_estimated_cost_usd": 3.2}
+    if framing is not None:
+        args["source_framing"] = framing
+    server_args, dispatcher_args = await _both_paths_normalized(name, args)
+    assert server_args == dispatcher_args
+    assert server_args[2] == args
+
+
+@pytest.mark.asyncio
+async def test_video_framing_preflight_error_is_preserved():
+    data = {"error": {"message": "Choose Fit", "detail_code": "source_preparation_failed",
+                       "preparation_detail": "render_limits_exceeded", "framing_mode": "fill", "action": "choose_fit"}}
+    with patch.object(server, "call_rhino", new_callable=AsyncMock) as call:
+        call.return_value = {"success": False, "data": data}
+        response = await server.call_tool("rhino_video_estimate", {"source_framing": "fill"})
+    assert json.loads(response[0].text.removeprefix("Error: ")) == data

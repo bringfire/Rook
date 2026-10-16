@@ -17,6 +17,8 @@ namespace Rook.Services.Vision.Video
 
         public async Task<VideoRouteQuoteResult> QuoteAsync(VideoRequestIntent intent, CancellationToken ct)
         {
+            var available = _coordinator.Availability(intent, _clock.UtcNow());
+            if (available.Error != null) return new(null, available.Error);
             if (_media is ArtifactOnlyVideoMediaResolver artifacts)
             {
                 using var lease = await VideoPreparationResources.Shared.AcquireAsync(ct).ConfigureAwait(false);
@@ -36,14 +38,10 @@ namespace Rook.Services.Vision.Video
         public Task<VideoRouteQuoteResult> QuotePreparedAsync(VideoRequestIntent intent, VideoPreparedMediaSnapshot preparedMedia, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
-            bool googleConfigured, falConfigured;
-            try
-            {
-                googleConfigured = VideoSubmissionCoordinator.IsGoogleModel(intent.Request.Model) && !string.IsNullOrWhiteSpace(_coordinator.Secrets.GetSecret(GenerationSecretKeys.GeminiApiKey));
-                falConfigured = _coordinator.Secrets.HasSecret(GenerationSecretKeys.FalApiKey);
-            }
-            catch { return Task.FromResult(new VideoRouteQuoteResult(null, Error("Generation credential store could not be read.", "credentials", "secret_access_failed"))); }
-            var candidates = _coordinator.ResolveCandidates(intent, preparedMedia.ToResolvedMedia(), _clock.UtcNow());
+            var availability = _coordinator.Availability(intent, _clock.UtcNow());
+            if (availability.Error != null) return Task.FromResult(new VideoRouteQuoteResult(null, availability.Error));
+            bool googleConfigured = availability.Google, falConfigured = availability.Fal;
+            var candidates = _coordinator.ResolveCandidates(intent, preparedMedia, _clock.UtcNow());
             var primary = candidates.FirstOrDefault(c => c.Model.ProviderName == (googleConfigured ? "veo" : "fal"));
             if (primary is null) return Task.FromResult(new VideoRouteQuoteResult(null, Error("No compatible video binding is registered.", "model")));
             if (primary.EligibilityError != null || primary.Estimate?.Pricing.TotalUsd is null) return Task.FromResult(new VideoRouteQuoteResult(null, primary.EligibilityError ?? Error("Pricing is unavailable.", "pricing")));

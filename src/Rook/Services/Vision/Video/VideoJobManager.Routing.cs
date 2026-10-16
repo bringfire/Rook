@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Rook.Artifacts;
 using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video.Fal;
+using Rook.Services.Vision.Video.Framing;
 
 namespace Rook.Services.Vision.Video
 {
@@ -19,10 +20,21 @@ namespace Rook.Services.Vision.Video
         public JsonObject ModelAvailability(string model)
         {
             if (_routeCoordinator == null || !VideoSubmissionCoordinator.IsAffectedModel(model)) return new JsonObject();
-            bool configured = false;
-            try { configured = _routeCoordinator.Secrets.HasSecret(VideoSubmissionCoordinator.IsGoogleModel(model) ? GenerationSecretKeys.GeminiApiKey : GenerationSecretKeys.FalApiKey); } catch { }
-            bool available = VideoSubmissionCoordinator.IsGoogleModel(model) || _routeCoordinator.Bindings.All.Any(b => b.ModelId == model && b.ContinuityVerified && (b.NewSubmissionCutoffUtc == null || b.NewSubmissionCutoffUtc > _clock.UtcNow()));
-            return new JsonObject { ["credential_configured"] = configured, ["new_submission_available"] = available, ["availability_reason"] = available ? null : "endpoint_continuity_unverified" };
+            bool googleModel = VideoSubmissionCoordinator.IsGoogleModel(model), configured = false, falConfigured = false, secretFailed = false;
+            try {
+                configured = _routeCoordinator.Secrets.HasSecret(googleModel ? GenerationSecretKeys.GeminiApiKey : GenerationSecretKeys.FalApiKey);
+                if (!configured && googleModel) falConfigured = _routeCoordinator.Secrets.HasSecret(GenerationSecretKeys.FalApiKey);
+            } catch { secretFailed = true; }
+            string falModel = VideoSubmissionCoordinator.FalModelFor(model) ?? model;
+            bool falAvailable = _routeCoordinator.Bindings.All.Any(b => b.ModelId == falModel && b.ContinuityVerified && (b.NewSubmissionCutoffUtc == null || b.NewSubmissionCutoffUtc > _clock.UtcNow()));
+            bool available = googleModel || falAvailable;
+            bool canGenerate = !secretFailed && (configured && available || googleModel && falConfigured && falAvailable);
+            string? reason = canGenerate ? null : secretFailed ? "Generation credential store could not be read." : googleModel && !falAvailable
+                ? "Video generation needs a Google API key. Fal Veo fallback is currently disabled." : !available
+                ? "Fal Veo generation is currently disabled until endpoint continuity is verified." : "Configure a video provider API key in Vision Settings.";
+            return new JsonObject { ["credential_configured"] = configured, ["new_submission_available"] = available,
+                ["availability_reason"] = available ? null : "endpoint_continuity_unverified", ["can_generate"] = canGenerate,
+                ["generation_unavailable_reason"] = reason, ["generation_unavailable_detail_code"] = canGenerate ? null : secretFailed ? "secret_access_failed" : "video_route_unavailable" };
         }
         private readonly VideoRouteQuoteService? _routeQuotes;
         private readonly IVideoDeadlineTimer _routeTimer;
@@ -65,6 +77,9 @@ namespace Rook.Services.Vision.Video
         private async Task<JobSubmitResult> SubmitRoutedAsync(VideoRequestIntent intent, VideoSubmitConfirmation confirmation, CancellationToken ct)
         {
             if (_routeQuotes is null || _routeCoordinator is null) return JobSubmitResult.Fail(RoutingError("Video route orchestration is unavailable."));
+            if (VideoFramingPreparationService.ValidateUse(intent.Request) is { } framingError) return JobSubmitResult.Fail(framingError);
+            if (intent.Request.SourceFraming != null && (confirmation.EstimateFingerprint == null || confirmation.MaxEstimatedCostUsd == null))
+                return JobSubmitResult.Fail(new GenerationError(GenerationErrorCode.InvalidRequest, "Framed video requires a fresh estimate fingerprint and numeric cost cap.", false, "estimate_fingerprint"));
             var quoteResult = await _routeQuotes.QuoteAsync(intent, ct).ConfigureAwait(false);
             if (quoteResult.Error != null) return JobSubmitResult.Fail(quoteResult.Error);
             var quote = quoteResult.Quote!;

@@ -54,7 +54,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
                 var binding = ActiveCatalog().Resolve(intent.Request, DateTimeOffset.UtcNow).Binding!;
                 var error = FalVeoCompatibility.Validate(intent, binding, new Dictionary<MediaRef, ResolvedMedia> { [source] = Image(width, height) });
                 Assert.Equal(compatible, error is null);
-                if (!compatible) Assert.Equal("start_frame", error!.Field);
+                if (!compatible) { Assert.Equal("source_framing", error!.Field); Assert.Equal("framing_choice_required", error.ProviderErrorCode); }
                 Assert.True(CapabilityValidator.Validate(VeoCapabilities.Models[model].Capability, intent.Request).Success);
             }
         }
@@ -74,7 +74,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var last = MediaRef.ForArtifact(Guid.NewGuid(), "image");
             var intent = VideoRequestIntent.Normalize(TestVideoFixtures.DefaultT2vRequest(mode: VideoMode.Interp, startFrame: first, endFrame: last), new JsonObject());
             var binding = ActiveCatalog().Resolve(intent.Request, DateTimeOffset.UtcNow).Binding!;
-            Assert.Equal("end_frame", FalVeoCompatibility.Validate(intent, binding, new Dictionary<MediaRef, ResolvedMedia> { [first] = Image(1280, 720), [last] = Image(1024, 1024) })!.Field);
+            Assert.Equal("framing_choice_required", FalVeoCompatibility.Validate(intent, binding, new Dictionary<MediaRef, ResolvedMedia> { [first] = Image(1280, 720), [last] = Image(1024, 1024) })!.ProviderErrorCode);
             var tooLarge = new byte[8_000_001];
             Assert.Equal("start_frame", FalVeoCompatibility.Validate(intent, binding, new Dictionary<MediaRef, ResolvedMedia> { [first] = new(tooLarge, "image/png"), [last] = Image(1280, 720) })!.Field);
         }

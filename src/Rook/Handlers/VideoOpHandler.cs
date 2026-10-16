@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Rhino;
 using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video;
+using Rook.Services.Vision.Video.Framing;
 
 // Both Generation.JobPricing (modality-neutral; used by typed pricing
 // model outputs) and Video.JobPricing (durable ledger record type) exist
@@ -188,6 +189,8 @@ namespace Rook.Handlers
                 if (intentError != null) return FailWithError(intentError);
                 var (confirmation, confirmationError) = ParseConfirmation(args);
                 if (confirmationError != null) return FailWithError(confirmationError);
+                if (intent!.Request.SourceFraming != null && (confirmation!.EstimateFingerprint == null || confirmation.MaxEstimatedCostUsd == null))
+                    return FailWithError(new GenerationError(GenerationErrorCode.InvalidRequest, "Framed video requires a fresh estimate fingerprint and numeric cost cap.", false, "estimate_fingerprint"));
                 result = await confirmed.SubmitConfirmedAsync(intent!, confirmation!, ct).ConfigureAwait(false);
             }
             else
@@ -575,6 +578,13 @@ namespace Rook.Handlers
                 return (null, BadField("aspect_ratio", "Missing required 'aspect_ratio' field."));
 
             var prompt = GetStringArg(args, "prompt"); // optional
+            SourceFramingMode? sourceFraming = null;
+            if (args.TryGetValue("source_framing", out var framing))
+            {
+                if (framing.ValueKind != JsonValueKind.String || framing.GetString() is not ("fit" or "fill"))
+                    return (null, BadField("source_framing", "'source_framing' must be fit or fill when supplied."));
+                sourceFraming = framing.GetString() == "fit" ? SourceFramingMode.Fit : SourceFramingMode.Fill;
+            }
 
             MediaRef? startFrame = null, endFrame = null;
             var (startEl, startErr) = GetOptionalObject(args, "start_frame");
@@ -649,7 +659,11 @@ namespace Rook.Handlers
                 ReferenceFrames: referenceFrames,
                 Seed: seed,
                 Options: decodedOptions.Options!,
-                NumberOfVideos: numberOfVideos);
+                NumberOfVideos: numberOfVideos,
+                SourceFraming: sourceFraming);
+
+            if (VideoFramingPreparationService.ValidateUse(request) is { } framingError)
+                return (null, VideoProviderOutcomeAdapters.ToVideoJobError(framingError));
 
             return (request, null);
         }
