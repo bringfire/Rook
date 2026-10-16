@@ -8,7 +8,7 @@ license-files = ["LICENSE"]
 requires-python = ">=3.10"
 dependencies = [
     "agent-client-protocol==0.12.1",
-    "mcp==1.28.1",
+    "mcp==1.30.0",
     "httpx>=0.25.0",
     "mabwiser>=2.7.0",
     "dspy>=2.6.0",
