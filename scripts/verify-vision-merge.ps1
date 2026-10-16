@@ -47,6 +47,7 @@ try {
         Invoke-Recorded 'dotnet-environment' 'dotnet' @('--info')
         Invoke-Recorded 'companion-release-build' 'dotnet' @('build','src/Rook/Rook.csproj','-c','Release','-p:RhinoPluginDir=')
         Invoke-Recorded 'test-release-build' 'dotnet' @('build','src/Rook.Tests/Rook.Tests.csproj','-c','Release','-p:RhinoPluginDir=')
+        Invoke-Recorded 'qualification-release-build' 'dotnet' @('build','src/Rook.Framing.Qualification/Rook.Framing.Qualification.csproj','-c','Release','-f','net48','-p:RhinoPluginDir=')
         $taskFilter = 'FullyQualifiedName!~LiveSmoke&FullyQualifiedName!~SupersededSolverRaceSpec_LinksToTheNormativeLifecycleDesign&FullyQualifiedName!~Task7_original_producer_values_survive_managed_http_parser'
         $taskTotal = $null
         for ($taskIndex = 1; $taskIndex -le $FullRuns; $taskIndex++) {
