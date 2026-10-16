@@ -8,12 +8,12 @@ Executed locally on Windows x64, October 15, 2026 (reports use UTC October 16). 
 
 | Check | Observed result |
 | --- | --- |
-| Managed tests | 4,732 passed, 0 failed, 0 skipped after the stated exclusions |
+| Managed tests | 4,754 passed, 0 failed, 0 skipped after the stated exclusions |
 | Vision image/video/framing Node tests | 67 passed |
 | Python video contracts and server profiles | 98 passed |
 | Managed Release, all three target frameworks | 0 errors, 481 warnings |
 | FFmpeg source/payload validation and policy tests | Passed, including existing H.264/VP9 sidecar extraction |
-| Real staged renderer qualification | 39 cases per target, net48/net7.0/net8.0; identical prepared bytes and recipes |
+| Real staged renderer qualification | 39 rendering cases and 10 legacy decode cases per target, net48/net7.0/net8.0; identical prepared bytes and recipes |
 | Windows process-group probes | Passed separately on all three targets |
 | Installed runtime hash comparison | All 67 baselined binary/debug/provenance files unchanged |
 | Branch whitespace | Passed |
@@ -46,7 +46,7 @@ Root MIT and zlib's permissive license are compatible with this distribution. zl
 
 ## Evidence and limits
 
-Latest [machine-readable qualification](../../../artifacts/video-source-framing-qualification/20261016T015415-07cda1c6/qualification.json) links per-target assembly hashes, fixture identity, renderer cases and process probes for corrected product commit `b279456a`. The same directory's `verification/` contains test/build logs and installed-runtime baseline/final comparisons. The 67-file baseline covers DLL/RHP/PDB/EXE and FFmpeg provenance; other installed files were not baselined. The frozen content oracle is [qualified-profile.json](../../../third_party/ffmpeg/fixtures/framing/qualified-profile.json). Reproduce with `scripts/qualify-video-source-framing.ps1` after generating the local stress fixture; the script stages only inside checkout `artifacts/`.
+Latest [machine-readable qualification](../../../artifacts/video-source-framing-qualification/20261016T033249-8e546982/qualification.json) links per-target assembly hashes, fixture identity, renderer/legacy decode cases and process probes for corrected product commit `27d773f0` plus the partial-row PNG test additions. The same directory's `verification/` contains test/build logs and installed-runtime baseline/final comparisons. The 67-file baseline covers DLL/RHP/PDB/EXE and FFmpeg provenance; other installed files were not baselined. The frozen content oracle is [qualified-profile.json](../../../third_party/ffmpeg/fixtures/framing/qualified-profile.json). Reproduce with `scripts/qualify-video-source-framing.ps1` after generating the local stress fixture; the script stages only inside checkout `artifacts/`.
 
 This qualifies the managed/renderer offline paths on this machine. Native builds, Rhino-host UI behavior, the installed runtime, provider billing/quality, and endpoint continuity remain unqualified. An optional isolated HTML visual check was blocked by the browser's local-file URL policy; no workaround was attempted and browser visual QA remains unverified. No deployment, merge, push or live generation is part of this work.
 
@@ -59,3 +59,15 @@ A fresh reviewer inspected every implementation commit and the full `4978b444..1
 3. Bounded metadata inspection preserves legacy omitted-framing APNG admission. Default/explicit still inspection continues to reject animation, and animated-WebP admission is not broadened. The regression checks legacy compatibility, explicit preparation's typed error, no prepared assets and the disabled production binding.
 
 All three findings had demonstrated failing regressions before product changes. The full suites and staged runtime matrix above were rerun after the corrections. The same reviewer inspected the correction diff and RED/GREEN evidence, confirmed all three addressed, checked the staged net8 assembly hash against its report, and approved `b279456a` for the reviewed scope with no outstanding findings. The reviewer did not rerun the broad suites. No additional reviewer was spawned. This approval does not authorize deployment, merging, pushing or enabling production fal.
+
+## Follow-up review: legacy compressed-pixel validation
+
+The user's review of `5bb7763b` identified a remaining P2: metadata admission could accept a checksum-correct 57-byte PNG with empty IDAT. Legacy fal skipped framing's decoder, so that input could reach upload and generation despite having no decodable pixels. New counterexamples extend this to JPEG and WebP and place corrupt media after a valid first input. Before the fix, all nine negative cases reached one or two upload calls; the valid APNG control passed.
+
+Correction `27d773f0` keeps quote eligibility explicitly metadata-only (`ValidateMetadata`) and adds asynchronous complete-image validation at the actual fal source-upload boundary (`ValidateForUploadAsync`). All distinct legacy source payloads are validated before **any** upload. The check decodes the complete default image in the existing verified FFmpeg executable with strict decoder flags and the suspended, memory-contained Windows process runner. Source dimensions/pixels are admitted before launch; source-copy scratch is reserved; the discarded 1×1 PNG is limited to 4 KiB before bounded reading. No decoded raster enters managed memory. Error-concealed frames, failed enforcement, invalid output, cancellation and memory failure reject safely and release temporary ownership. The existing execution token and phase are reused; the 20-minute job budget is not reset.
+
+Validation does not frame, publish or replace the original bytes. Valid legacy APNG retains default-image acceptance and uploads the exact original payload; repeated input roles remain ordered with deduplicated validation/upload. Explicit framing retains its prior qualified pixel decode. Google-only omitted-framing requests remain independent of the renderer.
+
+The 22 new managed cases include fifteen corrupt-bitstream upload/generation barriers, one exact-byte APNG control, and six decoder failure/cleanup checks. The final full rerun passed 4,754 managed tests with unchanged exclusions; 67 UI and 98 Python tests passed, and Release rebuilt with 0 errors/481 warnings. Each staged target separately passed 39 existing rendering cases, ten real valid/corrupt legacy decode cases and Windows containment probes. The FFmpeg payload/source bundle passed validation and its executable/recipe/profile are unchanged. Test-only configuration disables xUnit's DLL-only shadow copy so the production adjacent-bundle locator can use the actual copied test payload; test parallelism is unchanged.
+
+The same independent reviewer approved product correction `27d773f0` with no actionable findings. Its separate harness exercised the actual corrected assembly and contained Windows runner: five valid cases were accepted and eleven malformed cases were rejected, including JPEG scan truncations and PNGs with insufficient rows. Two partial-row PNGs exit FFmpeg successfully while reporting `IEND without all image`; the diagnostic rejection caught both. Those two cases now run as upload/generation barriers in all three input modes and in the real decoder matrix on every target. Only tests, fixtures, qualification tooling and this report changed after the reviewed product commit. The reviewer inspected the recorded broad-suite evidence rather than rerunning those suites. No merge, deployment, native build, live request or production fal enablement has occurred.

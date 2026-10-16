@@ -50,7 +50,7 @@ try {
             renderer_report = $renderReport
             process_report = $processReport
         }
-        if ($render.legacy_validation.Count -ne 8) { throw 'Legacy compressed-pixel validation cases are missing.' }
+        if ($render.legacy_validation.Count -ne 10) { throw 'Legacy compressed-pixel validation cases are missing.' }
         Write-Host "PASS $framework : $($render.records.Count) rendering cases, $($render.legacy_validation.Count) legacy decode cases and Windows containment probes"
     }
     [ordered]@{ run = $run; utc = [DateTime]::UtcNow.ToString('O'); staged_only = $true; targets = $records } |

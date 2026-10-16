@@ -155,6 +155,11 @@ print(f"Generated {len(files)} small fixtures; total {sum(f['bytes'] for f in fi
 legacy = ROOT/"legacy-validation"
 legacy.mkdir(exist_ok=True)
 (legacy/"empty-idat.png").write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 1280, 720, 8, 2, 0, 0, 0)) + chunk(b"IDAT", b"") + chunk(b"IEND", b""))
+for rows in (360, 719):
+    # A complete zlib stream and correct PNG checksums, but too few scanlines.
+    # FFmpeg can emit a concealed frame with exit zero; diagnostics must reject it.
+    compressed = zlib.compress((b"\0" + bytes(1280*3))*rows)
+    (legacy/f"short-rows-{rows}.png").write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 1280, 720, 8, 2, 0, 0, 0)) + chunk(b"IDAT", compressed) + chunk(b"IEND", b""))
 sof = b"\x08" + struct.pack(">HHB", 720, 1280, 3) + b"\x01\x11\x00\x02\x11\x00\x03\x11\x00"
 sos = b"\x03\x01\x00\x02\x11\x03\x11\x00\x3f\x00"
 (legacy/"empty-scan.jpg").write_bytes(b"\xff\xd8\xff\xc0" + struct.pack(">H", len(sof)+2) + sof + b"\xff\xda" + struct.pack(">H", len(sos)+2) + sos + b"\xff\xd9")

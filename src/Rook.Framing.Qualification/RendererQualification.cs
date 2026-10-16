@@ -90,7 +90,8 @@ namespace Rook.Framing.Qualification
             foreach (var test in new[] {
                 ("matching.png", true), ("rgb-1166x912.jpg", true), ("rgb-1166x912-lossless.webp", true), ("rgb-1166x912-lossy.webp", true),
                 ("legacy-validation/legacy-single.apng.png", true), ("legacy-validation/empty-idat.png", false),
-                ("legacy-validation/empty-scan.jpg", false), ("legacy-validation/empty-vp8l.webp", false) })
+                ("legacy-validation/empty-scan.jpg", false), ("legacy-validation/empty-vp8l.webp", false),
+                ("legacy-validation/short-rows-360.png", false), ("legacy-validation/short-rows-719.png", false) })
             {
                 using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
                 using var phase = await resources.AcquireAsync(deadline.Token);

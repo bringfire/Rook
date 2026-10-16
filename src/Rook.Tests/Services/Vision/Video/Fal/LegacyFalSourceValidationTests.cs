@@ -19,12 +19,18 @@ namespace Rook.Tests.Services.Vision.Video.Fal
         [InlineData("empty-idat.png", "i2v")]
         [InlineData("empty-scan.jpg", "i2v")]
         [InlineData("empty-vp8l.webp", "i2v")]
+        [InlineData("short-rows-360.png", "i2v")]
+        [InlineData("short-rows-719.png", "i2v")]
         [InlineData("empty-idat.png", "interp")]
         [InlineData("empty-scan.jpg", "interp")]
         [InlineData("empty-vp8l.webp", "interp")]
+        [InlineData("short-rows-360.png", "interp")]
+        [InlineData("short-rows-719.png", "interp")]
         [InlineData("empty-idat.png", "reference")]
         [InlineData("empty-scan.jpg", "reference")]
         [InlineData("empty-vp8l.webp", "reference")]
+        [InlineData("short-rows-360.png", "reference")]
+        [InlineData("short-rows-719.png", "reference")]
         public async Task InvalidCompressedPixelsNeverReachUploadOrGeneration(string file, string mode)
         {
             var first = MediaRef.ForArtifact(Guid.NewGuid(), "image"); var bad = MediaRef.ForArtifact(Guid.NewGuid(), "image");
