@@ -24,6 +24,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Rook\Rook.csproj" />
+    <!-- Exercise the production adjacent-bundle lookup without installing Rook. -->
+    <None Include="../../third_party/ffmpeg/ffmpeg.exe;../../third_party/ffmpeg/ffmpeg-provenance.json"
+          Link="ffmpeg/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <!-- xUnit's DLL-only shadow copy omits adjacent non-assembly payloads. -->
+    <None Update="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

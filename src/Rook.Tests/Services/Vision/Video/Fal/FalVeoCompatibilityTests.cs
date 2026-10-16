@@ -40,7 +40,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var binding = new FalVeoBindingCatalog().GetCandidate(request).Binding!; Assert.False(binding.ContinuityVerified);
             using var original = VideoFrozenBuffer.CopyOf(bytes, new VideoBufferBudget());
             Assert.Equal("source_animation_unsupported", VideoStillImageInspector.Inspect(original, "start_frame").Error!.ProviderErrorCode);
-            Assert.Null(FalVeoCompatibility.Validate(intent, binding, new Dictionary<MediaRef, ResolvedMedia> { [reference] = new(bytes, "image/png") }));
+            Assert.Null(FalVeoCompatibility.ValidateMetadata(intent, binding, new Dictionary<MediaRef, ResolvedMedia> { [reference] = new(bytes, "image/png") }));
             using var webp = VideoFrozenBuffer.CopyOf(File.ReadAllBytes(VideoStillImageInspectorTests.Fixture("animated.webp")), new VideoBufferBudget());
             Assert.Equal("source_animation_unsupported", VideoStillImageInspector.Inspect(webp, "start_frame", allowLegacyPngAnimation: true).Error!.ProviderErrorCode);
             using var rig = new VideoFramingQuoteTests.Rig();
@@ -89,7 +89,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
                 var source = MediaRef.ForArtifact(Guid.NewGuid(), "image");
                 var intent = VideoRequestIntent.Normalize(TestVideoFixtures.DefaultT2vRequest(model: model, mode: VideoMode.I2V, aspect: aspect, startFrame: source), new JsonObject());
                 var binding = ActiveCatalog().Resolve(intent.Request, DateTimeOffset.UtcNow).Binding!;
-                var error = FalVeoCompatibility.Validate(intent, binding, new Dictionary<MediaRef, ResolvedMedia> { [source] = Image(width, height) });
+                var error = FalVeoCompatibility.ValidateMetadata(intent, binding, new Dictionary<MediaRef, ResolvedMedia> { [source] = Image(width, height) });
                 Assert.Equal(compatible, error is null);
                 if (!compatible) { Assert.Equal("source_framing", error!.Field); Assert.Equal("framing_choice_required", error.ProviderErrorCode); }
                 Assert.True(CapabilityValidator.Validate(VeoCapabilities.Models[model].Capability, intent.Request).Success);
@@ -102,7 +102,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var source = MediaRef.ForArtifact(Guid.NewGuid(), "image");
             var intent = VideoRequestIntent.Normalize(TestVideoFixtures.DefaultT2vRequest(model: "veo-3.1-generate-preview", mode: VideoMode.I2V, startFrame: source), new JsonObject());
             var header = Image(1280, 720).Bytes.Take(24).ToArray();
-            Assert.NotNull(FalVeoCompatibility.Validate(intent, ActiveCatalog().GetCandidate(intent.Request).Binding!, new Dictionary<MediaRef, ResolvedMedia> { [source] = new(header, "image/png") }));
+            Assert.NotNull(FalVeoCompatibility.ValidateMetadata(intent, ActiveCatalog().GetCandidate(intent.Request).Binding!, new Dictionary<MediaRef, ResolvedMedia> { [source] = new(header, "image/png") }));
         }
         [Fact]
         public void AllInputsValidateBeforeFirstUpload()
@@ -111,9 +111,9 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var last = MediaRef.ForArtifact(Guid.NewGuid(), "image");
             var intent = VideoRequestIntent.Normalize(TestVideoFixtures.DefaultT2vRequest(mode: VideoMode.Interp, startFrame: first, endFrame: last), new JsonObject());
             var binding = ActiveCatalog().Resolve(intent.Request, DateTimeOffset.UtcNow).Binding!;
-            Assert.Equal("framing_choice_required", FalVeoCompatibility.Validate(intent, binding, new Dictionary<MediaRef, ResolvedMedia> { [first] = Image(1280, 720), [last] = Image(1024, 1024) })!.ProviderErrorCode);
+            Assert.Equal("framing_choice_required", FalVeoCompatibility.ValidateMetadata(intent, binding, new Dictionary<MediaRef, ResolvedMedia> { [first] = Image(1280, 720), [last] = Image(1024, 1024) })!.ProviderErrorCode);
             var tooLarge = new byte[8_000_001];
-            Assert.Equal("start_frame", FalVeoCompatibility.Validate(intent, binding, new Dictionary<MediaRef, ResolvedMedia> { [first] = new(tooLarge, "image/png"), [last] = Image(1280, 720) })!.Field);
+            Assert.Equal("start_frame", FalVeoCompatibility.ValidateMetadata(intent, binding, new Dictionary<MediaRef, ResolvedMedia> { [first] = new(tooLarge, "image/png"), [last] = Image(1280, 720) })!.Field);
         }
 
         [Fact]
@@ -124,9 +124,9 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var request = TestVideoFixtures.DefaultT2vRequest(model: "veo-3.1-generate-preview", referenceFrames: new[] { a, b, a });
             var intent = VideoRequestIntent.Normalize(request, new JsonObject());
             var binding = ActiveCatalog().Resolve(request, DateTimeOffset.UtcNow).Binding!;
-            Assert.Null(FalVeoCompatibility.Validate(intent, binding, new Dictionary<MediaRef, ResolvedMedia> { [a] = Image(1280, 720), [b] = Image(1280, 720) }));
+            Assert.Null(FalVeoCompatibility.ValidateMetadata(intent, binding, new Dictionary<MediaRef, ResolvedMedia> { [a] = Image(1280, 720), [b] = Image(1280, 720) }));
             Assert.Equal(new[] { a, b, a }, intent.Request.ReferenceFrames);
-            Assert.NotNull(FalVeoCompatibility.Validate(VideoRequestIntent.Normalize(request.With(seed: 1), new JsonObject()), binding, new Dictionary<MediaRef, ResolvedMedia>()));
+            Assert.NotNull(FalVeoCompatibility.ValidateMetadata(VideoRequestIntent.Normalize(request.With(seed: 1), new JsonObject()), binding, new Dictionary<MediaRef, ResolvedMedia>()));
             Assert.NotNull(new FalVeoOptionsCodec().Deserialize(new JsonObject { ["person_generation"] = "allow_all" }).Error);
         }
     }

@@ -29,7 +29,7 @@ namespace Rook.Services.Vision.Video.Fal
             var resolution = _catalog.Resolve(request, DateTimeOffset.UtcNow);
             if (resolution.Error != null) return new FailedSubmitOutcome(resolution.Error);
             var binding = resolution.Binding!;
-            var validation = FalVeoCompatibility.Validate(VideoRequestIntent.Normalize(request, new FalVeoOptionsCodec().Serialize(request.Options)), binding, preparedMedia);
+            var validation = FalVeoCompatibility.ValidateMetadata(VideoRequestIntent.Normalize(request, new FalVeoOptionsCodec().Serialize(request.Options)), binding, preparedMedia);
             if (validation != null) return new FailedSubmitOutcome(validation);
             (FalVeoSourceUrls? Urls, GenerationError? Error) uploaded;
             try { uploaded = await _sources.ResolveAndUploadVeoAsync(binding, request, preparedMedia, key!, ct, phase).ConfigureAwait(false); }

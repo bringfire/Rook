@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Image;
 using Rook.Services.Vision.Video.Framing;
@@ -10,12 +12,29 @@ namespace Rook.Services.Vision.Video.Fal
 {
     internal static class FalVeoCompatibility
     {
-        public static GenerationError? Validate(VideoRequestIntent intent, FalVeoBinding binding, IReadOnlyDictionary<MediaRef, ResolvedMedia> media)
+        // Quote eligibility is metadata-only. Actual fal upload must also call
+        // ValidateForUploadAsync: omitted framing has no prior pixel decode.
+        internal static async Task<GenerationError?> ValidateForUploadAsync(VideoRequestIntent intent, FalVeoBinding binding,
+            VideoPreparedMediaSnapshot snapshot, VideoPreparationLease phase, FfmpegVideoSourceValidator decoder, CancellationToken ct)
         {
-            try { using var snapshot = VideoPreparedMediaSnapshot.Capture(intent.Request, media); return Validate(intent, binding, snapshot); }
+            var error = ValidateMetadata(intent, binding, snapshot);
+            if (error != null || intent.Request.SourceFraming != null) return error;
+            var checkedSources = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var slot in snapshot.Slots)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (!checkedSources.Add(slot.MimeType + ":" + slot.Sha256)) continue;
+                error = await decoder.ValidateAsync(slot, phase, ct).ConfigureAwait(false);
+                if (error != null) return error;
+            }
+            return null;
+        }
+        public static GenerationError? ValidateMetadata(VideoRequestIntent intent, FalVeoBinding binding, IReadOnlyDictionary<MediaRef, ResolvedMedia> media)
+        {
+            try { using var snapshot = VideoPreparedMediaSnapshot.Capture(intent.Request, media); return ValidateMetadata(intent, binding, snapshot); }
             catch (ArgumentException) { return Error("A source frame could not be resolved.", "start_frame"); }
         }
-        public static GenerationError? Validate(VideoRequestIntent intent, FalVeoBinding binding, VideoPreparedMediaSnapshot snapshot)
+        public static GenerationError? ValidateMetadata(VideoRequestIntent intent, FalVeoBinding binding, VideoPreparedMediaSnapshot snapshot)
         {
             var request = intent.Request;
             if (intent.PersonGenerationSupplied) return Error("Explicit Google person_generation cannot be translated to fal provider defaults.", "options.person_generation");

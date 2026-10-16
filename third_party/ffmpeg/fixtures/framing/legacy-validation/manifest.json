@@ -1,0 +1,25 @@
+{
+  "origin": "Original Rook synthetic fixtures, MIT",
+  "files": [
+    {
+      "path": "empty-idat.png",
+      "bytes": 57,
+      "sha256": "19fbeb0757dfb4492fe18cbc4ff7e35e140bf2d1a3e97f1219fc5ca593085c3f"
+    },
+    {
+      "path": "empty-scan.jpg",
+      "bytes": 37,
+      "sha256": "cf1ef1eb90ef5a888eda1400f3cfa11587551814ff380163b5ffee8d8a33705e"
+    },
+    {
+      "path": "empty-vp8l.webp",
+      "bytes": 26,
+      "sha256": "697656ae92f86aac336145a7b94cde568f2da12464e5f2e1d1a20416eea63c87"
+    },
+    {
+      "path": "legacy-single.apng.png",
+      "bytes": 4434,
+      "sha256": "41b327b43b2bf1c62b362682e828b3373d874da77161ffa843ceeb22b9c6d561"
+    }
+  ]
+}

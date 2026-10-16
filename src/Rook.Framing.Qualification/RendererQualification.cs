@@ -10,6 +10,9 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Rook.Services.Vision.Video.Framing;
+using Rook.Services.Vision.Video;
+using Rook.Services.Vision.Video.Fal;
+using Rook.Services.Vision.Generation;
 
 namespace Rook.Framing.Qualification
 {
@@ -82,9 +85,29 @@ namespace Rook.Framing.Qualification
                 Program.Require(expectedHashes["noise-4k/fallback"] == output.Bytes.Sha256, "Frozen JPEG fallback content oracle changed.");
                 records.Add(new { key = "noise-4k/fallback", original = original.Sha256, prepared = output.Bytes.Sha256, bytes = output.Bytes.Length, recipe = output.Recipe.Canonical(), output.PeakJobChargeBytes });
             }
+            var legacy = new List<object>();
+            var legacyDecoder = new FfmpegVideoSourceValidator(bundledPath: () => binary);
+            foreach (var test in new[] {
+                ("matching.png", true), ("rgb-1166x912.jpg", true), ("rgb-1166x912-lossless.webp", true), ("rgb-1166x912-lossy.webp", true),
+                ("legacy-validation/legacy-single.apng.png", true), ("legacy-validation/empty-idat.png", false),
+                ("legacy-validation/empty-scan.jpg", false), ("legacy-validation/empty-vp8l.webp", false) })
+            {
+                using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                using var phase = await resources.AcquireAsync(deadline.Token);
+                var reference = MediaRef.ForArtifact(Guid.NewGuid(), "image");
+                var original = File.ReadAllBytes(Path.Combine(fixtures, test.Item1));
+                string mime = test.Item1.EndsWith("jpg") ? "image/jpeg" : test.Item1.EndsWith("webp") ? "image/webp" : "image/png";
+                var request = new VideoGenerationRequest("fal-ai/veo3.1", VideoMode.I2V, 8, "720p", "16:9", "synthetic", reference, null, null, null, new FalVeoOptions(), 1);
+                using var snapshot = VideoPreparedMediaSnapshot.Capture(request, new Dictionary<MediaRef, ResolvedMedia> { [reference] = new(original, mime) }, phase);
+                string before = snapshot.Slots[0].Sha256;
+                var error = await legacyDecoder.ValidateAsync(snapshot.Slots[0], phase, deadline.Token);
+                Program.Require((error == null) == test.Item2, "Legacy pixel validation disagrees: " + test.Item1 + " " + JsonSerializer.Serialize(error));
+                Program.Require(before == snapshot.Slots[0].Sha256, "Validation changed original bytes.");
+                legacy.Add(new { file = test.Item1, original = before, accepted = error == null, detail = error?.ProviderErrorCode });
+            }
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(report))!);
             File.WriteAllText(report, JsonSerializer.Serialize(new { framework = Assembly.GetExecutingAssembly().GetCustomAttribute<TargetFrameworkAttribute>()!.FrameworkName,
-                os = Environment.OSVersion.ToString(), binary, renderer = VideoFramingRendererProfile.Sha256, records }, new JsonSerializerOptions { WriteIndented = true }));
+                os = Environment.OSVersion.ToString(), binary, renderer = VideoFramingRendererProfile.Sha256, records, legacy_validation = legacy }, new JsonSerializerOptions { WriteIndented = true }));
             Console.WriteLine("PASS renderer qualification: " + report); return 0;
         }
         private sealed class DiagnosticRunner : IFramingProcessRunner

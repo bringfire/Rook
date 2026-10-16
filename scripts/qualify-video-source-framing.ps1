@@ -43,13 +43,15 @@ try {
         $records += [ordered]@{
             framework = $framework
             rendering_cases = $render.records.Count
+            legacy_decode_cases = $render.legacy_validation.Count
             assembly_sha256 = (Get-FileHash -LiteralPath (Join-Path $stage 'Rook.dll') -Algorithm SHA256).Hash
             renderer_sha256 = (Get-FileHash -LiteralPath (Join-Path $ffmpeg 'ffmpeg.exe') -Algorithm SHA256).Hash
             manifest_sha256 = (Get-FileHash -LiteralPath (Join-Path $fixtures 'manifest.json') -Algorithm SHA256).Hash
             renderer_report = $renderReport
             process_report = $processReport
         }
-        Write-Host "PASS $framework : $($render.records.Count) actual rendering cases and Windows containment probes"
+        if ($render.legacy_validation.Count -ne 8) { throw 'Legacy compressed-pixel validation cases are missing.' }
+        Write-Host "PASS $framework : $($render.records.Count) rendering cases, $($render.legacy_validation.Count) legacy decode cases and Windows containment probes"
     }
     [ordered]@{ run = $run; utc = [DateTime]::UtcNow.ToString('O'); staged_only = $true; targets = $records } |
         ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $run 'qualification.json') -Encoding utf8

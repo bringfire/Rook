@@ -14,12 +14,14 @@ namespace Rook.Services.Vision.Video.Fal
         public const int SourceMediaExpirationSeconds = 3600;
 
         private readonly FalApiClient _client;
+        private readonly FfmpegVideoSourceValidator _veoSourceValidator;
 
         public async Task<(FalVeoSourceUrls? Urls, GenerationError? Error)> ResolveAndUploadVeoAsync(FalVeoBinding binding, VideoGenerationRequest request, VideoPreparedMediaSnapshot preparedMedia, string apiKey, CancellationToken ct, VideoPreparationLease? phase = null)
         {
             using var ownedPhase = phase == null ? await VideoPreparationResources.Shared.AcquireAsync(ct).ConfigureAwait(false) : null;
             phase ??= ownedPhase!;
-            var error = FalVeoCompatibility.Validate(VideoRequestIntent.Normalize(request, new FalVeoOptionsCodec().Serialize(request.Options)), binding, preparedMedia);
+            var error = await FalVeoCompatibility.ValidateForUploadAsync(VideoRequestIntent.Normalize(request, new FalVeoOptionsCodec().Serialize(request.Options)),
+                binding, preparedMedia, phase, _veoSourceValidator, ct).ConfigureAwait(false);
             if (error != null) return (null, error);
             var uploaded = new Dictionary<string, string>();
             string? start = null, end = null;
@@ -42,9 +44,10 @@ namespace Rook.Services.Vision.Video.Fal
             return (new FalVeoSourceUrls(start, end, references.AsReadOnly()), null);
         }
 
-        public FalSourceFrameTransport(FalApiClient client)
+        public FalSourceFrameTransport(FalApiClient client, FfmpegVideoSourceValidator? veoSourceValidator = null)
         {
             _client = client ?? throw new ArgumentNullException(nameof(client));
+            _veoSourceValidator = veoSourceValidator ?? new FfmpegVideoSourceValidator();
         }
 
         public async Task<(FalSourceFrameUrls? Urls, GenerationError? Error)> ResolveAndUploadAsync(

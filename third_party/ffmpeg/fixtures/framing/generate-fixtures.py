@@ -149,3 +149,20 @@ manifest = {
 }
 (ROOT/"manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
 print(f"Generated {len(files)} small fixtures; total {sum(f['bytes'] for f in files):,} bytes.")
+
+# Structurally valid headers with missing compressed pixels. These must reach
+# a bounded decoder before upload, even when source_framing is omitted.
+legacy = ROOT/"legacy-validation"
+legacy.mkdir(exist_ok=True)
+(legacy/"empty-idat.png").write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 1280, 720, 8, 2, 0, 0, 0)) + chunk(b"IDAT", b"") + chunk(b"IEND", b""))
+sof = b"\x08" + struct.pack(">HHB", 720, 1280, 3) + b"\x01\x11\x00\x02\x11\x00\x03\x11\x00"
+sos = b"\x03\x01\x00\x02\x11\x03\x11\x00\x3f\x00"
+(legacy/"empty-scan.jpg").write_bytes(b"\xff\xd8\xff\xc0" + struct.pack(">H", len(sof)+2) + sof + b"\xff\xda" + struct.pack(">H", len(sos)+2) + sos + b"\xff\xd9")
+vp8l = b"\x2f" + struct.pack("<I", 1279 | (719 << 14))
+payload = b"WEBPVP8L" + struct.pack("<I", len(vp8l)) + vp8l + b"\0"
+(legacy/"empty-vp8l.webp").write_bytes(b"RIFF" + struct.pack("<I", len(payload)) + payload)
+matching = (ROOT/"matching.png").read_bytes()
+apng = matching[:33] + chunk(b"acTL", struct.pack(">II", 1, 0)) + chunk(b"fcTL", struct.pack(">IIIIIHHBB", 0, 1280, 720, 0, 0, 1, 10, 0, 0)) + matching[33:]
+(legacy/"legacy-single.apng.png").write_bytes(apng)
+manifest = [{"path": p.name, "bytes": p.stat().st_size, "sha256": hashlib.sha256(p.read_bytes()).hexdigest()} for p in sorted(legacy.iterdir()) if p.suffix in (".png", ".jpg", ".webp")]
+(legacy/"manifest.json").write_text(json.dumps({"origin": "Original Rook synthetic fixtures, MIT", "files": manifest}, indent=2)+"\n", encoding="utf-8", newline="\n")

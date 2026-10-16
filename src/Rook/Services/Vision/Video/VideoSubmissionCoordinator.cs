@@ -60,7 +60,7 @@ namespace Rook.Services.Vision.Video
             {
                 var request = intent.Request.With(model: binding.ModelId, options: new FalVeoOptions());
                 var estimate = estimator.Estimate(fal, request);
-                var eligibility = Bindings.Resolve(intent.Request, now).Error ?? FalVeoCompatibility.Validate(intent, binding, media) ?? estimate.Error;
+                var eligibility = Bindings.Resolve(intent.Request, now).Error ?? FalVeoCompatibility.ValidateMetadata(intent, binding, media) ?? estimate.Error;
                 if (estimate.Estimate?.Pricing.TotalUsd is null) eligibility ??= FalVeoBindingCatalog.Error("Binding pricing is unavailable.", "pricing");
                 list.Add(new VideoRouteCandidate(fal, request, binding, estimate.Estimate, eligibility));
             }
