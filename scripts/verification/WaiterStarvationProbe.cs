@@ -10,7 +10,7 @@ internal static class WaiterStarvationProbe
 {
     private static int Main(string[] args)
     {
-        if (args.Length < 1 || args.Length > 2) throw new ArgumentException("Expected the built Rook.Tests.dll path and optional --close-drain.");
+        if (args.Length < 1 || args.Length > 2) throw new ArgumentException("Expected the built Rook.Tests.dll path and optional probe mode.");
         string assemblyPath = Path.GetFullPath(args[0]);
         AppDomain.CurrentDomain.AssemblyResolve += delegate(object sender, ResolveEventArgs request) {
             string path = Path.Combine(Path.GetDirectoryName(assemblyPath), new AssemblyName(request.Name).Name + ".dll");
@@ -18,6 +18,7 @@ internal static class WaiterStarvationProbe
         };
         var type = Assembly.LoadFrom(assemblyPath).GetType("Rook.Tests.InternalBridge.GhSolveReceiptRegistryTests", true);
         if (args.Length == 2) {
+            if (args[1] == "--renderer-contention") return RendererContention(type.Assembly);
             if (args[1] != "--close-drain") throw new ArgumentException("Unknown probe mode.");
             return CloseDrain(type.Assembly);
         }
@@ -94,6 +95,33 @@ internal static class WaiterStarvationProbe
                 if (!delayed.Join(10000) || !finished.WaitOne(10000)) throw new Exception("The owned drain pool blocker did not stop.");
                 ThreadPool.SetMaxThreads(workers, io);
                 ThreadPool.SetMinThreads(minWorkers, minIo);
+            }
+        }
+    }
+
+    private static int RendererContention(Assembly tests)
+    {
+        var rook = Assembly.LoadFrom(Path.Combine(Path.GetDirectoryName(tests.Location), "Rook.dll"));
+        var resourceType = rook.GetType("Rook.Services.Vision.Video.Framing.VideoPreparationResources", true);
+        var shared = resourceType.GetField("Shared").GetValue(null);
+        Func<IDisposable> acquire = delegate {
+            var task = (Task)resourceType.GetMethod("AcquireRendererAsync").Invoke(shared, new object[] { CancellationToken.None });
+            task.GetAwaiter().GetResult();
+            return (IDisposable)task.GetType().GetProperty("Result").GetValue(task, null);
+        };
+        using (var first = acquire())
+        using (var second = acquire()) {
+            var type = tests.GetType("Rook.Tests.Services.Vision.Video.WindowsFramingProcessRunnerTests", true);
+            using (var test = (IDisposable)Activator.CreateInstance(type)) {
+                try {
+                    var running = (Task)type.GetMethod("Runner_CancelKillsOwnedTreeOnly").Invoke(test, null);
+                    running.GetAwaiter().GetResult();
+                    Console.WriteLine("PASS: real cancellation/containment test while unrelated shared renderer permits are occupied.");
+                    return 0;
+                } catch (Exception ex) {
+                    Console.Error.WriteLine(ex is TargetInvocationException ? ex.InnerException : ex);
+                    return 1;
+                }
             }
         }
     }

@@ -62,6 +62,7 @@ try {
         Invoke-Recorded 'compile-waiter-probe' $taskCompiler @('/nologo',"/out:$taskProbe",('/reference:' + (Join-Path $taskRepo 'src/Rook.Tests/bin/Release/net48/xunit.abstractions.dll')),(Join-Path $taskRepo 'scripts/verification/WaiterStarvationProbe.cs'))
         Invoke-Recorded 'occupied-pool-waiter-stress' $taskProbe @((Join-Path $taskRepo 'src/Rook.Tests/bin/Release/net48/Rook.Tests.dll'))
         Invoke-Recorded 'delayed-pool-shutdown-drain' $taskProbe @((Join-Path $taskRepo 'src/Rook.Tests/bin/Release/net48/Rook.Tests.dll'),'--close-drain')
+        Invoke-Recorded 'unrelated-renderer-contention' $taskProbe @((Join-Path $taskRepo 'src/Rook.Tests/bin/Release/net48/Rook.Tests.dll'),'--renderer-contention')
     }
     Invoke-Recorded 'vision-ui' 'node' @('--test','src/Rook.Tests/UI/Vision/image-fallback.test.cjs','src/Rook.Tests/UI/Vision/video-fallback.test.cjs','src/Rook.Tests/UI/Vision/video-framing.test.cjs')
     Invoke-Recorded 'video-python' $Python @('-m','pytest','mcp_server/tests/test_video_mcp_tools.py','mcp_server/tests/test_server_tool_profiles.py','-q','--junitxml',(Join-Path $taskRun 'python.xml'))

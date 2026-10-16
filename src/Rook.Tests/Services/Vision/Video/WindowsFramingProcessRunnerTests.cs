@@ -15,6 +15,10 @@ namespace Rook.Tests.Services.Vision.Video
     public sealed class WindowsFramingProcessRunnerTests : IDisposable
     {
         private readonly string _temp = Path.Combine(Path.GetTempPath(), "rook-job-probe-" + Guid.NewGuid().ToString("N"));
+        // These tests own real child processes, not the application's shared
+        // renderer admission queue. Quota coverage has its own fixture.
+        private readonly VideoPreparationResources _resources = new();
+        private WindowsFramingProcessRunner Runner(WindowsFramingJobNative? native = null) => new(native, _resources);
         public WindowsFramingProcessRunnerTests() { Directory.CreateDirectory(_temp); }
         private static string ProbeExe
         {
@@ -38,7 +42,7 @@ namespace Rook.Tests.Services.Vision.Video
         public async Task Runner_AssignsSuspendedChildBeforeResume()
         {
             var native = new TraceNative();
-            var result = await new WindowsFramingProcessRunner(native).RunAsync(Request(), CancellationToken.None);
+            var result = await Runner(native).RunAsync(Request(), CancellationToken.None);
             Assert.True(result.Success, result.Diagnostics);
             Assert.True(result.EnforcementEstablished);
             Assert.Equal(new[] { "limits", "assign", "resume" }, native.Trace);
@@ -51,7 +55,7 @@ namespace Rook.Tests.Services.Vision.Video
         [InlineData("assign")]
         public async Task Runner_LimitInstallOrAssignmentFailureNeverExecutesProbe(string failure)
         {
-            var result = await new WindowsFramingProcessRunner(new TraceNative(failure)).RunAsync(Request(), CancellationToken.None);
+            var result = await Runner(new TraceNative(failure)).RunAsync(Request(), CancellationToken.None);
             Assert.False(result.Success);
             Assert.Equal("enforcement_unavailable", result.FailureDetail);
             Assert.False(File.Exists(Path.Combine(_temp, "entered.json")));
@@ -67,7 +71,7 @@ namespace Rook.Tests.Services.Vision.Video
             var args = new List<string> { "--probe-commit-mib", "768" };
             if (child) args.Add("--probe-child");
             if (singleAllocation) args.Add("--probe-single");
-            var result = await new WindowsFramingProcessRunner().RunAsync(Request(args.ToArray()), CancellationToken.None);
+            var result = await Runner().RunAsync(Request(args.ToArray()), CancellationToken.None);
             Assert.False(result.Success);
             Assert.True(result.EnforcementEstablished);
             Assert.Equal("render_limits_exceeded", result.FailureDetail);
@@ -87,7 +91,7 @@ namespace Rook.Tests.Services.Vision.Video
         public async Task Runner_NotificationStopsBeforeHardCap()
         {
             using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            var result = await new WindowsFramingProcessRunner().RunAsync(Request("--probe-soft"), deadline.Token);
+            var result = await Runner().RunAsync(Request("--probe-soft"), deadline.Token);
             Assert.False(result.Success);
             Assert.Equal("render_limits_exceeded", result.FailureDetail);
             Assert.InRange(result.PeakJobChargeBytes, 480L * 1024 * 1024, 536_870_912);
@@ -103,26 +107,52 @@ namespace Rook.Tests.Services.Vision.Video
                 UseShellExecute = false, CreateNoWindow = true
             })!;
             using var stop = new CancellationTokenSource();
-            var ready = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            using var watcher = new FileSystemWatcher(_temp, "entered.json") { EnableRaisingEvents = true };
-            watcher.Created += (_, _) => ready.TrySetResult(true);
-            var running = new WindowsFramingProcessRunner().RunAsync(Request("--probe-wait"), stop.Token);
+            var running = Runner().RunAsync(Request("--probe-wait"), stop.Token);
+            using var readiness = new BlockingTestWorker<int>(ct =>
+            {
+                var elapsed = Stopwatch.StartNew();
+                var markerPath = Path.Combine(_temp, "entered.json");
+                while (elapsed.Elapsed < TimeSpan.FromSeconds(10))
+                {
+                    ct.ThrowIfCancellationRequested();
+                    if (File.Exists(markerPath))
+                    {
+                        try
+                        {
+                            using var marker = JsonDocument.Parse(File.ReadAllText(markerPath));
+                            return marker.RootElement.GetProperty("pid").GetInt32();
+                        }
+                        catch (IOException) { } // The child may still be writing.
+                        catch (JsonException) { }
+                    }
+                    if (running.IsCompleted)
+                        throw new InvalidOperationException("Renderer exited before readiness: " + JsonSerializer.Serialize(running.GetAwaiter().GetResult()));
+                    ct.WaitHandle.WaitOne(10);
+                }
+                throw new TimeoutException($"Owned renderer did not become ready: marker={File.Exists(markerPath)}, task={running.Status}.");
+            });
             try
             {
-                Assert.Same(ready.Task, await Task.WhenAny(ready.Task, Task.Delay(TimeSpan.FromSeconds(10))));
+                int ownedPid = await readiness.Task;
                 stop.Cancel();
                 await Assert.ThrowsAnyAsync<OperationCanceledException>(() => running);
+                Assert.False(IsAlive(ownedPid));
                 Assert.False(sentinel.HasExited);
                 Assert.False(File.Exists(Path.Combine(_temp, "output.png")));
             }
-            finally { stop.Cancel(); if (!sentinel.HasExited) { sentinel.Kill(); sentinel.WaitForExit(); } }
+            finally
+            {
+                stop.Cancel();
+                try { await running; } catch (OperationCanceledException) { }
+                finally { if (!sentinel.HasExited) { sentinel.Kill(); sentinel.WaitForExit(); } }
+            }
         }
 
         [Fact]
         public async Task Runner_ParentJobAssignmentFailsClosed()
         {
             var native = new TraceNative("assign");
-            var result = await new WindowsFramingProcessRunner(native).RunAsync(Request(), CancellationToken.None);
+            var result = await Runner(native).RunAsync(Request(), CancellationToken.None);
             Assert.False(result.Success);
             Assert.DoesNotContain("resume", native.Trace);
             Assert.False(File.Exists(Path.Combine(_temp, "entered.json")));
