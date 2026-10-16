@@ -4,12 +4,14 @@ using Rook.Services.Vision.Video;
 using Rook.Services.Vision.Video.Fal;
 using Rook.Services.Vision.Generation;
 using System;
+using System.Linq;
 using Xunit;
 
 namespace Rook.Tests.Services.Vision.Video
 {
     public sealed class VideoFramingAvailabilityTests
     {
+        private static FalVeoBindingCatalog DisabledCatalog() => new(new FalVeoBindingCatalog().All.Select(b => b with { SubmissionVerified = false }));
         [Fact]
         public async Task Availability_SecretFailureIsNotMissingKey()
         {
@@ -31,7 +33,7 @@ namespace Rook.Tests.Services.Vision.Video
         [Fact]
         public async Task Availability_GatePrecedesIrrelevantMediaError()
         {
-            using var rig = new VideoFalFallbackManagerTests.Rig(catalog: new FalVeoBindingCatalog()); rig.Secrets.Google = null;
+            using var rig = new VideoFalFallbackManagerTests.Rig(catalog: DisabledCatalog()); rig.Secrets.Google = null;
             var metadata = rig.Manager.ModelAvailability("veo-3.1-generate-preview");
             Assert.False(metadata["can_generate"]!.GetValue<bool>());
             var quote = await rig.Quotes.QuoteAsync(VideoRouteQuoteTests.Intent(), default);
@@ -42,11 +44,11 @@ namespace Rook.Tests.Services.Vision.Video
         [Fact]
         public async Task Availability_GoogleWorksWithFalDisabled()
         {
-            using var rig = new VideoFalFallbackManagerTests.Rig(catalog: new FalVeoBindingCatalog()); rig.Secrets.ThrowFal = true;
+            using var rig = new VideoFalFallbackManagerTests.Rig(catalog: DisabledCatalog()); rig.Secrets.ThrowFal = true;
             Assert.True(rig.Manager.ModelAvailability("veo-3.1-generate-preview")["can_generate"]!.GetValue<bool>());
             var quote = await rig.Quotes.QuoteAsync(VideoRouteQuoteTests.Intent(), default);
             Assert.NotNull(quote.Quote); Assert.Equal(0, rig.Secrets.FalReads);
-            Assert.All(new FalVeoBindingCatalog().All, b => Assert.False(b.ContinuityVerified));
+            Assert.All(DisabledCatalog().All, b => Assert.False(b.SubmissionVerified));
         }
     }
 }

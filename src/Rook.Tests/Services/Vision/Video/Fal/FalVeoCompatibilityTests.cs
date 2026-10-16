@@ -37,7 +37,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var reference = MediaRef.ForArtifact(Guid.NewGuid(), "image");
             var request = TestVideoFixtures.DefaultT2vRequest(model: "fal-ai/veo3.1", mode: VideoMode.I2V, resolution: "720p", startFrame: reference).With(options: new FalVeoOptions());
             var intent = VideoRequestIntent.Normalize(request, new JsonObject());
-            var binding = new FalVeoBindingCatalog().GetCandidate(request).Binding!; Assert.False(binding.ContinuityVerified);
+            var binding = new FalVeoBindingCatalog().GetCandidate(request).Binding!;
             using var original = VideoFrozenBuffer.CopyOf(bytes, new VideoBufferBudget());
             Assert.Equal("source_animation_unsupported", VideoStillImageInspector.Inspect(original, "start_frame").Error!.ProviderErrorCode);
             Assert.Null(FalVeoCompatibility.ValidateMetadata(intent, binding, new Dictionary<MediaRef, ResolvedMedia> { [reference] = new(bytes, "image/png") }));
@@ -51,7 +51,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             Assert.Equal("source_animation_unsupported", preview.Fill!.Error!.ProviderErrorCode);
             Assert.Equal(0, rig.Cache.BundleCount);
         }
-        internal static FalVeoBindingCatalog ActiveCatalog() => new(new FalVeoBindingCatalog().All.Select(b => b with { ContinuityVerified = true, ReferenceFramingVerified = true, NewSubmissionCutoffUtc = null }));
+        internal static FalVeoBindingCatalog ActiveCatalog() => new(new FalVeoBindingCatalog().All.Select(b => b with { SubmissionVerified = true, ReferenceFramingVerified = true, NewSubmissionCutoffUtc = null }));
         internal static ResolvedMedia Image(int width, int height)
         {
             using var bitmap = new Bitmap(width, height);
@@ -72,7 +72,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var binding = ActiveCatalog().Resolve(request, DateTimeOffset.UtcNow).Binding!;
             Assert.Equal(fal + "/image-to-video", binding.SubmitEndpoint);
             Assert.Equal(fal, binding.ModelId);
-            Assert.NotNull(new FalVeoBindingCatalog().Resolve(request, DateTimeOffset.UtcNow).Error);
+            Assert.Null(new FalVeoBindingCatalog().Resolve(request, DateTimeOffset.UtcNow).Error);
         }
 
         [Theory]

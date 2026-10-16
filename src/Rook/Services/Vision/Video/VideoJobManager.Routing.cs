@@ -26,7 +26,7 @@ namespace Rook.Services.Vision.Video
                 if (!configured && googleModel) falConfigured = _routeCoordinator.Secrets.HasSecret(GenerationSecretKeys.FalApiKey);
             } catch { secretFailed = true; }
             string falModel = VideoSubmissionCoordinator.FalModelFor(model) ?? model;
-            bool falAvailable = _routeCoordinator.Bindings.All.Any(b => b.ModelId == falModel && b.ContinuityVerified && (b.NewSubmissionCutoffUtc == null || b.NewSubmissionCutoffUtc > _clock.UtcNow()));
+            bool falAvailable = _routeCoordinator.Bindings.All.Any(b => b.ModelId == falModel && b.SubmissionVerified && (b.NewSubmissionCutoffUtc == null || b.NewSubmissionCutoffUtc > _clock.UtcNow()));
             bool available = googleModel || falAvailable;
             bool canGenerate = !secretFailed && (configured && available || googleModel && falConfigured && falAvailable);
             string? reason = canGenerate ? null : secretFailed ? "Generation credential store could not be read." : googleModel && !falAvailable
@@ -220,8 +220,8 @@ namespace Rook.Services.Vision.Video
                     }));
                     if (uncertain) throw new RouteFailure(failure.Error);
                     var fallback = job.Candidate.Model.ProviderName == "veo" ? _routeCoordinator!.SelectFallback(job.Quote, failure.Error) : null;
-                    if (fallback is null) throw new RouteFailure(credential != null && job.Candidate.Model.ProviderName == "veo" ? job.Quote.Candidates.FirstOrDefault(c => c.Model.ProviderName == "fal")?.EligibilityError ?? failure.Error : failure.Error);
-                    PrepareRoutedBinding(job, fallback, credential!.Kind == "missing" ? "gemini_key_missing" : "gemini_key_rejected");
+                    if (fallback is null) throw new RouteFailure(VideoSubmissionCoordinator.FallbackReason(failure.Error) != null && job.Candidate.Model.ProviderName == "veo" ? job.Quote.Candidates.FirstOrDefault(c => c.Model.ProviderName == "fal")?.EligibilityError ?? failure.Error : failure.Error);
+                    PrepareRoutedBinding(job, fallback, VideoSubmissionCoordinator.FallbackReason(failure.Error));
                 }
                 while (true)
                 {

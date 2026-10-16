@@ -93,7 +93,7 @@ namespace Rook.Services.Vision.Video
                     ["capability"] = ProjectCapability(candidate.Model.Capability), ["supports_seed"] = binding?.SupportsSeed,
                     ["effective_options"] = candidate.Model.OptionsCodec.Serialize(candidate.Request.Options),
                     ["profile"] = binding?.ProfileRevision, ["framing"] = binding?.FramingRevision,
-                    ["continuity_verified"] = binding?.ContinuityVerified, ["cutoff"] = binding?.NewSubmissionCutoffUtc?.ToString("O"),
+                    ["submission_verified"] = binding?.SubmissionVerified, ["cutoff"] = binding?.NewSubmissionCutoffUtc?.ToString("O"),
                     ["documentation"] = binding?.DocumentationSource.AbsoluteUri, ["verified_on"] = binding?.VerifiedOnUtc.ToString("O"), ["reference_framing_verified"] = binding?.ReferenceFramingVerified,
                     ["pricing_source"] = candidate.Estimate?.Pricing.PricingSource, ["pricing_revision"] = binding?.PricingRevision ?? candidate.Estimate?.Pricing.PricingSource,
                     ["currency"] = candidate.Estimate?.Pricing.Currency, ["unit_rate"] = candidate.Estimate?.Pricing.UnitPriceUsd, ["total"] = candidate.Estimate?.Pricing.TotalUsd,
@@ -101,7 +101,7 @@ namespace Rook.Services.Vision.Video
                 });
             }
             var canonical = new JsonObject {
-                ["version"] = 1, ["policy"] = "google-first-veo-v1",
+                ["version"] = 1, ["policy"] = "google-first-veo-v2",
                 ["request"] = new JsonObject { ["model"] = request.Model, ["mode"] = request.Mode.ToString(), ["prompt"] = request.Prompt, ["duration"] = request.DurationSeconds, ["resolution"] = request.Resolution, ["aspect"] = request.AspectRatio, ["seed"] = request.Seed, ["outputs"] = request.NumberOfVideos, ["supplied_options"] = intent.SuppliedOptions, ["normalized_options"] = normalizedOptions, ["person_generation_supplied"] = intent.PersonGenerationSupplied },
                 ["media"] = ProjectMedia(preparedMedia), ["google_configured"] = googleConfigured, ["fal_configured"] = falConfigured,
                 ["candidates"] = candidateJson, ["maximum_estimated_cost_usd"] = maximum

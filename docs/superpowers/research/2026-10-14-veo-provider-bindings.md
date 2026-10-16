@@ -1,6 +1,42 @@
 # Veo provider binding admission — 2026-10-14
 
-Status: **No fal Veo binding is admitted for new production submissions.** The approved offline implementation path may be tested with injected fixtures. Published retirement notices remain unresolved; successful HTTP/generation probes would not establish continuity.
+## Current admission amendment — 2026-10-16
+
+The user explicitly authorized current endpoint enablement, Google-primary routing with missing/revoked-key and proven-non-acceptance fallback, live testing, and removal of the November 17 automatic cutoff. This supersedes the historical disabled-binding status recorded below. The notice remains unresolved maintenance evidence; this amendment does not claim a provider support commitment or an automatic future migration.
+
+Nine bindings (Standard/Fast/Lite × T2V/I2V/interpolation) are admitted by their current documented contracts, with `SubmissionVerified` rather than a claim of continuing support. No date-derived shutdown or agent-imposed dollar cap is added. Reference modes remain unqualified and unavailable through fal; valid Google reference requests retain their primary route.
+
+On 2026-10-16 all eleven mode-specific official API pages and queue OpenAPI schemas were retrieved. Captures and SHA-256 hashes are in ignored `artifacts/fal-veo-enablement/binding-contracts.json`. Standard and Fast support 720p/1080p/4k; Lite supports 720p/1080p. All nine admitted schemas accept the unchanged explicit profile: duration `4s`/`6s`/`8s`, selected `16:9`/`9:16`, audio on, auto-fix off, safety `4`, optional seed and mode-specific image fields. Rook's existing capability rules still restrict incompatible resolution/duration combinations. Prepared Fit/Fill inputs retain the approved immutable preview/quote/dispatch identity and resource bounds.
+
+Per-endpoint published audio-on rates: Standard $.40/sec at 720p/1080p and $.60/sec at 4k; Fast $.15/sec at 720p/1080p and $.35/sec at 4k; Lite $.05/sec at 720p and $.08/sec at 1080p. The API pages independently repeat these rates for each admitted media mode. An authenticated read-only [pricing API](https://fal.ai/docs/platform-apis/v1/models/pricing) GET also confirmed base rates for all three tiers' T2V and I2V endpoints. No secret is recorded in evidence. Pricing revision is `2026-10-16`.
+
+The official [fal-js queue implementation](https://github.com/fal-ai/fal-js/blob/main/libs/client/src/queue.ts) and [endpoint parser](https://github.com/fal-ai/fal-js/blob/main/libs/client/src/utils.ts) use the complete endpoint for submission, then owner/application only for status/result/cancel. This confirms lifecycle root `fal-ai/veo3.1` for all tiers/modes and `PUT` cancellation, despite generated OpenAPI paths including mode suffixes. Actual accepted URLs remain validated against the configured root and request ID. All nine lifecycle bindings subsequently passed installed-runtime live generation below.
+
+New closed transport evidence: DNS failures and refused initial connections can route only when raised before response headers. A response-read failure cannot be reclassified even if its inner exception resembles DNS failure. Generic errors, reset/abort/timeout, cancellation, malformed acceptance and any accepted-job failure remain uncertain or terminal; no second generation is authorized. Credential warnings remain independent. The complete HTTP-call timeout is retained after separating response-header and body-read phases.
+
+Observed red/green evidence: seven new managed regressions failed on the baseline (three missing-key admissions, four known connection failures); the new UI regression failed because it described a credential problem. After correction, 52 focused managed tests and 68 UI tests passed. A response-body timeout regression then failed before its fix; the broader video run passed 936 tests after it. Independent review found one P3: direct fal choices advertised unqualified references. Two regressions failed before correction; advertised reference support now derives from qualified bindings, Google references remain available, and missing-Google reference quotes explain the source-policy limitation. The final focused video/handler run passed 949 tests and the independent review follow-up reported no further actionable findings.
+
+### Installed-runtime qualification — 2026-10-16
+
+Code commit `39937ae783546ad2c5be756f968ccfc3db2553a2` passed three consecutive full Release managed runs of **4,771 tests**, **68 UI tests**, **98 Python tests**, occupied-pool waiter/shutdown/renderer-contention probes, and FFmpeg source/payload policy checks. The same three baseline exclusions remain: LiveSmoke, `SupersededSolverRaceSpec_LinksToTheNormativeLifecycleDesign`, and `Task7_original_producer_values_survive_managed_http_parser`. An initial broader run correctly failed the old bridge fixture after quote-policy/profile revisions; the fixture was regenerated through the actual handler and its delta inspected before these passes. No feature tests were excluded.
+
+All three managed targets (net48/net7/net8) built successfully. The repository's managed-only deployment script verified supporting-byte compatibility and copied the companion/PDB files into the existing installation. Native, BIM, Python, Prime and Chirp payloads were unchanged. Installed Rhino 8 loaded net8 companion SHA-256 `887E9EBEF1BB1FFFF15FEE526294E43B51B24CF17FB1FDE48CC865397FE32DB2`. The local Google secret was absent and fal configured; no personal Google key was used or modified.
+
+| Tier | T2V, 1080p/8s | I2V, 1080p/8s | First/last frame, 1080p/8s |
+| --- | --- | --- | --- |
+| Standard | completed, result readable | completed, Fit, result readable | completed, Fill, result readable |
+| Fast | completed, result readable | completed, Fill, result readable | completed, Fill, result readable |
+| Lite | completed, result readable | completed, Fit, result readable | completed, Fill, result readable |
+
+These were nine distinct real submissions through the installed native HTTP surface, actual estimate/fingerprint/user-cap confirmation and shared durable job manager, not direct provider bypasses. All retained missing-key fallback attribution, effective fal tier/pricing, valid accepted lifecycle handles and completed artifacts with no warnings. Every video decoded completely with the bundled FFmpeg: 192 frames, eight seconds, 1920×1080, zero decoder failures. Captured outputs had distinct SHA-256 hashes.
+
+A tenth real submission used the hosted RookVision WebView, source picker, prepared previews, actual Generate button and cost-confirmation dialog: Lite I2V, 1080p, 9:16, eight seconds, Fill, quoted $.64. It also completed with missing-key fallback attribution, a readable artifact and no warnings. Separate real WebView visual checks covered Fit/Fill at 1100px and 390px, portrait/landscape, settings navigation, price presentation and enabled Generate state. No stale-estimate or disabled-fallback error appeared. Local artifacts under `artifacts/fal-veo-enablement/` retain per-case receipts, decoder logs and screenshots without API secrets.
+
+Published quotes were $3.20 Standard, $1.20 Fast and $.64 Lite for each eight-second 1080p case; these are estimates, not verified invoice totals. A read-only billing-events query lacked permission (403), so billing reconciliation is unqualified. Successful missing-key routing was live-tested; revoked-key, proven connection failure, cancellation and ambiguous acceptance remain deterministic offline coverage. This does not claim live remote cancellation, successful Google-primary generation, net48/net7 hosted execution, a full new native/BIM/release-Python qualification, reference-mode enablement, or future provider availability.
+
+## Historical offline implementation record (2026-10-14)
+
+The following sections describe the original disabled implementation and its former continuity gate, not the user-amended admission policy above.
 
 ## Official evidence
 

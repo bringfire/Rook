@@ -66,3 +66,10 @@ test('marker_warning_keeps_completed_video_and_stop_persistence_is_distinct', as
   assert.match(h.get('video-queue-list').innerHTML,/Video saved; publication marker repair pending/); assert.match(h.get('video-queue-list').innerHTML,/data-id="saved"/); assert.match(h.get('video-queue-list').innerHTML,/stop persistence failed/);
 });
 test('labels_have_readable_separators',()=>assert.equal(source.includes('\uFFFD'),false));
+
+test('network_fallback_notice_explains_non_acceptance_without_claiming_a_bad_key',async()=>{
+  const h=await harness();
+  const text=h.run('videoExecutionNotice({effective_provider:"fal",video_route:{fallback_reason:"google_not_accepted"}})');
+  assert.match(text,/Google.*not accepted/i);
+  assert.doesNotMatch(text,/credential unavailable|key missing|key rejected/i);
+});
