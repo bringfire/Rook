@@ -74,6 +74,7 @@ namespace Rook.Services.Vision.Video.Framing
         }
         private async Task<VideoPreparedBundleResult> PrepareAsync(VideoGenerationRequest request, VideoPreparedMediaSnapshot originals, VideoPreparationLease phase, CancellationToken ct)
         {
+            ct.ThrowIfCancellationRequested();
             if (request.SourceFraming != null && _renderer.VerifyProfile() is string profileFailure)
                 return new(null, VideoSourcePreparationErrors.Create("source_preparation_failed", "source_framing", request.SourceFraming.Value.Wire(), profileFailure));
             var identity = new JsonObject { ["originals"] = VideoRouteQuoteService.ProjectMedia(originals), ["model"] = request.Model,
@@ -110,6 +111,7 @@ namespace Rook.Services.Vision.Video.Framing
                         ["width"] = source.Recipe.Layout.CanvasWidth, ["height"] = source.Recipe.Layout.CanvasHeight, ["upscaled"] = source.Recipe.Layout.Upscaled,
                         ["recipe"] = source.Recipe.Canonical() });
                 }
+                ct.ThrowIfCancellationRequested();
                 var slots = new JsonArray(originals.Slots.Select(s => { var obj = (JsonObject)descriptions[s.Ref].DeepClone(); obj["role"] = s.Role; obj["artifact_id"] = s.Ref.ArtifactId?.ToString("D"); obj["source_role"] = s.Ref.Role; return (JsonNode?)obj; }).ToArray());
                 var evidence = new JsonObject { ["version"] = 1, ["mode"] = request.SourceFraming.Value.Wire(), ["profile"] = VideoFramingRecipe.ProfileRevision, ["renderer_sha256"] = VideoFramingRendererProfile.Sha256, ["slots"] = slots };
                 var snapshot = VideoPreparedMediaSnapshot.FromOwned(originals.Slots.Select(s => (s.Role, s.Ref)), prepared);

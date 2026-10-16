@@ -47,4 +47,3 @@ namespace Rook.UI.Vision
             Data = new Dictionary<string, object?> { ["code"] = "cancelled", ["message"] = "Preview superseded.", ["retryable"] = false } };
     }
 }
-

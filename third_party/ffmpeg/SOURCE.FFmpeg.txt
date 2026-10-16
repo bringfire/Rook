@@ -17,8 +17,8 @@ Changes diff in source bundle: changes.diff
 Configure line:
 --disable-everything --disable-autodetect --disable-network --disable-doc --disable-debug --disable-programs --extra-ldflags=-static --enable-ffmpeg --enable-protocol=file --enable-demuxer=mov --enable-demuxer=matroska --enable-muxer=image2 --enable-decoder=h264 --enable-decoder=hevc --enable-decoder=mpeg4 --enable-decoder=vp8 --enable-decoder=vp9 --enable-decoder=av1 --enable-decoder=mjpeg --enable-parser=h264 --enable-parser=hevc --enable-parser=mpeg4video --enable-parser=vp8 --enable-parser=vp9 --enable-parser=av1 --enable-parser=mjpeg --enable-filter=select --enable-filter=reverse --enable-filter=scale --enable-encoder=mjpeg --enable-zlib --enable-demuxer=image2 --enable-decoder=png --enable-decoder=webp --enable-parser=png --enable-parser=webp --enable-encoder=png --enable-filter=format --enable-filter=pad --enable-filter=crop --enable-filter=transpose --enable-filter=hflip --enable-filter=vflip --enable-filter=setsar --enable-filter=drawbox --enable-filter=split --enable-filter=overlay --extra-cflags=-I../zlib-prefix/include --extra-ldflags=-L../zlib-prefix/lib --extra-ldflags=-Wl,-Map,rook-link.map --enable-filter=sidedata --enable-filter=metadata --enable-filter=setparams
 
-Rook uses this payload only as an ffmpeg.exe subprocess for generated-video
-poster, start_frame, and end_frame sidecar extraction.
+Rook uses this payload as a separate ffmpeg.exe subprocess for generated-video
+sidecar extraction and bounded still-image Fit/Fill preparation.
 
 The release source bundle is generated during release prep by
 scripts\ffmpeg\build-rook-ffmpeg.ps1 and must be published beside the Rook

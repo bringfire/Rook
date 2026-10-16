@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "renderer_sha256": "1AE1F5B6F39E71E7D0BD921730DE407E2495F6D23F66668CF442AA4646C0896C",
-  "fixture_manifest_sha256": "AB5E0EC5D0C9F5CDC3BC120E2D3CA196B7C1B10FF0FBEC9B2ED95868C33F9A72",
+  "fixture_manifest_sha256": "E7FFF9F1EA9C2540E38E4CDC50C157F712D7BD2C740F3228C8ADA651ABE7B59F",
   "qualified_targets": [
     "net48",
     "net7.0",
@@ -301,6 +301,14 @@
       "original_sha256": "6b4a36d93e93c6ea4747b3a22a9378f2bd8ed996adce0c7174d09b059893fa71",
       "prepared_sha256": "a2bfe89bdbf18f9fec049c08b91d409df808a7b40607e47537e7e48e34298633",
       "bytes": 4360,
+      "encoding": "png",
+      "quantizer": null
+    },
+    {
+      "key": "rgb-icc-private.png/720p/16:9/Fit",
+      "original_sha256": "0031d5d24229f645aeb96a96d5eacb88dbbb4881f735435114194d0eef53bb4d",
+      "prepared_sha256": "7ab076d98d220e7dbad80950380141cc0ef0f7d61a965f4f343e46e2ac6ce678",
+      "bytes": 4842,
       "encoding": "png",
       "quantizer": null
     }

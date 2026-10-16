@@ -23,6 +23,9 @@ namespace Rook.Framing.Qualification
         }
         private static async Task<int> RunAsync(string[] args)
         {
+            if (args.Contains("--installed-layout")) return await RendererQualification.RunAsync(
+                Rook.Services.Vision.Video.Extraction.FfmpegBundledBinaryLocator.GetInstalledFfmpegPath() ?? throw new InvalidOperationException("Installed-layout renderer is missing."),
+                Value(args, "--fixtures") ?? throw new ArgumentException("--fixtures required"), Value(args, "--report") ?? throw new ArgumentException("--report required"));
             if (Value(args, "--ffmpeg") is string ffmpeg) return await RendererQualification.RunAsync(ffmpeg, Value(args, "--fixtures") ?? throw new ArgumentException("--fixtures required"), Value(args, "--report") ?? throw new ArgumentException("--report required"));
             if (!args.Contains("--process-probes") && !args.Contains("--kernel-denial-characterization")) throw new ArgumentException("Specify --process-probes.");
             string report = Value(args, "--report") ?? throw new ArgumentException("--report is required.");

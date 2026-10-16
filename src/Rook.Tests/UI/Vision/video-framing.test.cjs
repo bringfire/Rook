@@ -30,13 +30,14 @@ function preview(args) {
   return data;
 }
 function estimate(args){const selected=preview(args)[args.source_framing||'fit'];return {model:args.model,resolution:args.resolution,duration_seconds:args.duration_seconds,number_of_videos:1,dollars_usd:3.2,maximum_estimated_cost_usd:3.2,estimate_fingerprint:'v1:'+'a'.repeat(64),pricing:{pricing_source:'test'},source_preparation:args.source_framing?{mode:args.source_framing,slots:selected.slots.map(s=>({role:s.role,prepared_sha256:s.sha256,width:s.width,height:s.height}))}:null};}
-async function harness(responses={}) {
+async function harness(responses={},storedRevision='0') {
   const nodes=new Map(), timers=new Map();let timerId=0; const get=id=>{if(!nodes.has(id))nodes.set(id,new Element());return nodes.get(id);};
   const modes=['t2v','i2v','interp'].map((v,i)=>Object.assign(new Element(),{value:v,checked:i===0}));
   const calls=[];const cap={name:'Veo',status:'preview',resolutions:['720p','1080p'],durations:[4,6,8],aspect_ratios:['16:9','9:16'],modes:['t2v','i2v','interp'],supports_reference_images:true,max_reference_images:3,must_8s_with:['1080p','referenceImages']};
   const catalog=[{model_id:'veo-3.1-generate-preview',provider_name:'veo',pricing_kind:'per_second',pricing_source:'test',capability:cap,can_generate:true,credential_configured:true,new_submission_available:true}];
   const context=vm.createContext({console,URL,setTimeout:fn=>{timers.set(++timerId,fn);return timerId;},clearTimeout:id=>timers.delete(id),document:{createElement:()=>new Element(),addEventListener(){},getElementById:get,querySelectorAll:q=>q.includes('video-mode')?modes:[]},window:{confirm:()=>true,rookBridge:{async invoke(domain,args){calls.push(args);if(responses[args.op])return await responses[args.op](args);return {success:true,data:args.op==='list_video_models'?{models:catalog}:args.op==='list_video_jobs'?{jobs:[]}:args.op==='preview_video_framing'?(args.cancel_only?{}:preview(args)):args.op==='estimate_video_job'?estimate(args):{job_id:'job-1',state:'queued'}};}}}});
   const exports='        cacheEls, wireEvents, onEnter, refreshFramingPreview, selectFraming, runEstimate, ensureCurrentEstimate, onGenerateClicked, refreshAvailability, onLeave, buildSubmitArgs,\n        testFrames(a,b) { startFrame=a; endFrame=b||null; scheduleEstimate(); }, testState() { return {framing:framingState, estimate:estimateState, selected:selectedFraming}; },';
+  context.window.sessionStorage={getItem:()=>storedRevision,setItem:(key,value)=>{storedRevision=value;}};
   vm.runInContext(source.replace('        cacheEls,\n        wireEvents,\n        onEnter,',exports),context);const run=code=>vm.runInContext(code,context);
   run('Video.cacheEls(); Video.wireEvents();'); get('video-prompt').value='A moving garden'; await run('Video.onEnter()');
   get('video-resolution-select').value='1080p';get('video-duration-select').value='8';
@@ -82,4 +83,7 @@ test('prompt edits and framing selection do not reload unchanged preview images'
   const h=await harness();await h.mode();const node=h.get('video-framing-fit-preview'),writes=node.htmlWrites;
   h.get('video-prompt').value='A new camera move';h.get('video-prompt').fire('input');h.run('Video.selectFraming("fill")');
   assert.equal(node.htmlWrites,writes);assert.equal(h.calls.filter(c=>c.op==='preview_video_framing'&&!c.cancel_only).length,1);
+});
+test('document reload continues the surface preview revision rather than being rejected as old',async()=>{
+  const h=await harness({},'1000');await h.mode();assert.ok(h.calls.find(c=>c.op==='preview_video_framing'&&!c.cancel_only).preview_revision>1000);
 });

@@ -18,16 +18,22 @@ namespace Rook.Services.Vision.Video.Framing
         public static readonly VideoPreparationResources Shared = new();
         private readonly SemaphoreSlim _bundles, _renderers;
         private readonly long _transientLimit;
-        private int _activeBundles;
+        private int _activeBundles, _outstandingBundles;
+        private readonly int _maxOutstandingBundles;
         public VideoPreparationResources(int maxBundles = 2, int maxRenderers = 2,
             long transientLimit = VideoPreparationLimits.TransientBytes)
-        { _bundles = new(maxBundles, maxBundles); _renderers = new(maxRenderers, maxRenderers); _transientLimit = transientLimit; }
+        { _bundles = new(maxBundles, maxBundles); _renderers = new(maxRenderers, maxRenderers); _transientLimit = transientLimit; _maxOutstandingBundles = checked(maxBundles * 2); }
         public int ActiveBundles => Volatile.Read(ref _activeBundles);
         public async Task<VideoPreparationLease> AcquireAsync(CancellationToken ct)
         {
-            await _bundles.WaitAsync(ct).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+            // Two active phases and at most two queued phases in the shared production pool.
+            if (Interlocked.Increment(ref _outstandingBundles) > _maxOutstandingBundles)
+            { Interlocked.Decrement(ref _outstandingBundles); throw new VideoPreparationBusyException(); }
+            try { await _bundles.WaitAsync(ct).ConfigureAwait(false); }
+            catch { Interlocked.Decrement(ref _outstandingBundles); throw; }
             Interlocked.Increment(ref _activeBundles);
-            return new VideoPreparationLease(_transientLimit, () => { Interlocked.Decrement(ref _activeBundles); _bundles.Release(); });
+            return new VideoPreparationLease(_transientLimit, () => { Interlocked.Decrement(ref _activeBundles); Interlocked.Decrement(ref _outstandingBundles); _bundles.Release(); });
         }
         public async Task<IDisposable> AcquireRendererAsync(CancellationToken ct)
         {

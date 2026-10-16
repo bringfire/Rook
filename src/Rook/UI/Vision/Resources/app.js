@@ -2590,7 +2590,7 @@ const Video = (() => {
     let estimatePending = null;
     let confirmedEstimate = null;
     let submitPending = false;
-    let selectedFraming = "fit", previewRevision = 0, availabilityRevision = 0;
+    let selectedFraming = "fit", previewRevision = readPreviewRevision(), availabilityRevision = 0;
     let videoVisible = false, generateAwaiting = false;
     let framingState = { status: "idle", key: "", result: null, error: null, promise: null };
     let estimateState = { status: "idle", key: "", result: null, error: null, promise: null };
@@ -3439,6 +3439,17 @@ const Video = (() => {
         }
     }
 
+    function readPreviewRevision() {
+        // A WebView document can reload while its managed surface stays alive.
+        let stored = 0;
+        try { stored = Number(window.sessionStorage?.getItem("rookVideoPreviewRevision")) || 0; } catch (_) { }
+        return Math.max(Number.isSafeInteger(stored) && stored > 0 ? stored : 0, Date.now() * 1024);
+    }
+    function nextPreviewRevision() {
+        previewRevision++;
+        try { window.sessionStorage?.setItem("rookVideoPreviewRevision", String(previewRevision)); } catch (_) { }
+        return previewRevision;
+    }
     function hasFramingFlow() {
         const id = currentModel()?.model_id || "";
         return /^(veo-3\.1-(generate|fast-generate|lite-generate)-preview|fal-ai\/veo3\.1(?:\/fast|\/lite)?)$/.test(id)
@@ -3505,19 +3516,19 @@ const Video = (() => {
     function onLeave() {
         videoVisible = false; clearCachedEstimate();
         framingState = { status: "invalidated", key: "", result: null, error: null, promise: null };
-        bridgeCall("preview_video_framing", { preview_revision: ++previewRevision, cancel_only: true }).catch(() => {});
+        bridgeCall("preview_video_framing", { preview_revision: nextPreviewRevision(), cancel_only: true }).catch(() => {});
         renderFraming();
     }
     function refreshFramingPreview(force = false) {
         const args = previewArgs(), key = args ? JSON.stringify(args) : "";
         if (!videoVisible || !args) {
             if (framingState.key || framingState.status === "pending") {
-                bridgeCall("preview_video_framing", { preview_revision: ++previewRevision, cancel_only: true }).catch(() => {});
+                bridgeCall("preview_video_framing", { preview_revision: nextPreviewRevision(), cancel_only: true }).catch(() => {});
             }
             framingState = { status: "idle", key: "", result: null, error: null, promise: null }; renderFraming(); return Promise.resolve(null);
         }
         if (!force && framingState.key === key && ["pending", "ready", "failed"].includes(framingState.status)) return framingState.promise || Promise.resolve(framingState.result);
-        const revision = ++previewRevision;
+        const revision = nextPreviewRevision();
         framingState = { status: "pending", key, result: null, error: null, promise: null }; renderFraming(); updateGenerateEnablement();
         const work = (async () => {
             try {

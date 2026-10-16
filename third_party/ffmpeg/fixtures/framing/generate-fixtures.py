@@ -12,7 +12,7 @@ import struct
 import sys
 import zlib
 
-from PIL import Image, ImageDraw, ImageOps, __version__ as pillow_version
+from PIL import Image, ImageCms, ImageDraw, ImageOps, PngImagePlugin, __version__ as pillow_version
 
 ROOT = Path(__file__).resolve().parent
 
@@ -44,6 +44,11 @@ def write_png(name, chunks):
 
 base = marked(1166, 912)
 base.save(ROOT/"rgb-1166x912.png")
+profile = bytearray(ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes())
+profile[24:36] = struct.pack(">6H", 2026, 1, 1, 0, 0, 0)  # Freeze profile creation date.
+private_metadata = PngImagePlugin.PngInfo()
+private_metadata.add_text("RookPrivateFixture", "must not survive preparation")
+base.save(ROOT/"rgb-icc-private.png", icc_profile=bytes(profile), pnginfo=private_metadata)
 base.save(ROOT/"rgb-1166x912.jpg", quality=95, subsampling=0)
 base.save(ROOT/"rgb-1166x912-lossless.webp", lossless=True)
 base.save(ROOT/"rgb-1166x912-lossy.webp", quality=90)
@@ -142,5 +147,5 @@ manifest = {
     "generated_stress_fixture": {"path": "artifacts/video-framing-fixtures/generated-noise-4k.png", "seed": 1729, "size": [3840,2160], "mode": "L", "command": "generate-fixtures.py --include-noise"},
     "files": files,
 }
-(ROOT/"manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+(ROOT/"manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
 print(f"Generated {len(files)} small fixtures; total {sum(f['bytes'] for f in files):,} bytes.")

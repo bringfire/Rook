@@ -129,7 +129,8 @@
           "incompatible_field": null
         }
       ],
-      "primary_provider": "veo"
+      "primary_provider": "veo",
+      "source_preparation": null
     }
   },
   "direct_missing": {

@@ -61,7 +61,9 @@ namespace Rook.Services.Vision.Video
                     () => generationSecrets.GetSecret(GenerationSecretKeys.FalApiKey),
                     vertexAccessTokenSource));
 
-            var mediaResolver = new ArtifactOnlyVideoMediaResolver(artifactStore);
+            VideoJobManager? manager = null;
+            var mediaResolver = new ArtifactOnlyVideoMediaResolver(artifactStore, VideoPreparationResources.Shared,
+                artifact => manager?.IsArtifactVisible(artifact) == true);
             var framing = new VideoFramingPreparationService(mediaResolver, new VideoFramingCache());
             var actualLedger = ledger ?? new JsonlVideoJobLedger();
             var estimator = new VideoCostEstimator();
@@ -69,7 +71,7 @@ namespace Rook.Services.Vision.Video
             var coordinator = new VideoSubmissionCoordinator(registry, new Fal.FalVeoBindingCatalog(), generationSecrets);
             var routeQuotes = new VideoRouteQuoteService(coordinator, mediaResolver, clock, framing);
 
-            var manager = new VideoJobManager(
+            manager = new VideoJobManager(
                 registry: registry,
                 mediaResolver: mediaResolver,
                 ledger: actualLedger,

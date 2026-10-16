@@ -14,9 +14,17 @@ namespace Rook.Services.Vision.Video
     {
         private readonly ArtifactStore _store;
         private readonly VideoPreparationResources _resources;
+        private readonly Func<Artifact, bool>? _videoArtifactIsVisible;
+        private readonly Func<string, Stream> _openSource;
         public ArtifactOnlyVideoMediaResolver(ArtifactStore store) : this(store, VideoPreparationResources.Shared) { }
-        internal ArtifactOnlyVideoMediaResolver(ArtifactStore store, VideoPreparationResources resources)
-        { _store = store ?? throw new ArgumentNullException(nameof(store)); _resources = resources; }
+        internal ArtifactOnlyVideoMediaResolver(ArtifactStore store, VideoPreparationResources resources,
+            Func<Artifact, bool>? videoArtifactIsVisible = null, Func<string, Stream>? openSource = null)
+        {
+            _store = store ?? throw new ArgumentNullException(nameof(store)); _resources = resources;
+            _videoArtifactIsVisible = videoArtifactIsVisible;
+            _openSource = openSource ?? (path => new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
+                bufferSize: 1, FileOptions.Asynchronous | FileOptions.SequentialScan));
+        }
 
         public Task<MediaResolutionResult> ResolveAllAsync(IReadOnlyList<MediaRef> refs, CancellationToken ct)
             => refs is null ? Task.FromResult(MediaResolutionResult.Fail(Invalid("Media refs are null.", "MediaRef")))
@@ -67,12 +75,14 @@ namespace Rook.Services.Vision.Video
                         return new(null, Invalid("An image artifact reference is required.", field));
                     if (reference.Role is not ("image" or "start_frame" or "end_frame"))
                         return new(null, Invalid("Use an image sidecar role: image, start_frame, or end_frame.", field));
+                    var artifact = _store.Get(id);
+                    if (artifact == null || VideoPublicationService.IsAffectedArtifact(artifact) && _videoArtifactIsVisible?.Invoke(artifact) != true)
+                        return new(null, Invalid("Video source is unavailable. Choose an image from a durably completed job.", field));
                     var path = _store.GetBlobAbsolutePath(id, reference.Role);
                     var mime = MimeTypeFromExtension(path);
                     if (!mime.StartsWith("image/", StringComparison.Ordinal))
                         return new(null, Invalid("The source resolved to non-image media. Video source refs must resolve to image blobs.", field));
-                    using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
-                        bufferSize: 1, FileOptions.Asynchronous | FileOptions.SequentialScan);
+                    using var file = _openSource(path);
                     long initialLength = file.Length;
                     var read = await BoundedVideoSourceReader.ReadAsync(file, initialLength, field, lease, ct).ConfigureAwait(false);
                     if (read.Error != null) return new(null, read.Error);

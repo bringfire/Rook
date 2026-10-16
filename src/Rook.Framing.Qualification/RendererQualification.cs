@@ -4,6 +4,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using System.Threading;
@@ -19,13 +20,15 @@ namespace Rook.Framing.Qualification
             binary = Path.GetFullPath(binary); fixtures = Path.GetFullPath(fixtures);
             using var golden = JsonDocument.Parse(File.ReadAllText(Path.Combine(fixtures, "qualified-profile.json")));
             Program.Require(golden.RootElement.GetProperty("renderer_sha256").GetString() == VideoFramingRendererProfile.Sha256, "Golden profile belongs to another binary.");
+            using (var sha = SHA256.Create())
+                Program.Require(BitConverter.ToString(sha.ComputeHash(File.ReadAllBytes(Path.Combine(fixtures, "manifest.json")))).Replace("-", "") == golden.RootElement.GetProperty("fixture_manifest_sha256").GetString(), "Fixture manifest changed without qualification.");
             var expectedHashes = golden.RootElement.GetProperty("outputs").EnumerateArray().ToDictionary(x => x.GetProperty("key").GetString()!, x => x.GetProperty("prepared_sha256").GetString()!);
             var runner = new DiagnosticRunner();
             var renderer = new FfmpegVideoSourceRenderer(runner, () => binary);
             var resources = new VideoPreparationResources();
             var cases = new List<(string File, string Resolution, string Aspect, SourceFramingMode Mode)>();
             string[] images = { "rgb-1166x912.png", "rgb-1166x912.jpg", "rgb-1166x912-lossless.webp", "rgb-1166x912-lossy.webp", "alpha.png", "alpha.webp", "depth16.png", "palette.png", "portrait.png", "square.png", "matching.png", "odd-119x73.png", "thin.png", "extreme-16384x720.png", "orientation-6.png", "orientation-6.webp" };
-            foreach (var file in images.Concat(Enumerable.Range(1, 8).Select(n => $"orientation-{n}.jpg"))) cases.Add((file, "720p", "16:9", SourceFramingMode.Fit));
+            foreach (var file in images.Concat(new[] { "rgb-icc-private.png" }).Concat(Enumerable.Range(1, 8).Select(n => $"orientation-{n}.jpg"))) cases.Add((file, "720p", "16:9", SourceFramingMode.Fit));
             foreach (var res in new[] { "720p", "1080p", "4k" }) foreach (var aspect in new[] { "16:9", "9:16" }) foreach (var mode in new[] { SourceFramingMode.Fit, SourceFramingMode.Fill }) cases.Add(("rgb-1166x912.png", res, aspect, mode));
             cases.Add(("extreme-16384x720.png", "4k", "9:16", SourceFramingMode.Fit));
             var records = new List<object>(); var hashes = new Dictionary<string, string>();
@@ -63,12 +66,25 @@ namespace Rook.Framing.Qualification
                 var result = await renderer.RenderAsync(original, info, new(SourceFramingMode.Fit, info, layout, VideoFramingRendererProfile.Sha256), phase, deadline.Token);
                 Program.Require(result.Source != null, "Noise fallback failed: " + JsonSerializer.Serialize(result.Error) + " output=" + runner.OutputInfo);
                 using var output = result.Source!; Program.Require(output.Recipe.Encoding == "mjpeg" && output.Bytes.Length <= 8_000_000, "Real PNG did not fall back to a bounded JPEG.");
+                using (var jpeg = output.Bytes.OpenRead())
+                using (var decoded = new System.Drawing.Bitmap(jpeg))
+                {
+                    Program.Require(decoded.Width == 3840 && decoded.Height == 2160, "Independent JPEG decoder disagrees with canvas.");
+                    var expected = ReadRgb(original); int totalError = 0;
+                    for (int n = 0; n < 64; n++)
+                    {
+                        int x = (n * 131 + 19) % 3840, y = (n * 79 + 41) % 2160; var pixel = decoded.GetPixel(x, y);
+                        Program.Require(Math.Abs(pixel.R - pixel.G) <= 2 && Math.Abs(pixel.G - pixel.B) <= 2, "Grayscale JPEG acquired chroma.");
+                        totalError += Math.Abs(pixel.R - expected[(y * 3840 + x) * 3]);
+                    }
+                    Program.Require(totalError <= 64 * 12, "Independent JPEG pixel oracle exceeded quantization tolerance.");
+                }
                 Program.Require(expectedHashes["noise-4k/fallback"] == output.Bytes.Sha256, "Frozen JPEG fallback content oracle changed.");
                 records.Add(new { key = "noise-4k/fallback", original = original.Sha256, prepared = output.Bytes.Sha256, bytes = output.Bytes.Length, recipe = output.Recipe.Canonical(), output.PeakJobChargeBytes });
             }
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(report))!);
             File.WriteAllText(report, JsonSerializer.Serialize(new { framework = Assembly.GetExecutingAssembly().GetCustomAttribute<TargetFrameworkAttribute>()!.FrameworkName,
-                os = Environment.OSVersion.ToString(), renderer = VideoFramingRendererProfile.Sha256, records }, new JsonSerializerOptions { WriteIndented = true }));
+                os = Environment.OSVersion.ToString(), binary, renderer = VideoFramingRendererProfile.Sha256, records }, new JsonSerializerOptions { WriteIndented = true }));
             Console.WriteLine("PASS renderer qualification: " + report); return 0;
         }
         private sealed class DiagnosticRunner : IFramingProcessRunner
@@ -97,6 +113,10 @@ namespace Rook.Framing.Qualification
                 if (l.OffsetX > 0 || l.OffsetY > 0) Near(At(0, 0), (0, 0, 0), 0);
                 if (file is "alpha.png" or "alpha.webp")
                 { Near(At(l.OffsetX + l.ScaledWidth / 10, l.OffsetY + l.ScaledHeight / 2), (0, 0, 0), 0); Near(At(l.OffsetX + l.ScaledWidth * 3 / 4, l.OffsetY + l.ScaledHeight / 2), (120, 20, 10), 2); }
+                if (file == "depth16.png")
+                { int gray = (40 * 511 + 36 * 73) / 257; Near(At(l.OffsetX + l.ScaledWidth * 40 / 128, l.OffsetY + l.ScaledHeight * 36 / 96), (gray, gray, gray), 4); }
+                if (file == "palette.png")
+                { Near(At(l.OffsetX + l.ScaledWidth * 68 / 128, l.OffsetY + l.ScaledHeight * 52 / 96), (14, 42, 98), 1); Near(At(l.OffsetX + l.ScaledWidth * 3 / 128, l.OffsetY + l.ScaledHeight * 3 / 96), (0, 0, 0), 0); }
                 if (file.StartsWith("orientation-") && file.EndsWith(".jpg"))
                 {
                     int n = int.Parse(file.Substring(12, 1));
@@ -120,7 +140,7 @@ namespace Rook.Framing.Qualification
             while (source.Position < source.Length)
             {
                 int size = Big(); string type = System.Text.Encoding.ASCII.GetString(encoded.ReadBytes(4));
-                if (type == "IHDR") { width = Big(); height = Big(); int depth = encoded.ReadByte(), color = encoded.ReadByte(); Program.Require(depth == 8 && (color == 2 || color == 6), "Qualification expects RGB/RGBA8 PNG."); components = color == 2 ? 3 : 4; source.Position += size - 10; }
+                if (type == "IHDR") { width = Big(); height = Big(); int depth = encoded.ReadByte(), color = encoded.ReadByte(); Program.Require(depth == 8 && (color == 0 || color == 2 || color == 6), "Qualification expects gray/RGB/RGBA8 PNG."); components = color == 0 ? 1 : color == 2 ? 3 : 4; source.Position += size - 10; }
                 else if (type == "IDAT") { var bytes = encoded.ReadBytes(size); idat.Write(bytes, 0, bytes.Length); }
                 else source.Position += size;
                 source.Position += 4;
@@ -137,7 +157,8 @@ namespace Rook.Framing.Qualification
                     int predictor = filter switch { 0 => 0, 1 => a, 2 => b, 3 => (a + b) / 2, 4 => pa <= pb && pa <= pc ? a : pb <= pc ? b : c, _ => throw new InvalidDataException("Bad PNG filter.") };
                     row[x] = unchecked((byte)(row[x] + predictor));
                 }
-                for (int x = 0; x < width; x++) Buffer.BlockCopy(row, x * components, result, (y * width + x) * 3, 3);
+                for (int x = 0; x < width; x++)
+                { if (components == 1) { for (int c = 0; c < 3; c++) result[(y * width + x) * 3 + c] = row[x]; } else Buffer.BlockCopy(row, x * components, result, (y * width + x) * 3, 3); }
                 var swap = previous; previous = row; row = swap;
             }
             return result;

@@ -277,6 +277,11 @@
       "bytes": 5273
     },
     {
+      "path": "rgb-icc-private.png",
+      "sha256": "0031d5d24229f645aeb96a96d5eacb88dbbb4881f735435114194d0eef53bb4d",
+      "bytes": 5716
+    },
+    {
       "path": "square.png",
       "sha256": "eaedc899f9a48e76da880cc6a281b8f3ad5f731dfdda58db3bbdbf912d7fe085",
       "bytes": 4590
