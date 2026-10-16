@@ -8,14 +8,14 @@ Executed locally on Windows x64, October 15, 2026 (reports use UTC October 16). 
 
 | Check | Observed result |
 | --- | --- |
-| Managed tests | 4,730 passed, 0 failed, 0 skipped after the stated exclusions |
-| Vision image/video/framing Node tests | 64 passed |
+| Managed tests | 4,732 passed, 0 failed, 0 skipped after the stated exclusions |
+| Vision image/video/framing Node tests | 67 passed |
 | Python video contracts and server profiles | 98 passed |
 | Managed Release, all three target frameworks | 0 errors, 481 warnings |
 | FFmpeg source/payload validation and policy tests | Passed, including existing H.264/VP9 sidecar extraction |
 | Real staged renderer qualification | 39 cases per target, net48/net7.0/net8.0; identical prepared bytes and recipes |
 | Windows process-group probes | Passed separately on all three targets |
-| Installed runtime hash comparison | All 67 baseline files unchanged |
+| Installed runtime hash comparison | All 67 baselined binary/debug/provenance files unchanged |
 | Branch whitespace | Passed |
 
 The managed filter excludes `LiveSmoke`, `SupersededSolverRaceSpec_LinksToTheNormativeLifecycleDesign` (unavailable historical fixture), and `Task7_original_producer_values_survive_managed_http_parser` (unavailable `ROOK_TASK7_HTTP_FIXTURE`). No additional exclusions were added.
@@ -46,6 +46,16 @@ Root MIT and zlib's permissive license are compatible with this distribution. zl
 
 ## Evidence and limits
 
-Latest [machine-readable qualification](../../../artifacts/video-source-framing-qualification/20261016T013404-00a6cb49/qualification.json) links per-target assembly hashes, fixture identity, renderer cases and process probes. The same directory's `verification/` contains test/build logs and installed-runtime baseline/final comparisons. The frozen content oracle is [qualified-profile.json](../../../third_party/ffmpeg/fixtures/framing/qualified-profile.json). Reproduce with `scripts/qualify-video-source-framing.ps1` after generating the local stress fixture; the script stages only inside checkout `artifacts/`.
+Latest [machine-readable qualification](../../../artifacts/video-source-framing-qualification/20261016T015415-07cda1c6/qualification.json) links per-target assembly hashes, fixture identity, renderer cases and process probes for corrected product commit `b279456a`. The same directory's `verification/` contains test/build logs and installed-runtime baseline/final comparisons. The 67-file baseline covers DLL/RHP/PDB/EXE and FFmpeg provenance; other installed files were not baselined. The frozen content oracle is [qualified-profile.json](../../../third_party/ffmpeg/fixtures/framing/qualified-profile.json). Reproduce with `scripts/qualify-video-source-framing.ps1` after generating the local stress fixture; the script stages only inside checkout `artifacts/`.
 
-This qualifies the managed/renderer offline paths on this machine. Native builds, Rhino-host UI behavior, the installed runtime, provider billing/quality, and endpoint continuity remain unqualified. No deployment, merge, push or live generation is part of this work. Independent final review is pending at this report's initial commit.
+This qualifies the managed/renderer offline paths on this machine. Native builds, Rhino-host UI behavior, the installed runtime, provider billing/quality, and endpoint continuity remain unqualified. An optional isolated HTML visual check was blocked by the browser's local-file URL policy; no workaround was attempted and browser visual QA remains unverified. No deployment, merge, push or live generation is part of this work.
+
+## Independent final review and corrections
+
+A fresh reviewer inspected every implementation commit and the full `4978b444..1408a3c8` branch diff, reproducing two P2 issues and one latent P3. A single correction pass, `b279456a`, addresses all three:
+
+1. Pool saturation after job admission now returns retryable local preparation-busy before coordinator entry or durable dispatch intent. The regression asserts no provider call, no attempt receipt, safe status attribution and complete resource cleanup; genuinely uncertain sends retain conservative handling.
+2. Thumbnail callbacks now belong to an exact variant and preview generation. Unselected-card failure preserves the selected successful preview/quote; selected failure blocks confirmation; a late error from an older same-key retry cannot poison the current result. Three image-event-capable Node regressions failed before the fix and pass afterwards.
+3. Bounded metadata inspection preserves legacy omitted-framing APNG admission. Default/explicit still inspection continues to reject animation, and animated-WebP admission is not broadened. The regression checks legacy compatibility, explicit preparation's typed error, no prepared assets and the disabled production binding.
+
+All three findings had demonstrated failing regressions before product changes. The full suites and staged runtime matrix above were rerun after the corrections. The same reviewer inspected the correction diff and RED/GREEN evidence, confirmed all three addressed, checked the staged net8 assembly hash against its report, and approved `b279456a` for the reviewed scope with no outstanding findings. The reviewer did not rerun the broad suites. No additional reviewer was spawned. This approval does not authorize deployment, merging, pushing or enabling production fal.
