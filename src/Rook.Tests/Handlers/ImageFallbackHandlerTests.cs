@@ -138,21 +138,51 @@ namespace Rook.Tests.Handlers
             using var f = new ImageFallbackFixture(geminiKey: null);
             var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            Task<ApiResponse>? handlerTask = null;
+            var bridgeInvoked = new TaskCompletionSource<CancellationToken>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var bridgeCancelled = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var execution = new CancellationTokenSource();
             var original = f.FalHttp.OnSendAsync!;
             f.FalHttp.OnSendAsync = async (r, ct) => { entered.TrySetResult(true); await release.Task; return await original(r, ct); };
             var handler = Handler(f); var context = new ImageExecutionContext();
-            var outer = Task.Run(() => NativeGhBridgeRegistrar.RunVisionAsyncWithTimeout(Body(f, "nano-banana-2"),
-                (body, ct) => handlerTask = handler.DispatchAsync(body, ct, context), TimeSpan.FromMilliseconds(500), context));
-            Assert.Same(entered.Task, await Task.WhenAny(entered.Task, Task.Delay(5000)));
-            var result = await outer;
-            Assert.False(result.Success); Assert.False(release.Task.IsCompleted);
-            var data = Json(result)["data"]!;
-            Assert.Equal("interrupted", data["code"]!.GetValue<string>());
-            Assert.True(data["image_route"]!["generation_dispatch_attempted"]!.GetValue<bool>());
-            Assert.Null(data["credential_failure"]);
-            release.TrySetResult(true);
-            if (handlerTask != null) await handlerTask;
+            // Establish an actual in-flight fal request before starting the short
+            // bridge budget. Pool scheduling delay before dispatch is a different
+            // behavior and must not turn this test into a pre-dispatch timeout.
+            var body = Body(f, "nano-banana-2");
+            var handlerTask = handler.DispatchAsync(body, execution.Token, context);
+            try
+            {
+                Assert.Same(entered.Task, await Task.WhenAny(entered.Task, Task.Delay(5000)));
+                using var outer = new BlockingTestWorker<ApiResponse>(_ =>
+                    NativeGhBridgeRegistrar.RunVisionAsyncWithTimeout(body, async (_, ct) =>
+                    {
+                        bridgeInvoked.TrySetResult(ct);
+                        void ObserveBridgeCancellation() { execution.Cancel(); bridgeCancelled.TrySetResult(true); }
+                        CancellationTokenRegistration registration = default;
+                        if (ct.IsCancellationRequested) ObserveBridgeCancellation();
+                        else
+                        {
+                            try { registration = ct.Register(ObserveBridgeCancellation); }
+                            catch (ObjectDisposedException) when (ct.IsCancellationRequested) { ObserveBridgeCancellation(); }
+                        }
+                        using (registration) return await handlerTask.ConfigureAwait(false);
+                    }, TimeSpan.FromMilliseconds(500), context));
+                var result = await outer.Task;
+                Assert.False(result.Success); Assert.False(release.Task.IsCompleted);
+                var data = Json(result)["data"]!;
+                Assert.Equal("interrupted", data["code"]!.GetValue<string>());
+                Assert.True(data["image_route"]!["generation_dispatch_attempted"]!.GetValue<bool>());
+                Assert.Null(data["credential_failure"]);
+                Assert.Same(bridgeInvoked.Task, await Task.WhenAny(bridgeInvoked.Task, Task.Delay(5000)));
+                Assert.True((await bridgeInvoked.Task).IsCancellationRequested);
+                Assert.Same(bridgeCancelled.Task, await Task.WhenAny(bridgeCancelled.Task, Task.Delay(5000)));
+                Assert.True(execution.IsCancellationRequested);
+            }
+            finally
+            {
+                execution.Cancel();
+                release.TrySetResult(true);
+                await handlerTask;
+            }
             Assert.DoesNotContain(f.Store.List(), a => a.Kind == "generated_image");
         }
 

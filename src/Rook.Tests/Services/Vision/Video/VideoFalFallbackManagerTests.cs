@@ -120,7 +120,7 @@ namespace Rook.Tests.Services.Vision.Video
                 catalog ??= FalVeoCompatibilityTests.ActiveCatalog();
                 var registry = new DefaultVideoProviderRegistry(new IVideoProviderRegistration[] { new VeoProviderRegistration(googleProvider ?? Google), new Registration(Fal, catalog) });
                 var coordinator = Coordinator = new VideoSubmissionCoordinator(registry, catalog, Secrets);
-                Quotes = new(coordinator, Media, Clock);
+                Quotes = new(coordinator, Media, Clock, new VideoFramingPreparationService(Media, new VideoFramingCache(), resources: new VideoPreparationResources()));
                 Manager = new(registry, Media, Ledger, new VideoCostEstimator(), Store, Clock, null, TimeSpan.Zero, 2, null, posterProducer: poster, coordinator: coordinator, routeQuotes: Quotes, deadlineTimer: Timer, publication: publication?.Invoke(Store));
                 Manager.AfterRunForTests = id => Done.TrySetResult(id);
             }

@@ -6,6 +6,7 @@ using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video;
+using Rook.Services.Vision.Video.Framing;
 using Rook.Tests.Services.Vision.Video.Fal;
 using Xunit;
 
@@ -63,7 +64,9 @@ namespace Rook.Tests.Services.Vision.Video
             var http = new FalVeoQueueAdapterTests.Http { Send = _ => Task.FromResult(FalVeoQueueAdapterTests.Http.Json(200, new JsonObject { ["name"] = operationName }.ToJsonString())) };
             var provider = new VeoProvider(() => "test-only", new VeoClient(new HttpClient(http)));
             var request = TestVideoFixtures.DefaultT2vRequest();
-            var result = Assert.IsType<QueuedSubmitOutcome>(await ((IPreparedMediaVideoProvider)provider).SubmitPreparedAsync(request, VideoPreparedMediaSnapshot.Capture(request, new Dictionary<MediaRef, ResolvedMedia>()), () => { }, default));
+            using var phase = await new VideoPreparationResources().AcquireAsync(default);
+            using var prepared = VideoPreparedMediaSnapshot.Capture(request, new Dictionary<MediaRef, ResolvedMedia>());
+            var result = Assert.IsType<QueuedSubmitOutcome>(await ((IPreparedMediaVideoProvider)provider).SubmitPreparedAsync(request, prepared, () => { }, default, phase));
             Assert.Equal(operationName, result.Handle.ProviderJobId);
         }
 
@@ -113,7 +116,9 @@ namespace Rook.Tests.Services.Vision.Video
             var http = new FalVeoQueueAdapterTests.Http { Send = _ => Task.FromResult(FalVeoQueueAdapterTests.Http.Json(status, body)) };
             var provider = new VeoProvider(() => "key", new VeoClient(new HttpClient(http)));
             var request = TestVideoFixtures.DefaultT2vRequest();
-            var result = Assert.IsType<FailedSubmitOutcome>(await ((IPreparedMediaVideoProvider)provider).SubmitPreparedAsync(request, VideoPreparedMediaSnapshot.Capture(request, new Dictionary<MediaRef, ResolvedMedia>()), () => { }, default));
+            using var phase = await new VideoPreparationResources().AcquireAsync(default);
+            using var prepared = VideoPreparedMediaSnapshot.Capture(request, new Dictionary<MediaRef, ResolvedMedia>());
+            var result = Assert.IsType<FailedSubmitOutcome>(await ((IPreparedMediaVideoProvider)provider).SubmitPreparedAsync(request, prepared, () => { }, default, phase));
             Assert.Equal(expected, VideoCredentialErrors.FromError("veo", result.Error)?.Kind == "rejected");
             Assert.Null(result.Error.ProviderDetail);
         }
@@ -124,7 +129,8 @@ namespace Rook.Tests.Services.Vision.Video
             var reference = MediaRef.ForArtifact(Guid.NewGuid(), "image");
             var bytes = new byte[] { 97, 98, 99 };
             var request = TestVideoFixtures.DefaultT2vRequest(mode: VideoMode.I2V, startFrame: reference);
-            var frozen = VideoPreparedMediaSnapshot.Capture(request, new Dictionary<MediaRef, ResolvedMedia> { [reference] = new(bytes, "image/png") });
+            using var phase = await new VideoPreparationResources().AcquireAsync(default);
+            using var frozen = VideoPreparedMediaSnapshot.Capture(request, new Dictionary<MediaRef, ResolvedMedia> { [reference] = new(bytes, "image/png") });
             bytes[0] = 0;
             var http = new FalVeoQueueAdapterTests.Http { Send = async message => {
                 var json = JsonNode.Parse(await message.Content!.ReadAsStringAsync())!;
@@ -132,7 +138,7 @@ namespace Rook.Tests.Services.Vision.Video
                 return FalVeoQueueAdapterTests.Http.Json(200, "{\"name\":\"models/veo-3.1-lite-generate-preview/operations/op1\"}");
             } };
             var provider = new VeoProvider(() => "key", new VeoClient(new HttpClient(http)));
-            Assert.IsType<QueuedSubmitOutcome>(await ((IPreparedMediaVideoProvider)provider).SubmitPreparedAsync(request, frozen, () => { }, default));
+            Assert.IsType<QueuedSubmitOutcome>(await ((IPreparedMediaVideoProvider)provider).SubmitPreparedAsync(request, frozen, () => { }, default, phase));
         }
     }
 }

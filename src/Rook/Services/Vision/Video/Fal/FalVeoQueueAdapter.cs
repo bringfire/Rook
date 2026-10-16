@@ -24,7 +24,10 @@ namespace Rook.Services.Vision.Video.Fal
             string? key;
             try { key = _key(); } catch { return new FailedSubmitOutcome(VideoCredentialErrors.AccessFailed()); }
             if (string.IsNullOrWhiteSpace(key)) return new FailedSubmitOutcome(VideoCredentialErrors.Missing("fal"));
-            using var ownedPhase = phase == null ? await VideoPreparationResources.Shared.AcquireAsync(ct).ConfigureAwait(false) : null;
+            VideoPreparationLease? acquired;
+            try { acquired = phase == null ? await VideoPreparationResources.Shared.AcquireAsync(ct).ConfigureAwait(false) : null; }
+            catch (VideoPreparationBusyException) { return new FailedSubmitOutcome(VideoSourcePreparationErrors.Busy("source_framing")); }
+            using var ownedPhase = acquired;
             phase ??= ownedPhase!;
             var resolution = _catalog.Resolve(request, DateTimeOffset.UtcNow);
             if (resolution.Error != null) return new FailedSubmitOutcome(resolution.Error);

@@ -355,6 +355,9 @@ function Assert-SourceBundleManifest {
         Fail "source bundle manifest configure line does not match provenance"
     }
 
+    if (-not [IO.Path]::IsPathRooted($manifest.bundle_path)) {
+        $manifest.bundle_path = Join-Path (Split-Path -Parent ([IO.Path]::GetFullPath($Path))) $manifest.bundle_path
+    }
     if (-not (Test-Path -LiteralPath $manifest.bundle_path -PathType Leaf)) {
         Fail "source bundle is missing: $($manifest.bundle_path)"
     }

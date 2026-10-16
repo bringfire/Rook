@@ -46,7 +46,8 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var client = new FalApiClient(new HttpClient(new Http { Send = message => Task.FromResult(message.RequestUri!.Host == "rest.fal.ai" ? Http.Json(200, "{\"upload_url\":\"https://v3.fal.media/upload/source\",\"file_url\":\"https://v3.fal.media/files/source.png\"}") : Http.Json(401, "signed URL rejected")) }));
             var adapter = new FalVeoQueueAdapter(() => "test-only", client, FalVeoCompatibilityTests.ActiveCatalog(), new FalSourceFrameTransport(client));
             var snapshot = VideoPreparedMediaSnapshot.Capture(request, new Dictionary<MediaRef, ResolvedMedia> { [input] = FalVeoCompatibilityTests.Image(1280, 720) });
-            var failure = Assert.IsType<FailedSubmitOutcome>(await adapter.SubmitPreparedAsync(request, snapshot, () => throw new Exception("Generation must not dispatch"), default));
+            using var phase = await new VideoPreparationResources().AcquireAsync(default);
+            var failure = Assert.IsType<FailedSubmitOutcome>(await adapter.SubmitPreparedAsync(request, snapshot, () => throw new Exception("Generation must not dispatch"), default, phase));
             Assert.Null(VideoCredentialErrors.FromError("fal", failure.Error));
         }
         [Fact]
@@ -57,7 +58,8 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var client = new FalApiClient(new HttpClient(new Http { Send = _ => Task.FromResult(Http.Json(401, "sensitive provider body")) }));
             var adapter = new FalVeoQueueAdapter(() => "test-only", client, FalVeoCompatibilityTests.ActiveCatalog(), new FalSourceFrameTransport(client));
             var snapshot = VideoPreparedMediaSnapshot.Capture(request, new Dictionary<MediaRef, ResolvedMedia> { [input] = FalVeoCompatibilityTests.Image(1280, 720) });
-            var failure = Assert.IsType<FailedSubmitOutcome>(await adapter.SubmitPreparedAsync(request, snapshot, () => throw new Exception("Generation must not dispatch"), default));
+            using var phase = await new VideoPreparationResources().AcquireAsync(default);
+            var failure = Assert.IsType<FailedSubmitOutcome>(await adapter.SubmitPreparedAsync(request, snapshot, () => throw new Exception("Generation must not dispatch"), default, phase));
             Assert.Equal("rook.fal.key_rejected", failure.Error.ProviderErrorCode); Assert.DoesNotContain("sensitive", failure.Error.Message);
         }
         [Fact]
@@ -77,7 +79,8 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             } };
             var client = new FalApiClient(new HttpClient(http));
             var adapter = new FalVeoQueueAdapter(() => "test-only", client, FalVeoCompatibilityTests.ActiveCatalog(), new FalSourceFrameTransport(client));
-            var outcome = await adapter.SubmitPreparedAsync(request, snapshot, () => admitted = true, default);
+            using var phase = await new VideoPreparationResources().AcquireAsync(default);
+            var outcome = await adapter.SubmitPreparedAsync(request, snapshot, () => admitted = true, default, phase);
             Assert.True(outcome is QueuedSubmitOutcome, (outcome as FailedSubmitOutcome)?.Error.Message);
             Assert.Equal(1, uploads); Assert.Equal(1, sends);
         }
@@ -98,7 +101,9 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             } };
             var adapter = new FalVeoQueueAdapter(() => "key", new FalApiClient(new HttpClient(http)), FalVeoCompatibilityTests.ActiveCatalog(), new Uploads());
             var request = TestVideoFixtures.DefaultT2vRequest(model: "fal-ai/veo3.1/fast").With(options: new FalVeoOptions());
-            var result = await adapter.SubmitPreparedAsync(request, VideoPreparedMediaSnapshot.Capture(request, new Dictionary<MediaRef, ResolvedMedia>()), () => events.Add("intent"), default);
+            using var phase = await new VideoPreparationResources().AcquireAsync(default);
+            using var snapshot = VideoPreparedMediaSnapshot.Capture(request, new Dictionary<MediaRef, ResolvedMedia>());
+            var result = await adapter.SubmitPreparedAsync(request, snapshot, () => events.Add("intent"), default, phase);
             Assert.IsType<QueuedSubmitOutcome>(result);
             Assert.Equal(new[] { "intent", "send" }, events);
         }
@@ -110,7 +115,9 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var http = new Http { Send = _ => { sent++; return Task.FromResult(Http.Json(200, Accepted)); } };
             var adapter = new FalVeoQueueAdapter(() => "key", new FalApiClient(new HttpClient(http)), FalVeoCompatibilityTests.ActiveCatalog(), new Uploads());
             var request = TestVideoFixtures.DefaultT2vRequest(model: "fal-ai/veo3.1").With(options: new FalVeoOptions());
-            await Assert.ThrowsAsync<InvalidOperationException>(() => adapter.SubmitPreparedAsync(request, VideoPreparedMediaSnapshot.Capture(request, new Dictionary<MediaRef, ResolvedMedia>()), () => throw new InvalidOperationException("ledger blocked"), default));
+            using var phase = await new VideoPreparationResources().AcquireAsync(default);
+            using var snapshot = VideoPreparedMediaSnapshot.Capture(request, new Dictionary<MediaRef, ResolvedMedia>());
+            await Assert.ThrowsAsync<InvalidOperationException>(() => adapter.SubmitPreparedAsync(request, snapshot, () => throw new InvalidOperationException("ledger blocked"), default, phase));
             Assert.Equal(0, sent);
         }
 
@@ -147,7 +154,9 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var http = new Http { Send = _ => Task.FromResult(Http.Json(status, "{\"detail\":\"raw forbidden key text\"}")) };
             var adapter = new FalVeoQueueAdapter(() => "key", new FalApiClient(new HttpClient(http)), FalVeoCompatibilityTests.ActiveCatalog(), new Uploads());
             var request = TestVideoFixtures.DefaultT2vRequest(model: "fal-ai/veo3.1").With(options: new FalVeoOptions());
-            var result = Assert.IsType<FailedSubmitOutcome>(await adapter.SubmitPreparedAsync(request, VideoPreparedMediaSnapshot.Capture(request, new Dictionary<MediaRef, ResolvedMedia>()), () => { }, default));
+            using var phase = await new VideoPreparationResources().AcquireAsync(default);
+            using var snapshot = VideoPreparedMediaSnapshot.Capture(request, new Dictionary<MediaRef, ResolvedMedia>());
+            var result = Assert.IsType<FailedSubmitOutcome>(await adapter.SubmitPreparedAsync(request, snapshot, () => { }, default, phase));
             Assert.Equal(rejected, VideoCredentialErrors.FromError("fal", result.Error) != null);
             Assert.DoesNotContain("raw forbidden", result.Error.Message);
         }

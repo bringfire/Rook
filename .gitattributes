@@ -1,4 +1,11 @@
 third_party/ffmpeg/ffmpeg.exe filter=lfs diff=lfs merge=lfs -text
+third_party/ffmpeg/source/rook-ffmpeg-8.1.1-source-bundle.zip filter=lfs diff=lfs merge=lfs -text
+third_party/ffmpeg/source/*.json text eol=lf
+# Preserve the exact recipe/metadata bytes in the matching source bundle.
+scripts/ffmpeg/*.ps1 -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+scripts/ffmpeg/*.json -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+scripts/ffmpeg/*.txt -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+third_party/ffmpeg/LICENSE.zlib.txt -text
 third_party/ffmpeg/fixtures/framing/*.json text eol=lf
 third_party/ffmpeg/fixtures/framing/legacy-validation/*.json text eol=lf
 scripts/lm9b_c_fixtures/*.json text eol=lf

@@ -47,11 +47,11 @@ namespace Rook.Services.Vision.Video
             string? key;
             try { key = _apiKeyProvider(); } catch { return new FailedSubmitOutcome(VideoCredentialErrors.AccessFailed()); }
             if (string.IsNullOrWhiteSpace(key)) return new FailedSubmitOutcome(VideoCredentialErrors.Missing("veo"));
-            using var ownedPhase = phase == null ? await VideoPreparationResources.Shared.AcquireAsync(ct).ConfigureAwait(false) : null;
-            phase ??= ownedPhase!;
             bool admitted = false;
             try
             {
+                using var ownedPhase = phase == null ? await VideoPreparationResources.Shared.AcquireAsync(ct).ConfigureAwait(false) : null;
+                phase ??= ownedPhase!;
                 var response = await _client.StartPreparedGenerationAsync(key!, request, (VeoOptions)request.Options, preparedMedia, phase, ct, () => { beforeDispatch(); ct.ThrowIfCancellationRequested(); admitted = true; }).ConfigureAwait(false);
                 if (!response.Success) return new FailedSubmitOutcome(response.StatusCode is >= 200 and < 300 ? VideoCredentialErrors.Unknown() : VideoCredentialErrors.FromHttp("veo", response.StatusCode ?? 0, response.ErrorBody ?? ""));
                 if (!IsSupportedOperationName(response.OperationName, request.Model)) return new FailedSubmitOutcome(VideoCredentialErrors.Unknown());

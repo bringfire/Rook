@@ -82,7 +82,8 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             } };
             var client = new FalApiClient(new HttpClient(http));
             var adapter = new FalVeoQueueAdapter(() => "synthetic", client, FalVeoCompatibilityTests.ActiveCatalog(), new FalSourceFrameTransport(client));
-            var outcome = await adapter.SubmitPreparedAsync(request, snapshot, () => { }, default);
+            using var phase = await new VideoPreparationResources().AcquireAsync(default);
+            var outcome = await adapter.SubmitPreparedAsync(request, snapshot, () => { }, default, phase);
             Assert.True(outcome is QueuedSubmitOutcome, System.Text.Json.JsonSerializer.Serialize((outcome as FailedSubmitOutcome)?.Error));
             Assert.Equal(1, uploads); Assert.Equal(1, generations);
             Assert.Equal(bytes, snapshot.Slots[0].CopyBytes()); Assert.Equal(bytes, snapshot.Slots[1].CopyBytes());

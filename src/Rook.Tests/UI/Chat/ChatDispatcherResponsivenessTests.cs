@@ -85,7 +85,7 @@ namespace Rook.Tests.UI.Chat
                 settle.Tick += (_, __) =>
                 {
                     if (DateTime.UtcNow > deadline) { frame.Continue = false; return; }
-                    if (submission != null && submission.IsCompleted && !h.IsProcessing &&
+                    if (intervals.Count > 5 && submission != null && submission.IsCompleted && !h.IsProcessing &&
                         h.Presentation.PendingCount == 0 && surface.Backlog == 0)
                         frame.Continue = false;
                 };
