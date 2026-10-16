@@ -15,7 +15,7 @@
         "total_usd": 1.60,
         "pricing_source": "veo-rate-card-v1"
       },
-      "estimate_fingerprint": "v1:fb9068ee74abe95d483e67c345b3dc1ffb8b1dbb4859272b1ddd0cbb683927bf",
+      "estimate_fingerprint": "v1:30ef7267d3f167fdfc1975dfe28e391c28be3c98a3a95deef6bca254e65a2d56",
       "maximum_estimated_cost_usd": 1.60,
       "candidate_routes": [
         {
@@ -59,7 +59,7 @@
           },
           "profile": null,
           "framing": null,
-          "continuity_verified": null,
+          "submission_verified": null,
           "cutoff": null,
           "documentation": null,
           "verified_on": null,
@@ -113,15 +113,15 @@
             "auto_fix": false,
             "safety_tolerance": "4"
           },
-          "profile": "fal-veo-candidate-v1",
+          "profile": "fal-veo-audio-defaults-v1",
           "framing": "exact-selected-ratio-v1",
-          "continuity_verified": true,
+          "submission_verified": true,
           "cutoff": null,
           "documentation": "https://fal.ai/models/fal-ai/veo3.1/api",
-          "verified_on": "2026-10-14T00:00:00.0000000\u002B00:00",
+          "verified_on": "2026-10-16T00:00:00.0000000\u002B00:00",
           "reference_framing_verified": true,
-          "pricing_source": "fal-veo-candidate-rates-2026-10-14",
-          "pricing_revision": "2026-10-14",
+          "pricing_source": "fal-veo-endpoint-rates-2026-10-16",
+          "pricing_revision": "2026-10-16",
           "currency": "USD",
           "unit_rate": 0.40,
           "total": 1.60,

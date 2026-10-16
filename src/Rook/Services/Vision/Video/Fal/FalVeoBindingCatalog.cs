@@ -9,7 +9,7 @@ namespace Rook.Services.Vision.Video.Fal
     internal sealed record FalVeoBinding(string ModelId, string SubmitEndpoint, string LifecycleRoot,
         VideoCapability Capability, string ProfileRevision, string FramingRevision, string PricingSource,
         string PricingRevision, IReadOnlyDictionary<string, decimal> RatesUsdPerSecond, Uri DocumentationSource,
-        DateTimeOffset VerifiedOnUtc, bool ContinuityVerified, DateTimeOffset? NewSubmissionCutoffUtc,
+        DateTimeOffset VerifiedOnUtc, bool SubmissionVerified, DateTimeOffset? NewSubmissionCutoffUtc,
         bool SupportsSeed, bool ReferenceFramingVerified);
 
     internal sealed class FalVeoBindingCatalog
@@ -27,8 +27,10 @@ namespace Rook.Services.Vision.Video.Fal
         {
             var result = GetCandidate(request);
             if (result.Binding is not { } b) return result;
-            if (!b.ContinuityVerified || b.NewSubmissionCutoffUtc is { } cutoff && now >= cutoff || (request.ReferenceFrames?.Count ?? 0) > 0 && !b.ReferenceFramingVerified)
-                return (null, Error("fal Veo binding unavailable: continued support and source policy must be verified before submission.", "model"));
+            if ((request.ReferenceFrames?.Count ?? 0) > 0 && (!b.SubmissionVerified || !b.ReferenceFramingVerified))
+                return (null, Error("fal Veo reference-image generation is not qualified. Use image-to-video/interpolation, or Google with a configured API key.", "reference_frames"));
+            if (!b.SubmissionVerified || b.NewSubmissionCutoffUtc is { } cutoff && now >= cutoff || (request.ReferenceFrames?.Count ?? 0) > 0 && !b.ReferenceFramingVerified)
+                return (null, Error("This fal Veo endpoint or its source policy has not been verified for submission.", "model"));
             return result;
         }
         internal static GenerationError Error(string message, string field) => new(GenerationErrorCode.InvalidRequest, message, false, field);
@@ -44,7 +46,10 @@ namespace Rook.Services.Vision.Video.Fal
                 foreach (var suffix in new[] { "", "/image-to-video", "/first-last-frame-to-video", "/reference-to-video" })
                 {
                     if (lite && suffix == "/reference-to-video") continue;
-                    yield return new FalVeoBinding(id, id + suffix, "fal-ai/veo3.1", cap, "fal-veo-candidate-v1", suffix == "/reference-to-video" ? "reference-unverified-v1" : "exact-selected-ratio-v1", "fal-veo-candidate-rates-2026-10-14", "2026-10-14", new ReadOnlyDictionary<string, decimal>(rates), new Uri("https://fal.ai/models/" + id + suffix + "/api"), new DateTimeOffset(2026, 10, 14, 0, 0, 0, TimeSpan.Zero), false, new DateTimeOffset(2026, 11, 17, 0, 0, 0, TimeSpan.Zero), suffix != "/reference-to-video", false);
+                    // Deprecation is maintenance evidence, not a provider-mandated
+                    // shutdown. Do not disable a working endpoint by calendar.
+                    // Reference framing still requires separate qualification.
+                    yield return new FalVeoBinding(id, id + suffix, "fal-ai/veo3.1", cap, "fal-veo-audio-defaults-v1", suffix == "/reference-to-video" ? "reference-unverified-v1" : "exact-selected-ratio-v1", "fal-veo-endpoint-rates-2026-10-16", "2026-10-16", new ReadOnlyDictionary<string, decimal>(rates), new Uri("https://fal.ai/models/" + id + suffix + "/api"), new DateTimeOffset(2026, 10, 16, 0, 0, 0, TimeSpan.Zero), suffix != "/reference-to-video", null, suffix != "/reference-to-video", false);
                 }
             }
         }

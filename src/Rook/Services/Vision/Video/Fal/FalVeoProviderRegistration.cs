@@ -10,7 +10,16 @@ namespace Rook.Services.Vision.Video.Fal
         public FalVeoProviderRegistration(FalVideoProvider provider, FalVeoBindingCatalog catalog)
         {
             Provider = provider;
-            Models = catalog.All.GroupBy(b => b.ModelId).ToDictionary(g => g.Key, g => (g.First().Capability, (IPricingModel<VideoGenerationRequest, VideoCapability>)new FalVeoPricingModel(catalog)));
+            Models = catalog.All.GroupBy(b => b.ModelId).ToDictionary(g => g.Key, g => (AdmittedCapability(g), (IPricingModel<VideoGenerationRequest, VideoCapability>)new FalVeoPricingModel(catalog)));
+        }
+        private static VideoCapability AdmittedCapability(IGrouping<string, FalVeoBinding> bindings)
+        {
+            var capability = bindings.First().Capability;
+            bool references = bindings.Any(b => b.SubmitEndpoint.EndsWith("/reference-to-video", StringComparison.Ordinal)
+                && b.SubmissionVerified && b.ReferenceFramingVerified);
+            return new VideoCapability(capability.Id, capability.Name, capability.Status, capability.Resolutions,
+                capability.Durations, capability.AspectRatios, capability.Modes,
+                capability.SupportsReferenceImages && references, references ? capability.MaxReferenceImages : 0, capability.Must8sWith);
         }
         public string ProviderName => "fal";
         public IVideoProvider Provider { get; }

@@ -62,7 +62,6 @@ namespace Rook.Tests.Services.Vision.Video.Fal
                 Assert.Equal(0, phase.Buffers.ReservedBytes);
             }
             Assert.Equal(0, resources.ActiveBundles);
-            Assert.False(new FalVeoBindingCatalog().GetCandidate(request).Binding!.ContinuityVerified);
         }
 
         [Fact]

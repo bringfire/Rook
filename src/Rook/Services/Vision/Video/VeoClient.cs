@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Net;
 using System.Net.Http;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -11,6 +13,12 @@ using Rook.Services.Vision.Video.Framing;
 
 namespace Rook.Services.Vision.Video
 {
+    // Raised only by initial connection establishment, before response headers.
+    // Never use a generic transport exception as evidence of non-acceptance.
+    internal sealed class VeoNotAcceptedException : HttpRequestException
+    {
+        internal VeoNotAcceptedException() : base("Google video connection could not be established.") { }
+    }
     internal sealed class VeoDownloadException : HttpRequestException
     {
         internal VeoDownloadException(int status, bool apiCredentialResponse) : base("Google video download request failed.") { HttpStatus = status; ApiCredentialResponse = apiCredentialResponse; }
@@ -90,8 +98,18 @@ namespace Rook.Services.Vision.Video
 
             beforeDispatch?.Invoke();
             ct.ThrowIfCancellationRequested();
-            using var response = await _http.SendAsync(httpRequest, ct).ConfigureAwait(false);
-            var responseJson = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            using var requestStop = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            if (_http.Timeout != Timeout.InfiniteTimeSpan) requestStop.CancelAfter(_http.Timeout);
+            HttpResponseMessage response;
+            try { response = await _http.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, requestStop.Token).ConfigureAwait(false); }
+            catch (HttpRequestException ex) when (ConnectionWasNotEstablished(ex)) { throw new VeoNotAcceptedException(); }
+            using var responseOwner = response;
+            // ResponseHeadersRead separates connection evidence from body-read
+            // failures. Retain the original whole-call timeout on net48 too.
+            using var abortResponse = requestStop.Token.Register(response.Dispose);
+            string responseJson;
+            try { responseJson = await response.Content.ReadAsStringAsync().ConfigureAwait(false); }
+            catch (Exception) when (requestStop.IsCancellationRequested) { throw new OperationCanceledException(requestStop.Token); }
 
             if (!response.IsSuccessStatusCode)
                 return new VeoStartResponse(
@@ -117,6 +135,22 @@ namespace Rook.Services.Vision.Video
                 OperationName: nameEl.GetString(),
                 StatusCode: (int)response.StatusCode,
                 ErrorBody: null);
+        }
+
+        private static bool ConnectionWasNotEstablished(Exception exception)
+        {
+            // DNS failures and an actively refused initial connection cannot
+            // accept a generation. Resets, timeouts and generic connection
+            // failures can happen after sending and must remain uncertain.
+            for (Exception? current = exception; current != null; current = current.InnerException)
+            {
+#if NET8_0_OR_GREATER
+                if (current is HttpRequestException { HttpRequestError: HttpRequestError.NameResolutionError }) return true;
+#endif
+                if (current is SocketException socket && socket.SocketErrorCode is SocketError.HostNotFound or SocketError.NoData or SocketError.TryAgain or SocketError.ConnectionRefused) return true;
+                if (current is WebException web && web.Status is WebExceptionStatus.NameResolutionFailure or WebExceptionStatus.ProxyNameResolutionFailure) return true;
+            }
+            return false;
         }
 
         public async Task<VeoPollResponse> PollOperationAsync(

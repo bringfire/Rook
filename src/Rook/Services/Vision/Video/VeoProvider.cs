@@ -59,6 +59,7 @@ namespace Rook.Services.Vision.Video
             }
             catch (VideoPreparationBusyException) { return new FailedSubmitOutcome(VideoSourcePreparationErrors.Busy("source_framing")); }
             catch (System.Text.Json.JsonException) { return new FailedSubmitOutcome(VideoCredentialErrors.Unknown()); }
+            catch (VeoNotAcceptedException) { return new FailedSubmitOutcome(new GenerationError(GenerationErrorCode.DependencyUnavailable, "Google could not accept the video request because its connection could not be established.", false, null, "rook.veo.not_accepted")); }
             catch (HttpRequestException) { return new FailedSubmitOutcome(admitted ? VideoCredentialErrors.Unknown() : new GenerationError(GenerationErrorCode.DependencyUnavailable, "Google preparation failed.", false)); }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested) { return new FailedSubmitOutcome(VideoCredentialErrors.Unknown()); }
         }

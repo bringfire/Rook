@@ -28,7 +28,9 @@ namespace Rook.Services.Vision.Video
             try { fal = Secrets.HasSecret(GenerationSecretKeys.FalApiKey); }
             catch { if (!google) return (false, false, VideoCredentialErrors.AccessFailed()); }
             if (google) return (google, fal, null);
-            if (Bindings.Resolve(intent.Request, now).Error != null)
+            var bindingError = Bindings.Resolve(intent.Request, now).Error;
+            if (bindingError?.Field == "reference_frames") return (google, fal, bindingError);
+            if (bindingError != null)
                 return (google, fal, Unavailable(IsGoogleModel(intent.Request.Model)
                     ? "Video generation needs a Google API key. Fal Veo fallback is currently disabled."
                     : "Fal Veo generation is currently disabled until endpoint continuity is verified.", IsGoogleModel(intent.Request.Model)));
@@ -40,7 +42,10 @@ namespace Rook.Services.Vision.Video
         internal static GenerationError Unavailable(string message, bool settings) => new(GenerationErrorCode.DependencyUnavailable,
             message, false, "model", "video_route_unavailable", settings ? new Dictionary<string, System.Text.Json.Nodes.JsonNode> { ["action"] = System.Text.Json.Nodes.JsonValue.Create("open_settings")! } : null);
         public VideoRouteCandidate SelectInitial(VideoRouteQuote quote) => quote.Candidates.First(c => c.Model.ModelId == quote.PrimaryEstimate.Model);
-        public VideoRouteCandidate? SelectFallback(VideoRouteQuote quote, GenerationError error) => VideoCredentialErrors.FromError("veo", error) != null ? quote.Candidates.FirstOrDefault(c => c.Model.ProviderName == "fal" && c.EligibilityError is null) : null;
+        internal static string? FallbackReason(GenerationError error) => error.ProviderErrorCode switch {
+            "rook.veo.key_missing" => "gemini_key_missing", "rook.veo.key_rejected" => "gemini_key_rejected",
+            "rook.veo.not_accepted" => "google_not_accepted", _ => null };
+        public VideoRouteCandidate? SelectFallback(VideoRouteQuote quote, GenerationError error) => FallbackReason(error) != null ? quote.Candidates.FirstOrDefault(c => c.Model.ProviderName == "fal" && c.EligibilityError is null) : null;
         public Task<ProviderSubmitOutcome> SubmitAttemptAsync(VideoRouteCandidate candidate, VideoPreparedMediaSnapshot media, Action beforeDispatch, CancellationToken ct, VideoPreparationLease? phase = null) => candidate.Model.Provider is IPreparedMediaVideoProvider prepared
             ? prepared.SubmitPreparedAsync(candidate.Request, media, beforeDispatch, ct, phase)
             : Task.FromResult<ProviderSubmitOutcome>(new FailedSubmitOutcome(new GenerationError(GenerationErrorCode.DependencyUnavailable, "Video provider lacks durable prepared dispatch support.", false)));

@@ -864,7 +864,11 @@ function videoExecutionNotice(data) {
     const parts = [];
     if (data.effective_provider) parts.push(`${providerDisplayName(data.effective_provider === "veo" ? "gemini" : data.effective_provider)} · ${data.effective_model || ""}`);
     if (typeof data.effective_estimated_cost_usd === "number") parts.push(`Estimated $${data.effective_estimated_cost_usd.toFixed(2)}`);
-    if (data.video_route) parts.push(`Fallback: ${data.video_route.reason || "Google credential unavailable"}`);
+    if (data.video_route) {
+        const reason = data.video_route.fallback_reason || data.video_route.reason;
+        const labels = { gemini_key_missing: "Google key missing", gemini_key_rejected: "Google key rejected", google_not_accepted: "Google request not accepted; connection unavailable" };
+        parts.push(`Fallback: ${labels[reason] || "Google route unavailable"}`);
+    }
     if (data.credential_failure && data.credential_failure.kind === "missing") parts.push(`${providerDisplayName(data.credential_failure.provider)} key missing; configure it in Settings.`);
     if (data.execution_stopped && ["pending", "failed"].includes(data.stop_persistence)) parts.push(`Execution stopped · stop persistence ${data.stop_persistence}`);
     if (data.submission_outcome_unknown) parts.push("Submission outcome unknown; inspect history before deliberately starting another job.");

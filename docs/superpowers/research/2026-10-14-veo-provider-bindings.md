@@ -1,6 +1,24 @@
 # Veo provider binding admission — 2026-10-14
 
-Status: **No fal Veo binding is admitted for new production submissions.** The approved offline implementation path may be tested with injected fixtures. Published retirement notices remain unresolved; successful HTTP/generation probes would not establish continuity.
+## Current admission amendment — 2026-10-16
+
+The user explicitly authorized current endpoint enablement, Google-primary routing with missing/revoked-key and proven-non-acceptance fallback, live testing, and removal of the November 17 automatic cutoff. This supersedes the historical disabled-binding status recorded below. The notice remains unresolved maintenance evidence; this amendment does not claim a provider support commitment or an automatic future migration.
+
+Nine bindings (Standard/Fast/Lite × T2V/I2V/interpolation) are admitted by their current documented contracts, with `SubmissionVerified` rather than a claim of continuing support. No date-derived shutdown or agent-imposed dollar cap is added. Reference modes remain unqualified and unavailable through fal; valid Google reference requests retain their primary route.
+
+On 2026-10-16 all eleven mode-specific official API pages and queue OpenAPI schemas were retrieved. Captures and SHA-256 hashes are in ignored `artifacts/fal-veo-enablement/binding-contracts.json`. Standard and Fast support 720p/1080p/4k; Lite supports 720p/1080p. All nine admitted schemas accept the unchanged explicit profile: duration `4s`/`6s`/`8s`, selected `16:9`/`9:16`, audio on, auto-fix off, safety `4`, optional seed and mode-specific image fields. Rook's existing capability rules still restrict incompatible resolution/duration combinations. Prepared Fit/Fill inputs retain the approved immutable preview/quote/dispatch identity and resource bounds.
+
+Per-endpoint published audio-on rates: Standard $.40/sec at 720p/1080p and $.60/sec at 4k; Fast $.15/sec at 720p/1080p and $.35/sec at 4k; Lite $.05/sec at 720p and $.08/sec at 1080p. The API pages independently repeat these rates for each admitted media mode. An authenticated read-only [pricing API](https://fal.ai/docs/platform-apis/v1/models/pricing) GET also confirmed base rates for all three tiers' T2V and I2V endpoints. No secret is recorded in evidence. Pricing revision is `2026-10-16`.
+
+The official [fal-js queue implementation](https://github.com/fal-ai/fal-js/blob/main/libs/client/src/queue.ts) and [endpoint parser](https://github.com/fal-ai/fal-js/blob/main/libs/client/src/utils.ts) use the complete endpoint for submission, then owner/application only for status/result/cancel. This confirms lifecycle root `fal-ai/veo3.1` for all tiers/modes and `PUT` cancellation, despite generated OpenAPI paths including mode suffixes. Actual accepted URLs remain validated against the configured root and request ID. Live confirmation is pending and will be recorded separately.
+
+New closed transport evidence: DNS failures and refused initial connections can route only when raised before response headers. A response-read failure cannot be reclassified even if its inner exception resembles DNS failure. Generic errors, reset/abort/timeout, cancellation, malformed acceptance and any accepted-job failure remain uncertain or terminal; no second generation is authorized. Credential warnings remain independent. The complete HTTP-call timeout is retained after separating response-header and body-read phases.
+
+Observed red/green evidence: seven new managed regressions failed on the baseline (three missing-key admissions, four known connection failures); the new UI regression failed because it described a credential problem. After correction, 52 focused managed tests and 68 UI tests passed. A response-body timeout regression then failed before its fix; the broader video run passed 936 tests after it. Installed-runtime and paid provider qualification are pending. No claim of complete feature qualification is made by these offline results.
+
+## Historical offline implementation record (2026-10-14)
+
+The following sections describe the original disabled implementation and its former continuity gate, not the user-amended admission policy above.
 
 ## Official evidence
 
