@@ -14,7 +14,7 @@
 
 #define MyAppName "Rook"
 #ifndef MyAppVersion
-#define MyAppVersion "1.6.1"
+#define MyAppVersion "1.7.0"
 #endif
 #define MyAppPublisher "Bringfire"
 #define MyAppURL "https://github.com/bringfire/rook-release"
