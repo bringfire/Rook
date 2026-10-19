@@ -327,7 +327,7 @@ function Test-FfmpegBuildRecipeTargetsOnlyFfmpegProgram {
     $configureRecipe = Get-Content -Path $FfmpegConfigureRecipe -Raw
     Assert-Contains -Text $configureRecipe -Expected '--disable-programs' -Message 'FFmpeg configure recipe must disable default programs before re-enabling ffmpeg.'
     Assert-Contains -Text $configureRecipe -Expected '--enable-ffmpeg' -Message 'FFmpeg configure recipe must explicitly re-enable the ffmpeg executable.'
-    Assert-Contains -Text $script -Expected 'make -j`$(nproc) ffmpeg.exe' -Message 'FFmpeg build script must build the ffmpeg.exe target specifically.'
+    Assert-True -Condition ($script -match '(?m)^make -j\S+ ffmpeg\.exe\r?$') -Message 'FFmpeg build script must build the ffmpeg.exe target specifically.'
 }
 
 function Test-InstallerRequiresNativePluginBuildOutput {
