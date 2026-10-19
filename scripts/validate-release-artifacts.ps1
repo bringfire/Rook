@@ -557,7 +557,7 @@ if ([string]::IsNullOrWhiteSpace($InstallerPath)) {
     $InstallerPath = Join-Path $RepoRoot "installer\output\Rook-Setup-$Version.exe"
 }
 if ([string]::IsNullOrWhiteSpace($FfmpegSourceBundleManifestPath)) {
-    $FfmpegSourceBundleManifestPath = Join-Path $RepoRoot 'artifacts\ffmpeg\ffmpeg-8.1.1-rook-minimal\rook-ffmpeg-source-bundle-manifest.json'
+    $FfmpegSourceBundleManifestPath = Join-Path $RepoRoot 'third_party\ffmpeg\source\source-bundle-manifest.json'
 }
 if ([string]::IsNullOrWhiteSpace($OcctSourceBundleManifestPath)) {
     $OcctSourceBundleManifestPath = Join-Path $RepoRoot 'artifacts\occt\rook-occt-source-bundle-manifest.json'
@@ -617,7 +617,12 @@ Assert-FileNewerThanBuildStart -Path $rookBimPath -StartedAt $buildStartedAtValu
 
 $sourceBundleManifestPathResolved = Require-File -Path $FfmpegSourceBundleManifestPath -Label 'FFmpeg source-bundle manifest'
 $sourceBundleManifest = Get-Content -LiteralPath $sourceBundleManifestPathResolved -Raw | ConvertFrom-Json
-$sourceBundlePath = Require-File -Path (Require-JsonField -Json $sourceBundleManifest -Field 'bundle_path' -Label 'FFmpeg source-bundle manifest') -Label 'FFmpeg source bundle'
+$sourceBundleRelativePath = [string](Require-JsonField -Json $sourceBundleManifest -Field 'bundle_path' -Label 'FFmpeg source-bundle manifest')
+if (-not [IO.Path]::IsPathRooted($sourceBundleRelativePath)) {
+    # The committed LFS manifest names its bundle relative to the manifest, as validate-ffmpeg-bundle.ps1 resolves it.
+    $sourceBundleRelativePath = Join-Path (Split-Path -Parent $sourceBundleManifestPathResolved) $sourceBundleRelativePath
+}
+$sourceBundlePath = Require-File -Path $sourceBundleRelativePath -Label 'FFmpeg source bundle'
 $sourceBundleSha256 = Get-Sha256 -Path $sourceBundlePath
 $manifestSourceBundleSha = ([string](Require-JsonField -Json $sourceBundleManifest -Field 'bundle_sha256' -Label 'FFmpeg source-bundle manifest')).ToUpperInvariant()
 if ($sourceBundleSha256 -ne $manifestSourceBundleSha) {
