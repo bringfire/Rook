@@ -12,6 +12,29 @@ namespace Rook.Tests.Services.Vision.Fal
     public class FalQuoteServiceTests
     {
         [Fact]
+        public async Task Sequential_fixture_jobs_have_independent_owned_deadlines()
+        {
+            using var run = new FalConfiguredJobLifecycleTests.Run(false, sync: true);
+            await run.Submit(); await FalConfiguredJobLifecycleTests.Wait(run.Terminal.Task);
+            bool disposed = false;
+            for (int i = 0; i < 100 && !disposed; i++)
+            {
+                try { _ = run.ImageDeadline.Token; await Task.Delay(10); }
+                catch (ObjectDisposedException) { disposed = true; }
+            }
+            Assert.True(disposed, "The first job must settle its owned deadline before submitting the second job.");
+            await run.Submit(); var second = run.Id;
+            for (int i = 0; i < 100; i++)
+            {
+                var state = (await run.Image!.GetStatusAsync(second, default)).State;
+                if (state is Rook.Services.Vision.Image.Jobs.ImageJobState.Complete or Rook.Services.Vision.Image.Jobs.ImageJobState.Error)
+                { Assert.Equal(Rook.Services.Vision.Image.Jobs.ImageJobState.Complete, state); return; }
+                await Task.Delay(10);
+            }
+            Assert.Fail("Second fixture job did not settle.");
+        }
+
+        [Fact]
         public void Unknown_history_projects_diagnostics_without_unvalidated_numeric_controls()
         {
             var raw = JsonNode.Parse("{\"version\":99,\"effective_request\":{\"seed\":9007199254740993},\"pricing\":{\"rate_usd\":0.12345678901234567890123456789}}")!.AsObject();

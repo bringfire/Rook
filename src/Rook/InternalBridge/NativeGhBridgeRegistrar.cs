@@ -68,7 +68,7 @@ namespace Rook.InternalBridge
             {
                 var bundle = RookSubsystemRoot.Instance.Video;
                 return new VideoOpHandler(
-                    bundle.Manager, bundle.Registry, bundle.Estimator);
+                    bundle.Manager, bundle.Registry, bundle.Estimator, bundle.Framing, bundle.MediaResolver);
             }, LazyThreadSafetyMode.ExecutionAndPublication);
 
         // Authoritative set of vision ops the trampoline routes. Used by

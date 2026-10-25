@@ -384,7 +384,7 @@ p { margin: 8px 0; line-height: 1.4; }
         private static VideoOpHandler BuildSharedVideoHandler()
         {
             var bundle = RookSubsystemRoot.Instance.Video;
-            return new VideoOpHandler(bundle.Manager, bundle.Registry, bundle.Estimator, bundle.Framing);
+            return new VideoOpHandler(bundle.Manager, bundle.Registry, bundle.Estimator, bundle.Framing, bundle.MediaResolver);
         }
 
         private readonly Func<Artifact, bool>? _videoArtifactIsVisible;

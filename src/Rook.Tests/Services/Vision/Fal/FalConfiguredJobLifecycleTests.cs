@@ -348,6 +348,8 @@ namespace Rook.Tests.Services.Vision.Fal
             internal readonly TaskCompletionSource<bool> PublicationEntered = Signal(), PublicationRelease = Signal(), Finished = Signal();
             internal bool HoldPublication, PosterFails;
             internal readonly CancellationTokenSource ImageDeadline = new();
+            private int _imageDeadlines;
+            private CancellationTokenSource NewImageDeadline() => Interlocked.Increment(ref _imageDeadlines) == 1 ? ImageDeadline : new CancellationTokenSource();
             internal readonly ControlledTimer Timer = new();
             internal readonly ImageLedger Images;
             internal readonly VideoLedger Videos;
@@ -382,7 +384,7 @@ namespace Rook.Tests.Services.Vision.Fal
                 else
                 {
                     var registry = new DefaultImageProviderRegistry(recoverWithoutRegistration ? Array.Empty<IImageProviderRegistration>() : new[] { new ConfiguredFalImageRegistration(_model, executor, new FalAdapterRegistry(), new NoPricing<ImageGenerationRequest, ImageCapability>()) });
-                    Image = new ImageJobManager(registry, Store, null, null, null, 2, new ImageArtifactMaterializer(Transport), null, Images, deadlineFactory: _ => ImageDeadline, configuredRecovery: recoveryAvailable ? new FalExecutionRecovery(executor) : null, configuredDurabilityBudgetFactory: NewDurabilityBudget);
+                    Image = new ImageJobManager(registry, Store, null, null, null, 2, new ImageArtifactMaterializer(Transport), null, Images, deadlineFactory: _ => NewImageDeadline(), configuredRecovery: recoveryAvailable ? new FalExecutionRecovery(executor) : null, configuredDurabilityBudgetFactory: NewDurabilityBudget);
                 }
             }
             internal FalNormalizedRequest Normalized()

@@ -42,7 +42,7 @@ namespace Rook.Services.Vision.Video
     /// persisted <c>provider_job_id</c> remains so explicit cancel can
     /// clean up remote provider jobs.
     /// </summary>
-    public sealed partial class VideoJobManager : IVideoJobManager, IVideoConfirmedJobManager, IDisposable
+    public sealed partial class VideoJobManager : IVideoJobManager, IVideoConfirmedJobManager, IConfiguredVideoJobManager, IDisposable
     {
         public static readonly TimeSpan DefaultPollInterval = TimeSpan.FromSeconds(10);
         public const int DefaultMaxConcurrentJobs = 2;
@@ -374,7 +374,7 @@ namespace Rook.Services.Vision.Video
                         Retryable: false,
                         Field: nameof(jobId))));
 
-            return Task.FromResult(TranslateToStatus(record));
+            return Task.FromResult(TranslateToStatus(record) with { Execution = ConfiguredProjection(record) });
         }
 
         // ─── Cancel ───────────────────────────────────────────────────
@@ -750,34 +750,21 @@ namespace Rook.Services.Vision.Video
                         Retryable: false,
                         Field: nameof(jobId))));
 
-            if (record.State != VideoJobState.Complete || record.ResultArtifactId is null)
-                return Task.FromResult(JobFetchResult.Failed(
-                    record.State,
-                    ToVideoJobError(
-                        record.Error,
-                        new VideoJobError(
-                            Code: VideoErrorCode.ExecutionFailed,
-                            Message: $"Job not complete (state={record.State}).",
-                            Retryable: false))));
-
-            var artifact = _artifactStore.Get(record.ResultArtifactId.Value);
-            if (artifact is null)
-                return Task.FromResult(JobFetchResult.Failed(
-                    VideoJobState.Error,
-                    new VideoJobError(
-                        Code: VideoErrorCode.ExecutionFailed,
-                        Message: $"Result artifact {record.ResultArtifactId:D} not found.",
-                        Retryable: false)));
-
-            var files = new List<JobResultFile>(artifact.Files.Count);
-            foreach (var f in artifact.Files)
-                files.Add(new JobResultFile(f.Role, f.Path));
-
-            return Task.FromResult(JobFetchResult.Complete(
-                record.ResultArtifactId.Value, files));
+            return Task.FromResult(FetchExisting(record) with { Execution = ConfiguredProjection(record) });
         }
 
-        // ─── List jobs (PR-V3) ────────────────────────────────────────
+        private JobFetchResult FetchExisting(VideoJobRecord record)
+        {
+            if (record.State != VideoJobState.Complete || record.ResultArtifactId is null)
+                return JobFetchResult.Failed(record.State, ToVideoJobError(record.Error,
+                    new VideoJobError(VideoErrorCode.ExecutionFailed, $"Job not complete (state={record.State}).", false)));
+            var artifact = _artifactStore.Get(record.ResultArtifactId.Value);
+            if (artifact == null) return JobFetchResult.Failed(VideoJobState.Error,
+                new VideoJobError(VideoErrorCode.ExecutionFailed, $"Result artifact {record.ResultArtifactId:D} not found.", false));
+            var files = new List<JobResultFile>(artifact.Files.Count);
+            foreach (var file in artifact.Files) files.Add(new JobResultFile(file.Role, file.Path));
+            return JobFetchResult.Complete(record.ResultArtifactId.Value, files);
+        }
 
         /// <summary>
         /// Hard ceiling for <see cref="ListJobsAsync"/>'s
@@ -830,7 +817,7 @@ namespace Rook.Services.Vision.Video
 
             var entries = new List<JobListEntry>(ordered.Count);
             foreach (var r in ordered)
-                entries.Add(ProjectEntry(r) with { Execution = r.Extensions?.ContainsKey("video_execution") == true ? RouteProjection(r) : null });
+                entries.Add(ProjectEntry(r) with { Execution = r.ConfiguredFalExecution != null ? ConfiguredProjection(r) : r.Extensions?.ContainsKey("video_execution") == true ? RouteProjection(r) : null });
 
             return Task.FromResult(new JobListResult(entries, warnings, applied));
         }
@@ -902,6 +889,15 @@ namespace Rook.Services.Vision.Video
             }
 
             return merged;
+        }
+
+        private static VideoExecutionProjection? ConfiguredProjection(VideoJobRecord record)
+        {
+            var read = record.ConfiguredFalExecution;
+            if (read == null) return null;
+            var summary = read.Snapshot?.Request.EffectiveRequestFields;
+            if (summary != null) { summary["model"] = record.Model; summary["operation"] = read.Snapshot!.Binding.OperationId; }
+            return new VideoExecutionProjection(new JsonObject { [FalExecutionSnapshot.ExtensionKey] = read.PublicJson, ["request_summary"] = summary });
         }
 
         private static JobListEntry ProjectEntry(VideoJobRecord record)

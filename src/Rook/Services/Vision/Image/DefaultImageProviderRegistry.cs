@@ -1,4 +1,6 @@
 using System;
+using System.Linq;
+using Rook.Services.Vision.Fal.Models;
 using System.Collections.Generic;
 
 namespace Rook.Services.Vision.Image
@@ -9,8 +11,14 @@ namespace Rook.Services.Vision.Image
         private readonly Dictionary<string, IImageProvider> _providerByName;
         private readonly List<ResolvedImageModel> _ordered;
 
-        public DefaultImageProviderRegistry(IEnumerable<IImageProviderRegistration> registrations)
+        public FalCatalogSnapshot? Catalog { get; }
+        public IReadOnlyList<FalCatalogDiagnostic> CatalogDiagnostics { get; }
+
+        public DefaultImageProviderRegistry(IEnumerable<IImageProviderRegistration> registrations, FalCatalogSnapshot? catalog = null,
+            IReadOnlyList<FalCatalogDiagnostic>? catalogDiagnostics = null)
         {
+            Catalog = catalog;
+            CatalogDiagnostics = Array.AsReadOnly((catalogDiagnostics ?? Array.Empty<FalCatalogDiagnostic>()).ToArray());
             if (registrations is null)
                 throw new ArgumentNullException(nameof(registrations));
 
@@ -122,7 +130,8 @@ namespace Rook.Services.Vision.Image
                     ProviderName: m.ProviderName,
                     SubmissionMode: m.SubmissionMode,
                     Capability: m.Capability,
-                    PricingSource: m.PricingModel.PricingSource));
+                    PricingSource: m.PricingModel.PricingSource,
+                    Operations: Catalog?.Definitions.FirstOrDefault(d => d.ModelId == m.ModelId)?.Operations.Select(o => new FalDescriptorProjector().Describe(o, null)).ToArray()));
             }
             return list;
         }

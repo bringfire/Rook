@@ -244,7 +244,7 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
-        public async Task GenerateAsync_preserves_unknown_full_gemini_model_passthrough()
+        public async Task GenerateAsync_rejects_unknown_full_gemini_model_without_provider_call()
         {
             var root = CreateTempRoot("rook-vision-generate-unknown-model");
             var settingsPath = Path.Combine(root, "RookSettings.json");
@@ -279,9 +279,9 @@ namespace Rook.Tests.Handlers
 
                 var response = await handler.GenerateAsync(args, CancellationToken.None);
 
-                Assert.True(response.Success);
-                Assert.NotNull(provider.CapturedRequest);
-                Assert.Equal("gemini-future-image-preview", provider.CapturedRequest!.Model);
+                Assert.False(response.Success);
+                Assert.Null(provider.CapturedRequest);
+                Assert.Equal("model_unavailable", Assert.IsType<Dictionary<string, object?>>(response.Data)["code"]);
             }
             finally
             {

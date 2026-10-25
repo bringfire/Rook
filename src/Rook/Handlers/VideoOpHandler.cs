@@ -1,4 +1,6 @@
 using System;
+using Rook.Services.Vision.Fal;
+using Rook.Services.Vision.Fal.Models;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -83,6 +85,8 @@ namespace Rook.Handlers
         /// </summary>
         public const int DefaultListJobsLimit = 50;
 
+        private readonly IMediaResolver? _configuredMediaResolver;
+        private readonly VideoPreparationResources _configuredResources;
         private readonly IVideoJobManager _manager;
         private readonly IVideoProviderRegistry _registry;
         private readonly IVideoCostEstimator _estimator;
@@ -94,8 +98,10 @@ namespace Rook.Handlers
             IVideoCostEstimator estimator)
             : this(manager, registry, estimator, null) { }
         internal VideoOpHandler(IVideoJobManager manager, IVideoProviderRegistry registry, IVideoCostEstimator estimator,
-            VideoFramingPreparationService? framing)
+            VideoFramingPreparationService? framing, IMediaResolver? configuredMediaResolver = null, VideoPreparationResources? configuredResources = null)
         {
+            _configuredMediaResolver = configuredMediaResolver;
+            _configuredResources = configuredResources ?? VideoPreparationResources.Shared;
             _manager = manager ?? throw new ArgumentNullException(nameof(manager));
             _registry = registry ?? throw new ArgumentNullException(nameof(registry));
             _estimator = estimator ?? throw new ArgumentNullException(nameof(estimator));
@@ -191,6 +197,7 @@ namespace Rook.Handlers
             Dictionary<string, JsonElement> args, CancellationToken ct)
         {
             JobSubmitResult result;
+            if (IsConfigured(args)) return await SubmitConfiguredAsync(args, ct).ConfigureAwait(false);
             if (ConfirmedManager is { } confirmed && VideoSubmissionCoordinator.IsAffectedModel(GetStringArg(args, "model") ?? ""))
             {
                 var (intent, intentError) = ParseRequestIntent(args);
@@ -218,6 +225,47 @@ namespace Rook.Handlers
             }));
         }
 
+        private bool IsConfigured(Dictionary<string, JsonElement> args) =>
+            _registry.TryResolve(GetStringArg(args, "model") ?? "", out var model) && model.Provider is IConfiguredGenerationProvider;
+        private Task<ApiResponse> SubmitConfiguredAsync(Dictionary<string, JsonElement> args, CancellationToken ct) => ConfiguredAsync(args, true, ct);
+        private async Task<ApiResponse> ConfiguredAsync(Dictionary<string, JsonElement> args, bool submit, CancellationToken ct)
+        {
+            var catalog = (_registry as DefaultVideoProviderRegistry)?.Catalog;
+            if (catalog == null) return FailWithError(BadField("model", "Configured model catalog is unavailable."));
+            var raw = FalConfiguredRequestParser.ToJson(args);
+            var parsed = FalConfiguredRequestParser.Parse(raw, catalog, "video");
+            if (!parsed.Success) return FalConfiguredRequestParser.Failure(parsed);
+            FalSubmitConfirmation? confirmation = null;
+            if (submit && FalSubmitConfirmation.TryParse(raw, out confirmation) is { } error) return FailWithError(error);
+            if (_configuredMediaResolver == null || submit && _manager is not IConfiguredVideoJobManager)
+                return FailWithError(new GenerationError(GenerationErrorCode.DependencyUnavailable, "Configured video service is unavailable.", false));
+            var request = parsed.Request!;
+            FalMediaSnapshot snapshot;
+            using (var resolved = await _configuredMediaResolver.ResolveAllAsync(request.Media.Select(m => m.Input.Source).Distinct().ToArray(), ct).ConfigureAwait(false))
+            {
+                if (!resolved.Success) return FailWithError(resolved.Error!);
+                snapshot = FalMediaSnapshot.Capture(request, resolved.Resolved!, _configuredResources);
+            }
+            if (snapshot.ValidationError is { } invalid) { snapshot.Dispose(); return FailWithError(invalid); }
+            if (!submit)
+            {
+                using (snapshot)
+                {
+                    var quote = new FalQuoteService().Estimate(request, snapshot);
+                    return quote.Success ? Ok(quote.Quote!.ToJson()) : FailWithError(quote.Error!);
+                }
+            }
+            // The legacy Int32 shell is a compatibility carrier only; canonical raw controls drive pricing and payloads.
+            var fields = request.EffectiveRequestFields;
+            var mode = request.Binding.OperationId == "text_to_video" ? VideoMode.T2V : request.Binding.OperationId == "image_to_video" ? VideoMode.I2V : VideoMode.Interp;
+            var shell = new VideoGenerationRequest(request.Binding.ModelId, mode, 0,
+                FalConfiguredRequestParser.String(fields["resolution"]) ?? "", FalConfiguredRequestParser.String(fields["aspect_ratio"]) ?? "",
+                FalConfiguredRequestParser.String(fields["prompt"]), null, null, null, null, new FalModelOptions(parsed.Input!, request.Binding.OperationId), 1);
+            var result = await ((IConfiguredVideoJobManager)_manager).SubmitConfiguredAsync(shell, request, snapshot, null, ct, confirmation).ConfigureAwait(false);
+            if (result.GenerationError != null) return FailWithError(result.GenerationError, result.Execution);
+            return Ok(WithExecution(result.Execution, new Dictionary<string, object?> { ["job_id"] = result.JobId!.Value.ToString("D"), ["state"] = StateToString(result.State) }));
+        }
+
         private async Task<ApiResponse> CancelAsync(
             Dictionary<string, JsonElement> args, CancellationToken ct)
         {
@@ -226,14 +274,12 @@ namespace Rook.Handlers
 
             var result = await _manager.CancelAsync(jobId, ct).ConfigureAwait(false);
 
-            if (result.Error is not null)
-                return FailWithError(result.Error, result.Execution);
-
-            return Ok(WithExecution(result.Execution, new Dictionary<string, object?>
-            {
-                ["job_id"] = jobId.ToString("D"),
-                ["state"] = StateToString(result.State),
-            }));
+            var response = result.Error != null ? FailWithError(result.Error, result.Execution)
+                : Ok(WithExecution(result.Execution, new Dictionary<string, object?> { ["job_id"] = jobId.ToString("D"), ["state"] = StateToString(result.State) }));
+            var data = (Dictionary<string, object?>)response.Data!;
+            if (result.ConfiguredCancellation != null) { data["job_id"] = jobId.ToString("D"); data["state"] = StateToString(result.State); }
+            FalConfiguredRequestParser.AddCancellation(data, result.ConfiguredCancellation);
+            return response;
         }
 
         private ApiResponse GetStatus(Dictionary<string, JsonElement> args)
@@ -324,6 +370,7 @@ namespace Rook.Handlers
 
         private ApiResponse Estimate(Dictionary<string, JsonElement> args, CancellationToken ct)
         {
+            if (IsConfigured(args)) return ConfiguredAsync(args, false, ct).GetAwaiter().GetResult();
             if (ConfirmedManager is { } confirmed && VideoSubmissionCoordinator.IsAffectedModel(GetStringArg(args, "model") ?? ""))
             {
                 var (intent, parseError) = ParseRequestIntent(args);
@@ -423,6 +470,7 @@ namespace Rook.Handlers
             foreach (var d in descriptors)
                 {
                 var row = ModelDescriptorToObj(d);
+                if (d.Operations != null) row["operations"] = d.Operations.Select(o => o.ToJson()).ToArray();
                 if (ConfirmedManager is { } confirmed) foreach (var kv in confirmed.ModelAvailability(d.ModelId)) row[kv.Key] = kv.Value;
                 models.Add(row);
             }
@@ -430,6 +478,7 @@ namespace Rook.Handlers
             return Ok(new Dictionary<string, object?>
             {
                 ["models"] = models,
+                ["catalog_diagnostics"] = FalConfiguredRequestParser.ProjectDiagnostics((_registry as DefaultVideoProviderRegistry)?.CatalogDiagnostics),
             });
         }
 
@@ -868,6 +917,7 @@ namespace Rook.Handlers
                 ["retryable"] = err.Retryable,
                 ["field"] = err.Field,
             };
+            FalConfiguredRequestParser.AddErrorDetail(result, err);
             if (err.ProviderErrorCode == "vertex_submission_unknown" || err.ProviderErrorCode == "submission_unknown") result["submission_outcome_unknown"] = true;
             if (VideoSourcePreparationErrors.IsLocalCode(err.ProviderErrorCode) || err.ProviderErrorCode is "estimate_stale" or "cost_cap_exceeded" or "submission_unknown" or "persistence_failed" or "secret_access_failed" or "provider_timeout") result["detail_code"] = err.ProviderErrorCode;
             if (VideoSourcePreparationErrors.Extract(err) is { } prepared) foreach (var detail in prepared.Details()) result[detail.Key] = detail.Value.GetValue<string>();
