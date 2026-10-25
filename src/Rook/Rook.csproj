@@ -24,6 +24,14 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Rook.Tests" />
     <InternalsVisibleTo Include="Rook.Framing.Qualification" />
+    <InternalsVisibleTo Include="Rook.Vision.Qualification" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Services\Vision\Fal\Models\**\*.json">
+      <Link>vision-models\fal\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>
@@ -93,6 +101,7 @@
     <ItemGroup>
       <RookRuntimeDependencyFiles Include="$(TargetDir)*.dll" />
       <RookRuntimeAssetFiles Include="$(TargetDir)runtimes\**\*" />
+      <RookVisionCatalogFiles Include="$(TargetDir)vision-models\fal\**\*.json" />
     </ItemGroup>
     <MakeDir Directories="$(RhinoManagedRuntimeDir)" />
     <Delete Files="$(RhinoManagedRuntimeDir)\$(TargetName).rui" />
@@ -114,6 +123,9 @@
           SkipUnchangedFiles="true"
           Condition="'@(RookRuntimeAssetFiles)' != ''" />
     <Message Importance="high" Text="Deployed Rook.rhp to $(RhinoManagedRuntimeDir)" />
+    <Copy SourceFiles="@(RookVisionCatalogFiles)"
+          DestinationFiles="@(RookVisionCatalogFiles->'$(RhinoManagedRuntimeDir)\vision-models\fal\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
   </Target>
 
 </Project>

@@ -534,6 +534,11 @@ function Deploy-CompanionRuntimePayload {
 
     $sourceDir = Join-Path $RepoRoot "src\Rook\bin\$Configuration\$Runtime"
     $targetDir = Join-Path $PluginDir $Runtime
+    # Full deployment includes external catalog data. ManagedOnly remains rhp/pdb only.
+    . (Join-Path $RepoRoot 'scripts/deploy-vision-model-catalog.ps1')
+    $catalogSource = Join-Path $sourceDir 'vision-models\fal'
+    if (-not (Test-Path -LiteralPath (Join-Path $catalogSource 'catalog.json') -PathType Leaf)) { throw "Catalog build output missing: $catalogSource" }
+    @(Get-VisionTreeFiles $catalogSource) | Out-Null
 
     Copy-RequiredFile (Join-Path $sourceDir 'Rook.rhp') (Join-Path $targetDir 'Rook.rhp')
     Remove-Item -LiteralPath (Join-Path $targetDir 'Rook.rui') -Force -ErrorAction SilentlyContinue
@@ -550,6 +555,9 @@ function Deploy-CompanionRuntimePayload {
     }
 
     Sync-Directory (Join-Path $sourceDir 'runtimes') (Join-Path $targetDir 'runtimes')
+    $catalogTarget = Join-Path $targetDir 'vision-models\fal'
+    Remove-VisionSafeDirectory $catalogTarget $PluginDir
+    Copy-VisionCatalogJson $catalogSource $catalogTarget $PluginDir
 }
 
 function Deploy-CompanionPayload {

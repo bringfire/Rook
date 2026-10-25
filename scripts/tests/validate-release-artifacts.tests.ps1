@@ -1,3 +1,4 @@
+param([switch]$CatalogOnly, [string]$QualificationPath = '')
 $ErrorActionPreference = 'Stop'
 
 $TestRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -957,6 +958,46 @@ function Test-ValidatorRejectsOcctSourceBundleForAnotherCommit {
     Assert-Contains -Text $result.Output -Expected 'does not match the provenance commit' -Message "OCCT commit error was not specific. Output: $($result.Output)"
 }
 
+function Test-ReleaseValidatesCatalogSemanticsAndHashParity {
+    $text = Get-Content -LiteralPath $Validator -Raw
+    $tokens = $null; $errors = $null
+    $ast = [Management.Automation.Language.Parser]::ParseInput($text, [ref]$tokens, [ref]$errors)
+    $function = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Test-PackagedVisionCatalogs' }, $true)
+    Assert-True ($null -ne $function) 'Release validation must require semantic catalog admission and source hash parity.'
+    . (Join-Path $RepoRoot 'scripts/deploy-vision-model-catalog.ps1')
+    Invoke-Expression $function.Extent.Text
+    $temp = Join-Path ([IO.Path]::GetTempPath()) ('rook-package-catalog-test-' + [Guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $temp | Out-Null
+    try {
+        $source = Join-Path $temp 'source'
+        $package = Join-Path $temp 'package'
+        New-Item -ItemType Directory -Path $source | Out-Null
+        '{"schema_version":1,"definitions":[]}' | Set-Content (Join-Path $source 'catalog.json') -Encoding ASCII
+        foreach ($runtime in @('net48','net7.0','net8.0')) {
+            Copy-VisionCatalogJson $source (Join-Path $package "$runtime/vision-models/fal") $temp
+        }
+        $valid = { param($root,$validator) if (-not (Test-Path (Join-Path $root 'catalog.json'))) { throw 'Missing manifest' } }
+        if ($QualificationPath) { $valid = { param($root,$validator) Invoke-VisionCatalogValidation $root $validator } }
+        $qualification = if ($QualificationPath) { (Resolve-Path -LiteralPath $QualificationPath).ProviderPath } else { 'injected' }
+        $result = @(Test-PackagedVisionCatalogs $source $package $qualification -ValidateCatalog $valid)
+        Assert-True ($result.Count -eq 3 -and $result[0].files.Count -eq 1 -and $result[0].files[0].sha256.Length -eq 64) 'Release manifest must record all three validated catalogs and JSON hashes, including empty catalogs.'
+        '{ "schema_version": 1, "definitions": [] }' | Set-Content (Join-Path $package 'net7.0/vision-models/fal/catalog.json') -Encoding ASCII
+        $rejected = $false
+        try { Test-PackagedVisionCatalogs $source $package $qualification -ValidateCatalog $valid | Out-Null } catch { $rejected = $_.Exception.Message -like '*hash parity*' }
+        Assert-True $rejected 'Packaged JSON drift must fail validation.'
+        $rejected = $false
+        try { Test-PackagedVisionCatalogs $source $package 'injected' -ValidateCatalog { throw 'semantic invalid' } | Out-Null } catch { $rejected = $_.Exception.Message -like '*semantic invalid*' }
+        Assert-True $rejected 'Semantic validation must fail the package before acceptance.'
+        if ($QualificationPath) {
+            '{"schema_version":1,"definitions":["missing.json"]}' | Set-Content (Join-Path $source 'catalog.json') -Encoding ASCII
+            $rejected = $false
+            try { Test-PackagedVisionCatalogs $source $package $qualification -ValidateCatalog $valid | Out-Null } catch { $rejected = $true }
+            Assert-True $rejected 'Production compiler must reject missing references before package acceptance.'
+        }
+    } finally { Remove-VisionSafeDirectory $temp ([IO.Path]::GetTempPath()) }
+}
+Test-ReleaseValidatesCatalogSemanticsAndHashParity
+if ($CatalogOnly) { Write-Host 'Release catalog tests passed (temporary package roots only).'; return }
 Test-ReleaseValidatorRequiresPythonRuntimeEvidence
 Test-ValidatorWritesExactArtifactManifest
 Test-ValidatorAcceptsInstallerOlderThanInstallerScriptByDefault
