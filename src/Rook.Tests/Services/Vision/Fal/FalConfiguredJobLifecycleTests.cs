@@ -23,6 +23,38 @@ namespace Rook.Tests.Services.Vision.Fal
     public class FalConfiguredJobLifecycleTests
     {
         [Theory]
+        [InlineData(false, "confirmed_cancelled")] [InlineData(true, "confirmed_cancelled")]
+        [InlineData(false, "already_completed")] [InlineData(true, "already_completed")]
+        [InlineData(false, "cancellation_requested")] [InlineData(true, "cancellation_requested")]
+        [InlineData(false, "failed")] [InlineData(true, "failed")]
+        public async Task Stale_no_handle_cancellation_retains_late_remote_cleanup(bool video, string remote)
+        {
+            using var run = new Run(video); run.Transport.HoldSubmit = true; run.Transport.CancelDisposition = remote;
+            var beforeCommit = Signal(); var resumeCommit = Signal();
+            Func<Task> pause = async () => { beforeCommit.TrySetResult(true); await resumeCommit.Task; };
+            if (video) run.Video!.BeforeConfiguredNoHandleCleanupCommitForTests = pause;
+            else run.Image!.BeforeConfiguredNoHandleCleanupCommitForTests = pause;
+            await run.Submit(); await Wait(run.Transport.PostEntered.Task);
+            var cancel = run.Cancel();
+            try
+            {
+                await Wait(beforeCommit.Task);
+                run.Transport.PostRelease.TrySetResult(true);
+                await Wait(run.CleanupPersisted.Task);
+                var observed = run.Snapshot()!.Cancellation!;
+                Assert.Equal(remote, observed.RemoteDisposition); Assert.True(observed.Automatic);
+                resumeCommit.TrySetResult(true); await cancel;
+                var retained = run.Snapshot()!.Cancellation!;
+                Assert.Equal(remote, retained.RemoteDisposition); Assert.True(retained.Automatic);
+                Assert.Equal(observed.RemoteTerminalState, retained.RemoteTerminalState);
+                Assert.Equal(remote, run.LastCancellation!.RemoteDisposition); Assert.True(run.LastCancellation.Automatic);
+                Assert.Equal(remote != "confirmed_cancelled", run.CancelHadError);
+                Assert.Empty(run.Store.List());
+            }
+            finally { resumeCommit.TrySetResult(true); await cancel; }
+        }
+
+        [Theory]
         [InlineData(false, false, "confirmed_cancelled")] [InlineData(true, false, "confirmed_cancelled")]
         [InlineData(false, false, "already_completed")] [InlineData(true, false, "already_completed")]
         [InlineData(false, false, "cancellation_requested")] [InlineData(true, false, "cancellation_requested")]

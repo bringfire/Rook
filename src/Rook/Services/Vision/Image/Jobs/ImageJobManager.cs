@@ -1208,6 +1208,8 @@ namespace Rook.Services.Vision.Image.Jobs
             return await CleanupConfiguredAsync(record, running, false, ct).ConfigureAwait(false);
         }
 
+        internal Func<Task>? BeforeConfiguredNoHandleCleanupCommitForTests { get; set; }
+
         private async Task<ImageJobCancelResult> CleanupConfiguredAsync(ImageJobRecord record, RunningJob? running, bool automatic, CancellationToken ct)
         {
             var read = record.ConfiguredFalExecution!;
@@ -1217,8 +1219,9 @@ namespace Rook.Services.Vision.Image.Jobs
                 return ImageJobCancelResult.Configured(record.State, new FalCancellationSnapshot(true, "unavailable", automatic), FalExecutionRecovery.Unavailable(read.Diagnostic));
             if (read.Snapshot.Handle == null)
             {
-                error = read.Snapshot.OutcomeUnknown ? FalExecutionRecovery.Unavailable("Local monitoring stopped; remote submission outcome is unknown.") : null;
-                evidence = new FalCancellationSnapshot(true, error == null ? "not_requested" : "unavailable", automatic);
+                (evidence, error) = read.Snapshot.ReconcileNoHandleCancellation(automatic);
+                if (BeforeConfiguredNoHandleCleanupCommitForTests is { } beforeCommit)
+                    await beforeCommit().ConfigureAwait(false);
             }
             else
             {
@@ -1239,7 +1242,13 @@ namespace Rook.Services.Vision.Image.Jobs
             try
             {
                 using var durability = _configuredDurabilityBudgetFactory();
-                record = CommitConfiguredExecution(record.JobId, snapshot => snapshot.WithCancellation(evidence), durability.Token, false);
+                record = CommitConfiguredExecution(record.JobId, snapshot =>
+                {
+                    if (read.Snapshot.Handle == null)
+                        (evidence, error) = snapshot.ReconcileNoHandleCancellation(automatic);
+                    return snapshot.WithCancellation(evidence);
+                }, durability.Token, false);
+                evidence = record.ConfiguredFalExecution!.Snapshot!.Cancellation!;
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is OperationCanceledException || ex is TimeoutException)
             {

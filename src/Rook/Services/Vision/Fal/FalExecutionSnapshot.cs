@@ -51,6 +51,18 @@ namespace Rook.Services.Vision.Fal
             : WithDispatchState("accepted", (outcome as QueuedSubmitOutcome)?.Handle);
         public FalExecutionSnapshot WithCancellation(FalCancellationSnapshot cancellation)
             => new(Request, _media, Pricing, DispatchState, Handle, SubmissionOutcome, cancellation ?? throw new ArgumentNullException(nameof(cancellation)));
+        // Called under the manager's commit gate for a cancellation that originally
+        // saw no handle. Absence observed earlier cannot erase a later remote fact.
+        internal (FalCancellationSnapshot Evidence, GenerationError? Error) ReconcileNoHandleCancellation(bool automatic)
+        {
+            if (Handle != null && Cancellation != null)
+                return (Cancellation, Cancellation.RetainedOutcomeError());
+            var error = Handle != null
+                ? FalExecutionRecovery.Unavailable("Local monitoring stopped; a remote handle is now available, but remote cancellation is not yet confirmed.")
+                : OutcomeUnknown ? FalExecutionRecovery.Unavailable("Local monitoring stopped; remote submission outcome is unknown.") : null;
+            return (new FalCancellationSnapshot(true, error == null ? "not_requested" : "unavailable", automatic), error);
+        }
+
         internal GenerationError? ReconcileStopError(GenerationError? error)
             => error?.ProviderErrorCode == "fal_submission_unknown" && SubmissionOutcome is "accepted" or "not_accepted"
                 ? new GenerationError(error.Code, SubmissionOutcome == "accepted"

@@ -51,6 +51,20 @@ namespace Rook.Services.Vision.Fal
             return new(json["local_stopped"]!.GetValue<bool>(), json["remote_disposition"]!.GetValue<string>(), json["automatic"]!.GetValue<bool>(), terminal);
         }
 
+        // Rebuild a result error when a concurrent cleanup's durable evidence wins.
+        // Detailed transport errors are not persisted in the cancellation snapshot.
+        internal GenerationError? RetainedOutcomeError() => RemoteDisposition switch
+        {
+            "confirmed_cancelled" or "not_requested" => null,
+            "already_completed" or "already_terminal" => Observe(new AlreadyTerminalOutcome(RemoteTerminalState!.Value), Automatic).Error,
+            "cancellation_requested" => new GenerationError(GenerationErrorCode.ExecutionFailed,
+                "Remote cancellation was requested; the running job may still complete and incur charges.", false, ProviderErrorCode: "fal_cancellation_requested"),
+            "failed" => new GenerationError(GenerationErrorCode.ExecutionFailed,
+                "Local monitoring stopped; remote cancellation failed.", false, ProviderErrorCode: "fal_cancel_failed"),
+            "local_stop_only" => new GenerationError(GenerationErrorCode.Interrupted, LocalStopOnlyOutcome.Message, false),
+            _ => FalExecutionRecovery.Unavailable(),
+        };
+
         internal static (FalCancellationSnapshot Evidence, GenerationError? Error) Observe(ProviderCancelOutcome outcome, bool automatic)
         {
             if (outcome is CanceledOutcome) return (new(true, "confirmed_cancelled", automatic), null);

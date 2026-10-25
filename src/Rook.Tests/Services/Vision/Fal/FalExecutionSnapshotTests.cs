@@ -11,6 +11,37 @@ namespace Rook.Tests.Services.Vision.Fal
     public class FalExecutionSnapshotTests
     {
         [Theory]
+        [InlineData("confirmed_cancelled", null, false)]
+        [InlineData("already_completed", GenerationLifecycleState.Completed, true)]
+        [InlineData("cancellation_requested", null, true)]
+        [InlineData("failed", null, true)]
+        [InlineData("unavailable", null, true)]
+        public void No_handle_reconciliation_preserves_saved_remote_fact(string disposition, GenerationLifecycleState? terminal, bool hasError)
+        {
+            var evidence = new FalCancellationSnapshot(true, disposition, true, terminal);
+            var snapshot = Snapshot().WithCancellation(evidence);
+            var retained = snapshot.ReconcileNoHandleCancellation(false);
+            Assert.Same(evidence, retained.Evidence);
+            Assert.Equal(hasError, retained.Error != null);
+            Assert.Equal(disposition == "confirmed_cancelled", retained.Evidence.RemoteCancellationConfirmed);
+        }
+
+        [Fact]
+        public void No_handle_reconciliation_rechecks_latest_handle_and_settlement()
+        {
+            var accepted = Snapshot();
+            var awaitingCleanup = accepted.ReconcileNoHandleCancellation(false);
+            Assert.Equal("unavailable", awaitingCleanup.Evidence.RemoteDisposition);
+            Assert.DoesNotContain("outcome is unknown", awaitingCleanup.Error!.Message);
+            Assert.Contains("handle is now available", awaitingCleanup.Error.Message);
+            var noHandle = new FalExecutionSnapshot(accepted.Request, accepted.MediaProvenance, accepted.Pricing, "dispatch_intent", null);
+            Assert.Equal("unavailable", noHandle.ReconcileNoHandleCancellation(false).Evidence.RemoteDisposition);
+            var rejected = noHandle.WithOutcome(new FailedSubmitOutcome(new GenerationError(GenerationErrorCode.ExecutionFailed, "rejected", false), SubmissionDisposition.NotAccepted));
+            var settled = rejected.ReconcileNoHandleCancellation(false);
+            Assert.Equal("not_requested", settled.Evidence.RemoteDisposition); Assert.Null(settled.Error);
+        }
+
+        [Theory]
         [InlineData("confirmed_cancelled", null)]
         [InlineData("cancellation_requested", null)]
         [InlineData("already_completed", GenerationLifecycleState.Completed)]
