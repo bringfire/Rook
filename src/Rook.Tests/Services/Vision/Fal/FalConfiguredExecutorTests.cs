@@ -8,12 +8,75 @@ using System.Threading.Tasks;
 using Rook.Services.Vision.Fal;
 using Rook.Services.Vision.Fal.Models;
 using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Video.Framing;
 using Xunit;
 
 namespace Rook.Tests.Services.Vision.Fal
 {
     public class FalConfiguredExecutorTests
     {
+        [Fact]
+        public async Task Encoded_ownership_survives_preparation_until_dispatch_settles()
+        {
+            using var run = new ConfiguredRun();
+            run.Observer.DispatchWrite = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var submit = run.Submit();
+            try { Assert.Equal(1, run.Resources.ActiveBundles); }
+            finally { run.Observer.DispatchWrite.TrySetResult(true); await submit; }
+            Assert.Equal(0, run.Resources.ActiveBundles);
+        }
+        [Theory]
+        [InlineData("success")]
+        [InlineData("network")]
+        [InlineData("cancel")]
+        public async Task Payload_admission_stays_held_until_HTTP_settles_even_after_snapshot_disposal(string finish)
+        {
+            using var run = new ConfiguredRun();
+            using var files = FalMediaPreparationTests.MediaFiles("data_uri");
+            var source = MediaRef.ForArtifact(Guid.NewGuid(), "image");
+            var request = FalMediaPreparationTests.Request(files, new[] { new FalMediaInput("reference_image", 0, source) });
+            using var snapshot = FalMediaSnapshot.Capture(request, new Dictionary<MediaRef, ResolvedMedia> { [source] = new(FalMediaPreparationTests.Png, "image/png") }, run.Resources);
+            var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var stop = new CancellationTokenSource();
+            run.OnHttp = async (http, ct) =>
+            {
+                Assert.Contains("data:image/png;base64,", await http.Content!.ReadAsStringAsync());
+                entered.TrySetResult(true); await release.Task;
+                if (finish == "network") throw new HttpRequestException();
+                if (finish == "cancel") throw new OperationCanceledException(ct);
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"images\":[{\"url\":\"https://fal.media/result.png\"}]}") };
+            };
+            var submit = run.Executor.SubmitAsync(request, snapshot, run.Observer, stop.Token);
+            try
+            {
+                Assert.Same(entered.Task, await Task.WhenAny(entered.Task, Task.Delay(5000)));
+                snapshot.Dispose(); if (finish == "cancel") stop.Cancel();
+                Assert.False(submit.IsCompleted); Assert.Equal(1, run.Resources.ActiveBundles);
+                using var second = FalMediaSnapshot.Capture(run.Request, new Dictionary<MediaRef, ResolvedMedia>(), run.Resources);
+                using var denied = FalMediaSnapshot.Capture(run.Request, new Dictionary<MediaRef, ResolvedMedia>(), run.Resources);
+                Assert.Null(second.ValidationError); Assert.Equal("media_preparation_busy", denied.ValidationError!.ProviderErrorCode);
+            }
+            finally { release.TrySetResult(true); }
+            var outcome = await submit;
+            if (finish == "success") Assert.IsType<SyncSubmitOutcome>(outcome);
+            else Assert.Equal(SubmissionDisposition.Unknown, Assert.IsType<FailedSubmitOutcome>(outcome).Disposition);
+            Assert.Equal(0, run.Resources.ActiveBundles);
+        }
+        [Theory]
+        [InlineData("beforeUpload")]
+        [InlineData("beforeDispatch")]
+        [InlineData("accepted_write")]
+        public async Task Admission_and_persistence_failures_release_payload_reservations(string failure)
+        {
+            using var run = new ConfiguredRun();
+            if (failure == "accepted_write") run.Failure = failure; else run.Observer.DeniedPhase = failure;
+            using var snapshot = FalMediaSnapshot.Capture(run.Request, new Dictionary<MediaRef, ResolvedMedia>(), run.Resources);
+            var outcome = Assert.IsType<FailedSubmitOutcome>(await run.Executor.SubmitAsync(run.Request, snapshot, run.Observer, CancellationToken.None));
+            Assert.Equal(failure == "accepted_write" ? SubmissionDisposition.Unknown : SubmissionDisposition.NotAccepted, outcome.Disposition);
+            Assert.Equal(0, snapshot.Phase.Buffers.ReservedBytes); Assert.Equal(1, run.Resources.ActiveBundles);
+            snapshot.Dispose(); Assert.Equal(0, run.Resources.ActiveBundles);
+        }
         [Theory]
         [InlineData("sync", false)]
         [InlineData("queue", false)]
@@ -119,9 +182,11 @@ namespace Rook.Tests.Services.Vision.Fal
         internal readonly FalNormalizedRequest Request;
         internal readonly FalConfiguredExecutor Executor;
         internal readonly HttpClient Http;
+        internal readonly VideoPreparationResources Resources = new();
         internal int Status = 200;
         internal string? Body, Failure, Key = "test-key";
         internal string? LastUrl;
+        internal Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>>? OnHttp;
         internal const string Root = "https://queue.fal.run/fal-ai/synthetic/requests/job-1";
         internal ConfiguredRun(string invocation = "queue", bool video = false)
         {
@@ -137,7 +202,11 @@ namespace Rook.Tests.Services.Vision.Fal
             Http = new HttpClient(new Handler(this));
             Executor = new FalConfiguredExecutor(new FalApiClient(Http), () => Key);
         }
-        internal Task<ProviderSubmitOutcome> Submit() => Executor.SubmitAsync(Request, FalMediaSnapshot.Capture(Request, new Dictionary<MediaRef, ResolvedMedia>()), Observer, CancellationToken.None);
+        internal async Task<ProviderSubmitOutcome> Submit()
+        {
+            using var snapshot = FalMediaSnapshot.Capture(Request, new Dictionary<MediaRef, ResolvedMedia>(), Resources);
+            return await Executor.SubmitAsync(Request, snapshot, Observer, CancellationToken.None);
+        }
         internal static ProviderJobHandle Handle(string? status = null, string? result = null, string? cancel = null) => new("job-1", new Uri(status ?? Root + "/status"), new Uri(result ?? Root), new Uri(cancel ?? Root + "/cancel"), "PUT");
         public void Dispose() { Http.Dispose(); Files.Dispose(); }
         private sealed class Handler : HttpMessageHandler
@@ -156,6 +225,7 @@ namespace Rook.Tests.Services.Vision.Fal
                     if (_run.Failure == "network") throw new HttpRequestException();
                     if (_run.Failure == "cancel") throw new OperationCanceledException();
                 }
+                if (_run.OnHttp != null) return _run.OnHttp(request, ct);
                 var body = _run.Body ?? (_run.Request.Binding.Invocation == "sync" ? "{\"images\":[{\"url\":\"https://fal.media/result.png\"}]}" : QueueBody());
                 if (_run.Failure == "missing_handle") body = "{}";
                 if (_run.Failure == "bad_handle") body = QueueBody().Replace("queue.fal.run", "evil.example");

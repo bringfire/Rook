@@ -1,5 +1,6 @@
 using System;
 using System.Net.Http;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
@@ -43,8 +44,10 @@ namespace Rook.Services.Vision.Fal
                 var endpoint = new Uri((binding.Invocation == "queue" ? "https://queue.fal.run/" : "https://fal.run/") + binding.EndpointId);
                 var admission = await observer.BeforeUploadAsync(ct).ConfigureAwait(false);
                 if (admission != null) return new FailedSubmitOutcome(admission);
-                var prepared = await _preparation.PrepareAsync(request, media, ct).ConfigureAwait(false);
-                var payload = adapter.BuildPayload(request, prepared).ToJsonString();
+                using var prepared = await _preparation.PrepareOwnedAsync(request, media, ct).ConfigureAwait(false);
+                var payload = adapter.BuildPayload(request, prepared.Values).ToJsonString();
+                if (Encoding.UTF8.GetByteCount(payload) > prepared.MaxSerializedBytes)
+                    return new FailedSubmitOutcome(FalMediaSnapshot.Invalid("Configured fal serialized payload exceeds its admitted envelope.", "media"));
                 admission = await observer.BeforeDispatchAsync(ct).ConfigureAwait(false);
                 if (admission != null) return new FailedSubmitOutcome(admission);
                 ct.ThrowIfCancellationRequested();
