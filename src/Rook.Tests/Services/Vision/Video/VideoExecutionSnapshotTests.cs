@@ -44,7 +44,9 @@ namespace Rook.Tests.Services.Vision.Video
             var unsupported = record with { Extensions = new JsonObject { ["video_execution"] = new JsonObject { ["version"] = 99 } } };
             Assert.NotNull(VideoExecutionSnapshot.Read(unsupported).Error);
             var corrupt = VideoExecutionSnapshot.Write(record, new VideoExecutionSnapshot(1, Data()));
-            corrupt.Extensions!["video_execution"]!["deadline_utc"] = "broken";
+            var corruptedExtensions = corrupt.Extensions!;
+            corruptedExtensions["video_execution"]!["deadline_utc"] = "broken";
+            corrupt = corrupt with { Extensions = corruptedExtensions };
             Assert.NotNull(VideoExecutionSnapshot.Read(corrupt).Error);
         }
     }

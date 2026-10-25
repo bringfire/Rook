@@ -18,12 +18,12 @@ namespace Rook.Services.Vision.Fal.Models
         public string SourceFile { get; }
         public IReadOnlyList<FalOperationBinding> Operations { get; }
 
-        internal FalModelDefinition(JsonObject json, string sourceFile)
+        internal FalModelDefinition(JsonObject json, string sourceFile, string? originalDefinitionHash = null)
         {
             _json = (JsonObject)json.DeepClone();
             DefinitionId = FalValues.String(json, "definition_id");
             Revision = FalValues.String(json, "revision");
-            DefinitionHash = FalCanonicalJson.Hash(json);
+            DefinitionHash = originalDefinitionHash ?? FalCanonicalJson.Hash(json);
             ModelId = FalValues.String(json, "model_id");
             DisplayName = FalValues.String(json, "display_name");
             Status = FalValues.String(json, "status");

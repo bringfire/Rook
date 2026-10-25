@@ -56,6 +56,8 @@ namespace Rook.Services.Vision.Image.Jobs
                     FileShare.Read);
                 using var writer = new StreamWriter(stream, new UTF8Encoding(false));
                 writer.WriteLine(line);
+                writer.Flush();
+                stream.Flush(flushToDisk: true);
             }
         }
 
@@ -117,6 +119,7 @@ namespace Rook.Services.Vision.Image.Jobs
                 ["updated_at"] = r.UpdatedAt.ToString("o", CultureInfo.InvariantCulture),
             };
 
+            if (r.ConfiguredFalExecution != null) obj[Services.Vision.Fal.FalExecutionSnapshot.ExtensionKey] = r.ConfiguredFalExecution.Json;
             var routing = ImageRoutingCodec.ToJson(new ImageRoutingContext(r.ImageRoute, r.CredentialFailure), r.FalDispatchState);
             if (!ImageRoutingCodec.TryRead(routing, r.Provider, r.Model, out _, out _, out var invalidField))
                 throw new ArgumentException("Invalid image routing field: " + invalidField);
@@ -235,7 +238,9 @@ namespace Rook.Services.Vision.Image.Jobs
                 UpdatedAt: updatedAt,
                 ImageRoute: routing?.Route,
                 CredentialFailure: routing?.CredentialFailure,
-                FalDispatchState: dispatch), null);
+                FalDispatchState: dispatch,
+                ConfiguredFalExecution: obj.ContainsKey(Services.Vision.Fal.FalExecutionSnapshot.ExtensionKey)
+                    ? Services.Vision.Fal.FalExecutionSnapshotCodec.Deserialize(obj[Services.Vision.Fal.FalExecutionSnapshot.ExtensionKey] as JsonObject ?? new JsonObject()) : null), null);
         }
 
         private static (GenerationError? Error, ImageJobLedgerReadError? ReadError)

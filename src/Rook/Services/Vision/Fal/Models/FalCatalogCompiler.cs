@@ -10,6 +10,16 @@ namespace Rook.Services.Vision.Fal.Models
 {
     public sealed class FalCatalogCompiler
     {
+        // Recovery validates a saved operation without consulting a catalog. The original full
+        // definition hash is provenance; it is NOT a hash of this single-operation envelope.
+        internal static FalOperationBinding RestoreBinding(JsonObject json, string originalDefinitionHash)
+        {
+            if (!Regex.IsMatch(originalDefinitionHash, @"\A[0-9a-f]{64}\z"))
+                throw new ArgumentException("Invalid original definition hash.");
+            ValidateDefinition(json);
+            if (json["operations"]!.AsArray().Count != 1) throw new ArgumentException("Expected one stored operation.");
+            return new FalModelDefinition(json, "persisted execution", originalDefinitionHash).Operations[0];
+        }
         public FalCatalogLoadResult Compile(string rootDirectory, IReadOnlyCollection<string> reservedModelIds)
         {
             if (reservedModelIds == null) throw new ArgumentNullException(nameof(reservedModelIds));

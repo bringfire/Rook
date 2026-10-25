@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Image;
+using Rook.Services.Vision.Fal.Models;
+using Rook.Services.Vision.Fal;
 
 namespace Rook.Services.Vision.Image.Jobs
 {
@@ -11,7 +13,10 @@ namespace Rook.Services.Vision.Image.Jobs
             ImageGenerationRequest request,
             IReadOnlyDictionary<MediaRef, ResolvedMedia> resolvedMedia,
             IReadOnlyList<Guid> parentArtifactIds,
-            ResolvedImageModel? resolvedModel = null)
+            ResolvedImageModel? resolvedModel = null,
+            FalPricingSnapshot? configuredPricing = null,
+            FalNormalizedRequest? configuredRequest = null,
+            FalMediaSnapshot? configuredMedia = null)
         {
             Request = request ?? throw new ArgumentNullException(nameof(request));
             ResolvedMedia = resolvedMedia
@@ -19,11 +24,18 @@ namespace Rook.Services.Vision.Image.Jobs
             ParentArtifactIds = parentArtifactIds
                 ?? throw new ArgumentNullException(nameof(parentArtifactIds));
             ResolvedModel = resolvedModel;
+            ConfiguredPricing = configuredPricing;
+            ConfiguredRequest = configuredRequest;
+            ConfiguredMedia = configuredMedia;
         }
 
         public ImageGenerationRequest Request { get; }
         public IReadOnlyDictionary<MediaRef, ResolvedMedia> ResolvedMedia { get; }
         public IReadOnlyList<Guid> ParentArtifactIds { get; }
         public ResolvedImageModel? ResolvedModel { get; }
+        public FalPricingSnapshot? ConfiguredPricing { get; }
+        public FalNormalizedRequest? ConfiguredRequest { get; }
+        /// <summary>Ownership transfers on SubmitAsync, including all rejected admission paths.</summary>
+        public FalMediaSnapshot? ConfiguredMedia { get; }
     }
 }

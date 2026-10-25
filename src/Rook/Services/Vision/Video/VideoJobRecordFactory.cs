@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text.Json.Nodes;
 using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Fal;
 
 namespace Rook.Services.Vision.Video
 {
@@ -29,6 +30,26 @@ namespace Rook.Services.Vision.Video
     public static class VideoJobRecordFactory
     {
         public const int CurrentSchemaVersion = 1;
+
+        public static VideoJobRecord FromConfigured(Guid jobId, VideoGenerationRequest request, ResolvedVideoModel model,
+            FalExecutionSnapshot snapshot, DateTimeOffset now)
+        {
+            // Legacy integer pricing/control columns are compatibility fields. The configured
+            // snapshot is the authority for decimal quantities and full-width common controls.
+            var pricing = new JobPricing(PricingKind.External, "USD", 1, null, null, FalExecutionSnapshot.ExtensionKey);
+            var estimate = new VideoCostEstimate(0, model.ModelId, request.Resolution, request.DurationSeconds, 1,
+                Array.Empty<CostBreakdownComponent>(), pricing);
+            return WithConfiguredExecution(From(jobId, request, model, estimate, VideoJobState.Queued, now), snapshot);
+        }
+
+        public static VideoJobRecord WithConfiguredExecution(VideoJobRecord record, FalExecutionSnapshot snapshot)
+        {
+            var extensions = record.Extensions == null ? new JsonObject() : (JsonObject)record.Extensions.DeepClone();
+            extensions[FalExecutionSnapshot.ExtensionKey] = FalExecutionSnapshotCodec.Serialize(snapshot);
+            // The configured handle is persisted only in its validated versioned authority.
+            extensions.Remove(VideoJobRecordProviderHandle.ExtensionKey);
+            return record with { Extensions = extensions, ProviderJobId = snapshot.Handle?.ProviderJobId ?? record.ProviderJobId };
+        }
 
         /// <summary>
         /// Build the initial record for a freshly-submitted job. The
@@ -93,9 +114,7 @@ namespace Rook.Services.Vision.Video
         {
             if (prior is null) throw new ArgumentNullException(nameof(prior));
 
-            var nextExtensions = MergeProviderHandleExtension(
-                prior.Extensions,
-                providerHandle);
+            var nextExtensions = prior.ConfiguredFalExecution != null ? prior.Extensions : MergeProviderHandleExtension(prior.Extensions, providerHandle);
 
             return prior with
             {

@@ -9,6 +9,9 @@ using System.Threading.Tasks;
 using Rook.Artifacts;
 using Rook.Handlers;
 using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Fal;
+using Rook.Services.Vision.Fal.Models;
+using Rook.Services.Vision.Image.Fal;
 
 namespace Rook.Services.Vision.Image.Jobs
 {
@@ -32,6 +35,7 @@ namespace Rook.Services.Vision.Image.Jobs
         private readonly IImageJobClock _clock;
         private readonly IImageJobIdGenerator _idGenerator;
         private readonly IImageJobLedger _ledger;
+        private readonly FalExecutionRecovery? _configuredRecovery;
         private readonly ImageArtifactRequestFactorySelector? _requestFactorySelector;
         private readonly TimeSpan _pollInterval;
         private readonly SemaphoreSlim _concurrency;
@@ -97,7 +101,8 @@ namespace Rook.Services.Vision.Image.Jobs
             ImageArtifactRequestFactorySelector? requestFactorySelector,
             IImageJobLedger? ledger = null,
             ImageSubmissionExecutor? submissionExecutor = null,
-            Func<TimeSpan, CancellationTokenSource>? deadlineFactory = null)
+            Func<TimeSpan, CancellationTokenSource>? deadlineFactory = null,
+            FalExecutionRecovery? configuredRecovery = null)
         {
             if (maxConcurrentJobs <= 0)
                 throw new ArgumentOutOfRangeException(
@@ -112,6 +117,7 @@ namespace Rook.Services.Vision.Image.Jobs
             _clock = clock ?? new SystemImageJobClock();
             _idGenerator = idGenerator ?? new GuidImageJobIdGenerator();
             _ledger = ledger ?? new JsonlImageJobLedger();
+            _configuredRecovery = configuredRecovery;
             _requestFactorySelector = requestFactorySelector;
             _pollInterval = pollInterval ?? DefaultPollInterval;
             _concurrency = new SemaphoreSlim(maxConcurrentJobs, maxConcurrentJobs);
@@ -121,61 +127,93 @@ namespace Rook.Services.Vision.Image.Jobs
             ImageJobStartRequest start,
             CancellationToken ct)
         {
-            if (Volatile.Read(ref _disposeState) != 0)
-                return Task.FromResult(ImageJobSubmitResult.Fail(new GenerationError(
-                    GenerationErrorCode.DependencyUnavailable, "Image job manager is shutting down.", false)));
-            if (start is null)
-                return Task.FromResult(ImageJobSubmitResult.Fail(InvalidRequest(
-                    "Request is null.",
-                    nameof(start))));
+            FalMediaSnapshot? configuredMedia = start?.ConfiguredMedia;
+            try
+            {
+                if (Volatile.Read(ref _disposeState) != 0)
+                    return Task.FromResult(ImageJobSubmitResult.Fail(new GenerationError(
+                        GenerationErrorCode.DependencyUnavailable, "Image job manager is shutting down.", false)));
+                if (start is null)
+                    return Task.FromResult(ImageJobSubmitResult.Fail(InvalidRequest(
+                        "Request is null.",
+                        nameof(start))));
 
-            var request = start.Request;
-            var model = start.ResolvedModel;
-            if (model is null && !_registry.TryResolve(request.Model, out model))
-                return Task.FromResult(ImageJobSubmitResult.Fail(InvalidRequest(
-                    $"Unknown image model: '{request.Model ?? "<null>"}'.",
-                    nameof(request.Model))));
+                var request = start.Request;
+                var model = start.ResolvedModel;
+                if (model is null && !_registry.TryResolve(request.Model, out model))
+                    return Task.FromResult(ImageJobSubmitResult.Fail(InvalidRequest(
+                        $"Unknown image model: '{request.Model ?? "<null>"}'.",
+                        nameof(request.Model))));
 
-            var validation = model.OptionsCodec.Validate(
-                request,
-                request.Options,
-                model.Capability);
-            if (!validation.Success)
-                return Task.FromResult(ImageJobSubmitResult.Fail(new GenerationError(
-                    GenerationErrorCode.InvalidRequest,
-                    validation.Message ?? "Image provider request is invalid.",
-                    Retryable: false,
-                    Field: validation.Field)));
+                var validation = model.OptionsCodec.Validate(
+                    request,
+                    request.Options,
+                    model.Capability);
+                if (!validation.Success)
+                    return Task.FromResult(ImageJobSubmitResult.Fail(new GenerationError(
+                        GenerationErrorCode.InvalidRequest,
+                        validation.Message ?? "Image provider request is invalid.",
+                        Retryable: false,
+                        Field: validation.Field)));
 
-            var jobId = _idGenerator.NewJobId();
-            var now = _clock.UtcNow();
-            var initial = new ImageJobRecord(
-                jobId,
-                ImageJobState.Queued,
-                model.ModelId,
-                model.ProviderName,
-                createdAt: now,
-                updatedAt: now,
-                falDispatchState: ImageSubmissionExecutor.UsesExecutionDeadline(model) ? ImageFalDispatchState.NotStarted : null);
-            var durable = ImageJobLedgerRecordFactory.FromInitial(
-                jobId,
-                model.ProviderName,
-                model.ModelId,
-                ImageJobState.Queued,
-                now) with { FalDispatchState = initial.FalDispatchState };
-            if (!TryAppendLedger(durable, out var appendError))
-                return Task.FromResult(ImageJobSubmitResult.Fail(appendError!));
+                FalExecutionSnapshot? configuredSnapshot = null;
+                if (model.Provider is IConfiguredGenerationProvider && model.OptionsCodec is ConfiguredFalImageOptionsCodec codec && request.Options is FalModelOptions options)
+                {
+                    var input = options.Input;
+                    var normalized = codec.Normalize(new FalModelInput(input.RequestFields, input.Options, options.SelectedOperation, input.Media, input.OutputCount));
+                    if (!normalized.Success) return Task.FromResult(ImageJobSubmitResult.Fail(InvalidRequest(normalized.Errors[0].Message, normalized.Errors[0].Field)));
+                    var canonical = normalized.Request!;
+                    if (start.ConfiguredRequest is { } pinned)
+                    {
+                        if (pinned.Binding.DefinitionHash != canonical.Binding.DefinitionHash || pinned.Binding.OperationId != canonical.Binding.OperationId
+                            || pinned.Binding.ModelId != canonical.Binding.ModelId || FalCanonicalJson.Hash(pinned.Binding.ToJson()) != FalCanonicalJson.Hash(canonical.Binding.ToJson())
+                            || FalCanonicalJson.Hash(pinned.SuppliedRequestFields) != FalCanonicalJson.Hash(canonical.SuppliedRequestFields)
+                            || FalCanonicalJson.Hash(pinned.SuppliedOptions) != FalCanonicalJson.Hash(canonical.SuppliedOptions)
+                            || !pinned.Media.Select(m => (m.Role, m.Ordinal, m.Input.Source)).SequenceEqual(canonical.Media.Select(m => (m.Role, m.Ordinal, m.Input.Source))))
+                            return Task.FromResult(ImageJobSubmitResult.Fail(InvalidRequest("Pinned configured request does not match admission controls or binding.")));
+                        canonical = pinned;
+                    }
+                    ct.ThrowIfCancellationRequested();
+                    configuredMedia ??= FalMediaSnapshot.Capture(canonical, start.ResolvedMedia);
+                    if (configuredMedia.Validate(canonical) is { } mediaError) return Task.FromResult(ImageJobSubmitResult.Fail(mediaError));
+                    configuredSnapshot = FalExecutionSnapshot.Create(canonical, configuredMedia, start.ConfiguredPricing);
+                }
 
-            _records[jobId] = initial;
+                var jobId = _idGenerator.NewJobId();
+                var now = _clock.UtcNow();
+                var initial = new ImageJobRecord(
+                    jobId,
+                    ImageJobState.Queued,
+                    model.ModelId,
+                    model.ProviderName,
+                    createdAt: now,
+                    updatedAt: now,
+                    falDispatchState: ImageRoutingCodec.IsAffected(model.ProviderName, model.ModelId) ? ImageFalDispatchState.NotStarted : null,
+                    configuredFalExecution: configuredSnapshot == null ? null : FalExecutionSnapshotReadResult.FromSnapshot(configuredSnapshot));
+                var durable = ImageJobLedgerRecordFactory.FromInitial(
+                    jobId,
+                    model.ProviderName,
+                    model.ModelId,
+                    ImageJobState.Queued,
+                    now) with { FalDispatchState = initial.FalDispatchState, ConfiguredFalExecution = initial.ConfiguredFalExecution };
+                if (!TryAppendLedger(durable, out var appendError))
+                { return Task.FromResult(ImageJobSubmitResult.Fail(appendError!)); }
 
-            var jobCts = new CancellationTokenSource();
-            var running = new RunningJob(initial, jobCts, model, start, _shutdownCts.Token);
-            _runningJobs[jobId] = running;
+                _records[jobId] = initial;
 
-            _ = Task.Run(() => RunJobAsync(jobId, running));
+                var jobCts = new CancellationTokenSource();
+                var running = new RunningJob(initial, jobCts, model, start, _shutdownCts.Token) { ConfiguredMedia = configuredMedia };
+                configuredMedia = null; // transferred to the worker, including queue cancellation
+                _runningJobs[jobId] = running;
 
-            return Task.FromResult(ImageJobSubmitResult.Ok(jobId, ImageJobState.Queued)
-                .WithRouting(initial.Provider, initial.Model, initial.Routing, initial.FalDispatchState));
+                _ = Task.Run(() => RunJobAsync(jobId, running));
+
+                return Task.FromResult(ImageJobSubmitResult.Ok(jobId, ImageJobState.Queued)
+                    .WithRouting(initial.Provider, initial.Model, initial.Routing, initial.FalDispatchState));
+            }
+            catch (ArgumentException ex) when (configuredMedia != null)
+            { return Task.FromResult(ImageJobSubmitResult.Fail(InvalidRequest(ex.Message))); }
+            finally { configuredMedia?.Dispose(); }
         }
 
         public Task<ImageJobStatusResult> GetStatusAsync(
@@ -210,6 +248,9 @@ namespace Rook.Services.Vision.Image.Jobs
             if (jobId == Guid.Empty)
                 return ImageJobCancelResult.Fail(
                     InvalidRequest("JobId must be non-empty.", nameof(jobId)));
+
+            if (FindLatestMergedRecord(jobId)?.ConfiguredFalExecution != null)
+                return await CancelConfiguredAsync(jobId, ct).ConfigureAwait(false);
 
             if (_runningJobs.TryGetValue(jobId, out var running))
             {
@@ -324,7 +365,11 @@ namespace Rook.Services.Vision.Image.Jobs
                         latest == null ? record : ToLedgerRecord(latest),
                         ImageJobState.Interrupted,
                         now,
-                        error: new GenerationError(
+                        error: record.ConfiguredFalExecution is { } configuredRead ? new GenerationError(GenerationErrorCode.Interrupted,
+                            configuredRead.Diagnostic ?? (configuredRead.Snapshot?.OutcomeUnknown == true
+                                ? "Image job interrupted after dispatch; remote submission outcome is unknown. No work was resumed."
+                                : "Configured image job interrupted by reload; no work was resumed."), false,
+                            ProviderErrorCode: configuredRead.Snapshot?.OutcomeUnknown == true ? "fal_submission_unknown" : null) : new GenerationError(
                             GenerationErrorCode.Interrupted,
                             record.FalDispatchState is ImageFalDispatchState.IntentRecorded or ImageFalDispatchState.Attempted
                                 ? "Image job interrupted after fal dispatch admission; submission outcome is unknown. A deliberately new request may create another billed generation."
@@ -485,7 +530,22 @@ namespace Rook.Services.Vision.Image.Jobs
                     running.LatestRecord = current;
 
                     ProviderSubmitOutcome submit;
-                    if (ImageSubmissionExecutor.UsesExecutionDeadline(running.RequestedModel))
+                    if (current.ConfiguredFalExecution?.Snapshot is { } configured)
+                    {
+                        var observer = new FalDurableExecutionObserver((handle, token) => CommitConfiguredExecution(jobId,
+                            snapshot => snapshot.WithDispatchState(handle == null ? "dispatch_intent" : "accepted", handle), token, handle == null));
+                        try
+                        {
+                            submit = await ((IConfiguredGenerationProvider)provider).SubmitConfiguredAsync(configured.Request, running.ConfiguredMedia!, observer, ct).ConfigureAwait(false);
+                        }
+                        finally { running.ConfiguredMedia?.Dispose(); running.ConfiguredMedia = null; }
+                        CommitConfiguredExecution(jobId, snapshot => observer.Settled(snapshot, submit), CancellationToken.None, false);
+                        current = LatestRecord(jobId, current);
+                        if (ct.IsCancellationRequested && current.ConfiguredFalExecution?.Snapshot?.Handle is { } stoppedHandle)
+                            await ((IConfiguredGenerationProvider)provider).CancelConfiguredAsync(configured.Binding, stoppedHandle, CancellationToken.None).ConfigureAwait(false);
+                        ct.ThrowIfCancellationRequested();
+                    }
+                    else if (ImageSubmissionExecutor.UsesExecutionDeadline(running.RequestedModel))
                     {
                         var execution = await _submissionExecutor.SubmitAsync(running.Start.Request, running.RequestedModel,
                             running.Start.ResolvedMedia, running.Context, ct,
@@ -562,7 +622,7 @@ namespace Rook.Services.Vision.Image.Jobs
                                 provider,
                                 running.Model.ModelId,
                                 handle,
-                                ct)
+                                ct, current.ConfiguredFalExecution?.Snapshot?.Binding)
                             .ConfigureAwait(false);
 
                         switch (status)
@@ -615,7 +675,7 @@ namespace Rook.Services.Vision.Image.Jobs
                             provider,
                             running.Model.ModelId,
                             handle,
-                            ct)
+                            ct, current.ConfiguredFalExecution?.Snapshot?.Binding)
                         .ConfigureAwait(false);
                     await CompleteResultAsync(running, current, fetch, ct)
                         .ConfigureAwait(false);
@@ -653,6 +713,7 @@ namespace Rook.Services.Vision.Image.Jobs
             }
             finally
             {
+                running.ConfiguredMedia?.Dispose();
                 _runningJobs.TryRemove(jobId, out _);
                 budget?.Dispose();
                 running.QueueCts.Dispose();
@@ -776,6 +837,15 @@ namespace Rook.Services.Vision.Image.Jobs
                     ["mime_type"] = mimeType,
                 };
             ImageFailureProjection.AddArtifactRouting(metadata, running.Context.Snapshot());
+            var configuredArtifact = current.ConfiguredFalExecution?.Snapshot;
+            if (configuredArtifact != null)
+            {
+                var fields = configuredArtifact.Request.EffectiveRequestFields;
+                metadata["prompt"] = fields["prompt"]?.DeepClone();
+                metadata["resolution"] = fields["resolution"]?.DeepClone();
+                metadata["aspect_ratio"] = fields["aspect_ratio"]?.DeepClone();
+                metadata[FalExecutionSnapshot.ExtensionKey] = FalExecutionSnapshotCodec.Serialize(configuredArtifact);
+            }
             var artifact = _artifactStore.Create(
                 kind: VisionHandler.ArtifactKindGeneratedImage,
                 blobs: new[]
@@ -785,7 +855,8 @@ namespace Rook.Services.Vision.Image.Jobs
                         materialized.Bytes,
                         ExtensionForMime(mimeType)),
                 },
-                parentIds: running.Start.ParentArtifactIds,
+                parentIds: configuredArtifact == null ? running.Start.ParentArtifactIds
+                    : configuredArtifact.Request.Media.Select(m => m.Input.Source.ArtifactId).Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToArray(),
                 metadata: metadata);
 
             BeforeCompleteTransitionForTests?.Invoke(current.JobId);
@@ -986,7 +1057,7 @@ namespace Rook.Services.Vision.Image.Jobs
                 record.ResultArtifactId,
                 ImageJobLedgerRecordFactory.SanitizeError(record.Error),
                 record.CreatedAt,
-                record.UpdatedAt, record.Routing?.Route, record.Routing?.CredentialFailure, record.FalDispatchState);
+                record.UpdatedAt, record.Routing?.Route, record.Routing?.CredentialFailure, record.FalDispatchState, record.ConfiguredFalExecution);
 
         private LocalCancelTransitionResult TryTransitionToLocalCancelled(ImageJobRecord prior, RunningJob? running)
         {
@@ -1020,7 +1091,7 @@ namespace Rook.Services.Vision.Image.Jobs
                 _clock.UtcNow(),
                 providerHandle ?? prior.ProviderHandle,
                 resultArtifactId ?? prior.ResultArtifactId,
-                error, prior.Routing, prior.FalDispatchState);
+                error, prior.Routing, prior.FalDispatchState, prior.ConfiguredFalExecution);
 
         private bool TryAppendLedger(
             ImageJobLedgerRecord record,
@@ -1090,6 +1161,62 @@ namespace Rook.Services.Vision.Image.Jobs
             }
         }
 
+        private void CommitConfiguredExecution(Guid jobId, Func<FalExecutionSnapshot, FalExecutionSnapshot> update, CancellationToken ct, bool dispatch)
+        {
+            using (FalDurableExecutionObserver.EnterGate(TransitionGate(jobId), ct))
+            {
+                ct.ThrowIfCancellationRequested();
+                var latest = FindLatestMergedRecord(jobId) ?? throw new IOException("Configured job is missing.");
+                if (dispatch && IsTerminal(latest.State)) throw new OperationCanceledException();
+                var snapshot = update(latest.ConfiguredFalExecution!.Snapshot!);
+                var durable = ToLedgerRecord(latest) with { ConfiguredFalExecution = FalExecutionSnapshotReadResult.FromSnapshot(snapshot),
+                    ProviderJobId = snapshot.Handle?.ProviderJobId ?? latest.ProviderHandle?.ProviderJobId, UpdatedAt = _clock.UtcNow(),
+                    Error = snapshot.ReconcileStopError(latest.Error) };
+                if (!TryAppendLedger(durable, out _)) throw new IOException("Configured image execution could not be persisted.");
+                var next = FromLedgerRecord(durable); _records[jobId] = next;
+                if (_runningJobs.TryGetValue(jobId, out var running)) running.LatestRecord = next;
+            }
+        }
+
+        private async Task<ImageJobCancelResult> CancelConfiguredAsync(Guid jobId, CancellationToken ct)
+        {
+            _runningJobs.TryGetValue(jobId, out var running);
+            ImageJobRecord record;
+            lock (TransitionGate(jobId))
+            {
+                record = FindLatestMergedRecord(jobId)!;
+                if (record.State == ImageJobState.Complete) return ImageJobCancelResult.Ok(record.State);
+                if (!IsTerminal(record.State))
+                {
+                    try { running?.Cts.Cancel(); } catch (ObjectDisposedException) { }
+                    var stopped = TryTransitionToLocalCancelled(record, running);
+                    if (stopped.AppendError != null) return ImageJobCancelResult.Fail(stopped.AppendError);
+                    record = stopped.Record;
+                }
+            }
+            var read = record.ConfiguredFalExecution!;
+            if (read.Snapshot == null) return ImageJobCancelResult.Fail(FalExecutionRecovery.Unavailable(read.Diagnostic));
+            if (read.Snapshot.Handle == null)
+                return read.Snapshot.OutcomeUnknown ? ImageJobCancelResult.Fail(FalExecutionRecovery.Unavailable("Local monitoring stopped; remote submission outcome is unknown.")) : ImageJobCancelResult.Ok(record.State);
+            ProviderCancelOutcome outcome;
+            if (running?.Model.Provider is IConfiguredGenerationProvider provider)
+                outcome = await provider.CancelConfiguredAsync(read.Snapshot.Binding, read.Snapshot.Handle, ct).ConfigureAwait(false);
+            else if (_configuredRecovery != null) outcome = await _configuredRecovery.CancelAsync(read.Snapshot, ct).ConfigureAwait(false);
+            else return ImageJobCancelResult.Fail(FalExecutionRecovery.Unavailable());
+            if (outcome is FailedCancelOutcome failed) return ImageJobCancelResult.Fail(failed.Error);
+            if (outcome is not CanceledOutcome) return ImageJobCancelResult.Ok(record.State);
+            lock (TransitionGate(jobId))
+            {
+                var latest = FindLatestMergedRecord(jobId)!;
+                if (latest.State == ImageJobState.Complete) return ImageJobCancelResult.Ok(latest.State);
+                var next = ImageJobLedgerRecordFactory.WithState(ToLedgerRecord(latest), ImageJobState.Cancelled, _clock.UtcNow(), error: CancelledError());
+                if (!TryAppendLedger(next, out var error)) return ImageJobCancelResult.Fail(error!);
+                _records[jobId] = FromLedgerRecord(next);
+                if (running != null) running.LatestRecord = _records[jobId];
+                return ImageJobCancelResult.Ok(ImageJobState.Cancelled);
+            }
+        }
+
         private async Task<ImageJobCancelResult> CancelInterruptedRecordAsync(
             ImageJobRecord record,
             CancellationToken ct)
@@ -1154,7 +1281,8 @@ namespace Rook.Services.Vision.Image.Jobs
             IImageProvider provider,
             string modelId,
             ProviderJobHandle handle,
-            CancellationToken ct) =>
+            CancellationToken ct, FalOperationBinding? binding = null) =>
+            binding != null && provider is IConfiguredGenerationProvider configured ? configured.GetStatusConfiguredAsync(binding, handle, ct) :
             provider is IModelAwareImageProvider modelAware
                 ? modelAware.GetStatusAsync(modelId, handle, ct)
                 : provider.GetStatusAsync(handle, ct);
@@ -1172,7 +1300,8 @@ namespace Rook.Services.Vision.Image.Jobs
             IImageProvider provider,
             string modelId,
             ProviderJobHandle handle,
-            CancellationToken ct) =>
+            CancellationToken ct, FalOperationBinding? binding = null) =>
+            binding != null && provider is IConfiguredGenerationProvider configured ? configured.FetchResultConfiguredAsync(binding, handle, ct) :
             provider is IModelAwareImageProvider modelAware
                 ? modelAware.FetchResultAsync(modelId, handle, ct)
                 : provider.FetchResultAsync(handle, ct);
@@ -1242,13 +1371,13 @@ namespace Rook.Services.Vision.Image.Jobs
                 record.Provider,
                 createdAt: record.CreatedAt,
                 updatedAt: record.UpdatedAt,
-                providerHandle: string.IsNullOrWhiteSpace(record.ProviderJobId)
+                providerHandle: record.ConfiguredFalExecution != null ? record.ConfiguredFalExecution.Snapshot?.Handle : string.IsNullOrWhiteSpace(record.ProviderJobId)
                     ? null
                     : new ProviderJobHandle(record.ProviderJobId),
                 resultArtifactId: record.ResultArtifactId,
                 error: record.Error,
                 routing: record.ImageRoute == null && record.CredentialFailure == null ? null : new(record.ImageRoute, record.CredentialFailure),
-                falDispatchState: record.FalDispatchState);
+                falDispatchState: record.FalDispatchState, configuredFalExecution: record.ConfiguredFalExecution);
 
         private ImageJobRecord LatestRecord(
             Guid jobId,
@@ -1302,7 +1431,9 @@ namespace Rook.Services.Vision.Image.Jobs
 
         private static GenerationError StopError(RunningJob? running)
         {
-            if (running == null || !ImageSubmissionExecutor.UsesExecutionDeadline(running.RequestedModel))
+            if (running?.LatestRecord.ConfiguredFalExecution?.Snapshot is { } configured && configured.OutcomeUnknown)
+                return new GenerationError(GenerationErrorCode.Interrupted, "Local monitoring stopped after dispatch; remote submission outcome is unknown.", false, ProviderErrorCode: "fal_submission_unknown");
+            if (running == null || running.ExecutionBudget == null)
                 return CancelledError();
 
             var reason = running.ExecutionBudget!.StopReason;
@@ -1335,6 +1466,7 @@ namespace Rook.Services.Vision.Image.Jobs
             public ResolvedImageModel Model => Context.Snapshot().EffectiveModel ?? RequestedModel;
             public ImageGenerationRequest Request => Context.Snapshot().EffectiveRequest ?? Start.Request;
             public readonly ImageJobStartRequest Start;
+            public FalMediaSnapshot? ConfiguredMedia;
 
             public RunningJob(
                 ImageJobRecord initial,
@@ -1347,7 +1479,7 @@ namespace Rook.Services.Vision.Image.Jobs
                 RequestedModel = model;
                 Start = start;
                 // Latch provenance before queue cancellation can wake the worker.
-                ExecutionBudget = ImageSubmissionExecutor.UsesExecutionDeadline(model)
+                ExecutionBudget = ImageSubmissionExecutor.UsesExecutionDeadline(model) || model.Provider is IConfiguredGenerationProvider
                     ? new ImageExecutionBudget(cts.Token, shutdown, null) : null;
                 QueueCts = ExecutionBudget != null
                     ? CancellationTokenSource.CreateLinkedTokenSource(ExecutionBudget.Token)
