@@ -10,6 +10,52 @@ namespace Rook.Tests.Services.Vision.Fal
 {
     public class FalExecutionSnapshotTests
     {
+        [Theory]
+        [InlineData("confirmed_cancelled", null)]
+        [InlineData("cancellation_requested", null)]
+        [InlineData("already_completed", GenerationLifecycleState.Completed)]
+        [InlineData("failed", null)]
+        [InlineData("unavailable", null)]
+        public void Cancellation_evidence_roundtrips_and_survives_later_dispatch_updates(string disposition, GenerationLifecycleState? terminal)
+        {
+            var snapshot = Snapshot().WithCancellation(new FalCancellationSnapshot(true, disposition, true, terminal))
+                .WithDispatchState("unknown", Snapshot().Handle);
+            var read = FalExecutionSnapshotCodec.Deserialize(FalExecutionSnapshotCodec.Serialize(snapshot));
+            Assert.Null(read.Diagnostic);
+            var evidence = read.Snapshot!.Cancellation!;
+            Assert.True(evidence.LocalStopped); Assert.True(evidence.Automatic);
+            Assert.Equal(disposition, evidence.RemoteDisposition); Assert.Equal(terminal, evidence.RemoteTerminalState);
+            Assert.Equal(disposition == "confirmed_cancelled", evidence.RemoteCancellationConfirmed);
+        }
+
+        [Theory]
+        [InlineData("unknown_disposition")]
+        [InlineData("missing_completed_state")]
+        [InlineData("nonterminal_state")]
+        [InlineData("extra_property")]
+        public void Corrupt_cancellation_evidence_is_unavailable(string corruption)
+        {
+            var json = FalExecutionSnapshotCodec.Serialize(Snapshot().WithCancellation(new FalCancellationSnapshot(true, "already_completed", false, GenerationLifecycleState.Completed)));
+            var evidence = json["cancellation"]!;
+            switch (corruption)
+            {
+                case "unknown_disposition": evidence["remote_disposition"] = "cancelled_maybe"; break;
+                case "missing_completed_state": evidence["remote_terminal_state"] = null; break;
+                case "nonterminal_state": evidence["remote_terminal_state"] = "Running"; break;
+                default: evidence["unexpected"] = true; break;
+            }
+            var read = FalExecutionSnapshotCodec.Deserialize(json);
+            Assert.Null(read.Snapshot); Assert.NotNull(read.Diagnostic); Assert.False(read.CleanupAvailable);
+        }
+
+        [Fact]
+        public void Older_snapshot_without_cancellation_metadata_remains_readable()
+        {
+            var json = FalExecutionSnapshotCodec.Serialize(Snapshot()); json.Remove("cancellation");
+            var read = FalExecutionSnapshotCodec.Deserialize(json);
+            Assert.NotNull(read.Snapshot); Assert.Null(read.Snapshot!.Cancellation); Assert.True(read.CleanupAvailable);
+        }
+
         [Fact]
         public void Valid_large_controls_roundtrip_within_bounded_snapshot_envelope()
         {

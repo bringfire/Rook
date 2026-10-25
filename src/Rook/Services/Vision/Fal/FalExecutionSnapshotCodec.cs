@@ -30,6 +30,7 @@ namespace Rook.Services.Vision.Fal
                 ["pricing_selectors"] = snapshot.Request.PricingSelectors,
                 ["inactive_fields"] = new JsonArray(snapshot.Request.InactiveFields.Select(s => (JsonNode?)JsonValue.Create(s)).ToArray()),
                 ["media"] = snapshot.MediaProvenance, ["pricing"] = snapshot.Pricing?.ToJson(), ["dispatch_state"] = snapshot.DispatchState, ["submission_outcome"] = snapshot.SubmissionOutcome,
+                ["cancellation"] = snapshot.Cancellation?.ToJson(),
                 ["handle"] = handle == null ? null : new JsonObject { ["request_id"] = handle.ProviderJobId, ["status_url"] = handle.StatusUrl!.AbsoluteUri,
                     ["response_url"] = handle.ResponseUrl!.AbsoluteUri, ["cancel_url"] = handle.CancelUrl!.AbsoluteUri, ["cancel_http_method"] = "PUT" } };
             if (Encoding.UTF8.GetByteCount(json.ToJsonString()) > MaxSnapshotBytes) throw new ArgumentException("Configured execution history exceeds the bounded persistence envelope.");
@@ -46,7 +47,7 @@ namespace Rook.Services.Vision.Fal
                 if (Encoding.UTF8.GetByteCount(encoded) > MaxSnapshotBytes) throw new ArgumentException();
                 using var bounded = JsonDocument.Parse(encoded, new JsonDocumentOptions { MaxDepth = 32 });
                 Closed(json, "version", "binding", "binding_digest", "definition_hash", "supplied_request", "supplied_options", "supplied_operation",
-                    "effective_request", "effective_options", "pricing_selectors", "inactive_fields", "media", "pricing", "dispatch_state", "submission_outcome", "handle");
+                    "effective_request", "effective_options", "pricing_selectors", "inactive_fields", "media", "pricing", "dispatch_state", "submission_outcome", "handle", "cancellation");
                 var envelope = json["binding"]!.AsObject();
                 if (FalCanonicalJson.Hash(envelope) != json["binding_digest"]!.GetValue<string>()) throw new ArgumentException();
                 var binding = FalCatalogCompiler.RestoreBinding(envelope, json["definition_hash"]!.GetValue<string>());
@@ -89,7 +90,14 @@ namespace Rook.Services.Vision.Fal
                     Closed(p, "unit", "revision", "source", "quantity_min", "quantity_max", "rate_usd", "estimate_min_usd", "estimate_max_usd");
                     pricing = FalPricingSnapshot.FromJson(p);
                 }
-                return new(json, new FalExecutionSnapshot(request, media, pricing, json["dispatch_state"]!.GetValue<string>(), handle, json["submission_outcome"]?.GetValue<string>()), null);
+                FalCancellationSnapshot? cancellation = null;
+                if (json["cancellation"] != null)
+                {
+                    var c = json["cancellation"]!.AsObject();
+                    Closed(c, "local_stopped", "remote_disposition", "remote_terminal_state", "automatic");
+                    cancellation = FalCancellationSnapshot.FromJson(c);
+                }
+                return new(json, new FalExecutionSnapshot(request, media, pricing, json["dispatch_state"]!.GetValue<string>(), handle, json["submission_outcome"]?.GetValue<string>(), cancellation), null);
             }
             catch (Exception)
             { return new(json, null, "Corrupt or unsupported configured fal execution binding; remote cleanup is unavailable."); }

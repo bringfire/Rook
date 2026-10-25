@@ -36,6 +36,7 @@ namespace Rook.Services.Vision.Image.Jobs
         private readonly IImageJobIdGenerator _idGenerator;
         private readonly IImageJobLedger _ledger;
         private readonly FalExecutionRecovery? _configuredRecovery;
+        private readonly Func<CancellationTokenSource> _configuredDurabilityBudgetFactory;
         private readonly ImageArtifactRequestFactorySelector? _requestFactorySelector;
         private readonly TimeSpan _pollInterval;
         private readonly SemaphoreSlim _concurrency;
@@ -102,7 +103,8 @@ namespace Rook.Services.Vision.Image.Jobs
             IImageJobLedger? ledger = null,
             ImageSubmissionExecutor? submissionExecutor = null,
             Func<TimeSpan, CancellationTokenSource>? deadlineFactory = null,
-            FalExecutionRecovery? configuredRecovery = null)
+            FalExecutionRecovery? configuredRecovery = null,
+            Func<CancellationTokenSource>? configuredDurabilityBudgetFactory = null)
         {
             if (maxConcurrentJobs <= 0)
                 throw new ArgumentOutOfRangeException(
@@ -118,6 +120,7 @@ namespace Rook.Services.Vision.Image.Jobs
             _idGenerator = idGenerator ?? new GuidImageJobIdGenerator();
             _ledger = ledger ?? new JsonlImageJobLedger();
             _configuredRecovery = configuredRecovery;
+            _configuredDurabilityBudgetFactory = configuredDurabilityBudgetFactory ?? FalDurableExecutionObserver.NewDurabilityBudget;
             _requestFactorySelector = requestFactorySelector;
             _pollInterval = pollInterval ?? DefaultPollInterval;
             _concurrency = new SemaphoreSlim(maxConcurrentJobs, maxConcurrentJobs);
@@ -159,6 +162,8 @@ namespace Rook.Services.Vision.Image.Jobs
                 FalExecutionSnapshot? configuredSnapshot = null;
                 if (model.Provider is IConfiguredGenerationProvider && model.OptionsCodec is ConfiguredFalImageOptionsCodec codec && request.Options is FalModelOptions options)
                 {
+                    if (_ledger is not ICancellationAwareImageJobLedger)
+                        return Task.FromResult(ImageJobSubmitResult.Fail(FalExecutionRecovery.Unavailable("Configured execution requires cancellation-aware ledger admission.")));
                     var input = options.Input;
                     var normalized = codec.Normalize(new FalModelInput(input.RequestFields, input.Options, options.SelectedOperation, input.Media, input.OutputCount));
                     if (!normalized.Success) return Task.FromResult(ImageJobSubmitResult.Fail(InvalidRequest(normalized.Errors[0].Message, normalized.Errors[0].Field)));
@@ -533,16 +538,17 @@ namespace Rook.Services.Vision.Image.Jobs
                     if (current.ConfiguredFalExecution?.Snapshot is { } configured)
                     {
                         var observer = new FalDurableExecutionObserver((handle, token) => CommitConfiguredExecution(jobId,
-                            snapshot => snapshot.WithDispatchState(handle == null ? "dispatch_intent" : "accepted", handle), token, handle == null));
+                            snapshot => snapshot.WithDispatchState(handle == null ? "dispatch_intent" : "accepted", handle), token, handle == null), _configuredDurabilityBudgetFactory);
                         try
                         {
                             submit = await ((IConfiguredGenerationProvider)provider).SubmitConfiguredAsync(configured.Request, running.ConfiguredMedia!, observer, ct).ConfigureAwait(false);
                         }
                         finally { running.ConfiguredMedia?.Dispose(); running.ConfiguredMedia = null; }
-                        CommitConfiguredExecution(jobId, snapshot => observer.Settled(snapshot, submit), CancellationToken.None, false);
+                        using (var durability = _configuredDurabilityBudgetFactory())
+                            CommitConfiguredExecution(jobId, snapshot => observer.Settled(snapshot, submit), durability.Token, false);
                         current = LatestRecord(jobId, current);
-                        if (ct.IsCancellationRequested && current.ConfiguredFalExecution?.Snapshot?.Handle is { } stoppedHandle)
-                            await ((IConfiguredGenerationProvider)provider).CancelConfiguredAsync(configured.Binding, stoppedHandle, CancellationToken.None).ConfigureAwait(false);
+                        if (ct.IsCancellationRequested && current.ConfiguredFalExecution?.Snapshot?.Handle != null)
+                            await CleanupConfiguredAsync(current, running, true, CancellationToken.None).ConfigureAwait(false);
                         ct.ThrowIfCancellationRequested();
                     }
                     else if (ImageSubmissionExecutor.UsesExecutionDeadline(running.RequestedModel))
@@ -1161,20 +1167,25 @@ namespace Rook.Services.Vision.Image.Jobs
             }
         }
 
-        private void CommitConfiguredExecution(Guid jobId, Func<FalExecutionSnapshot, FalExecutionSnapshot> update, CancellationToken ct, bool dispatch)
+        private ImageJobRecord CommitConfiguredExecution(Guid jobId, Func<FalExecutionSnapshot, FalExecutionSnapshot> update, CancellationToken ct, bool dispatch)
         {
             using (FalDurableExecutionObserver.EnterGate(TransitionGate(jobId), ct))
             {
                 ct.ThrowIfCancellationRequested();
-                var latest = FindLatestMergedRecord(jobId) ?? throw new IOException("Configured job is missing.");
+                var ledger = _ledger as ICancellationAwareImageJobLedger ?? throw new IOException("Configured execution requires cancellation-aware ledger admission.");
+                var durableRecord = ledger.ReadAll(ct).Records.FirstOrDefault(r => r.JobId == jobId);
+                _records.TryGetValue(jobId, out var live);
+                var latest = FreshestForRead(live, durableRecord == null ? null : FromLedgerRecord(durableRecord)) ?? throw new IOException("Configured job is missing.");
                 if (dispatch && IsTerminal(latest.State)) throw new OperationCanceledException();
                 var snapshot = update(latest.ConfiguredFalExecution!.Snapshot!);
                 var durable = ToLedgerRecord(latest) with { ConfiguredFalExecution = FalExecutionSnapshotReadResult.FromSnapshot(snapshot),
                     ProviderJobId = snapshot.Handle?.ProviderJobId ?? latest.ProviderHandle?.ProviderJobId, UpdatedAt = _clock.UtcNow(),
                     Error = snapshot.ReconcileStopError(latest.Error) };
-                if (!TryAppendLedger(durable, out _)) throw new IOException("Configured image execution could not be persisted.");
+                ct.ThrowIfCancellationRequested();
+                ledger.Append(durable, ct);
                 var next = FromLedgerRecord(durable); _records[jobId] = next;
                 if (_runningJobs.TryGetValue(jobId, out var running)) running.LatestRecord = next;
+                return next;
             }
         }
 
@@ -1194,27 +1205,47 @@ namespace Rook.Services.Vision.Image.Jobs
                     record = stopped.Record;
                 }
             }
+            return await CleanupConfiguredAsync(record, running, false, ct).ConfigureAwait(false);
+        }
+
+        private async Task<ImageJobCancelResult> CleanupConfiguredAsync(ImageJobRecord record, RunningJob? running, bool automatic, CancellationToken ct)
+        {
             var read = record.ConfiguredFalExecution!;
-            if (read.Snapshot == null) return ImageJobCancelResult.Fail(FalExecutionRecovery.Unavailable(read.Diagnostic));
+            FalCancellationSnapshot evidence;
+            GenerationError? error;
+            if (read.Snapshot == null)
+                return ImageJobCancelResult.Configured(record.State, new FalCancellationSnapshot(true, "unavailable", automatic), FalExecutionRecovery.Unavailable(read.Diagnostic));
             if (read.Snapshot.Handle == null)
-                return read.Snapshot.OutcomeUnknown ? ImageJobCancelResult.Fail(FalExecutionRecovery.Unavailable("Local monitoring stopped; remote submission outcome is unknown.")) : ImageJobCancelResult.Ok(record.State);
-            ProviderCancelOutcome outcome;
-            if (running?.Model.Provider is IConfiguredGenerationProvider provider)
-                outcome = await provider.CancelConfiguredAsync(read.Snapshot.Binding, read.Snapshot.Handle, ct).ConfigureAwait(false);
-            else if (_configuredRecovery != null) outcome = await _configuredRecovery.CancelAsync(read.Snapshot, ct).ConfigureAwait(false);
-            else return ImageJobCancelResult.Fail(FalExecutionRecovery.Unavailable());
-            if (outcome is FailedCancelOutcome failed) return ImageJobCancelResult.Fail(failed.Error);
-            if (outcome is not CanceledOutcome) return ImageJobCancelResult.Ok(record.State);
-            lock (TransitionGate(jobId))
             {
-                var latest = FindLatestMergedRecord(jobId)!;
-                if (latest.State == ImageJobState.Complete) return ImageJobCancelResult.Ok(latest.State);
-                var next = ImageJobLedgerRecordFactory.WithState(ToLedgerRecord(latest), ImageJobState.Cancelled, _clock.UtcNow(), error: CancelledError());
-                if (!TryAppendLedger(next, out var error)) return ImageJobCancelResult.Fail(error!);
-                _records[jobId] = FromLedgerRecord(next);
-                if (running != null) running.LatestRecord = _records[jobId];
-                return ImageJobCancelResult.Ok(ImageJobState.Cancelled);
+                error = read.Snapshot.OutcomeUnknown ? FalExecutionRecovery.Unavailable("Local monitoring stopped; remote submission outcome is unknown.") : null;
+                evidence = new FalCancellationSnapshot(true, error == null ? "not_requested" : "unavailable", automatic);
             }
+            else
+            {
+                ProviderCancelOutcome outcome;
+                try
+                {
+                    if (running?.Model.Provider is IConfiguredGenerationProvider provider)
+                        outcome = await provider.CancelConfiguredAsync(read.Snapshot.Binding, read.Snapshot.Handle, ct).ConfigureAwait(false);
+                    else if (_configuredRecovery != null) outcome = await _configuredRecovery.CancelAsync(read.Snapshot, ct).ConfigureAwait(false);
+                    else outcome = new FailedCancelOutcome(FalExecutionRecovery.Unavailable());
+                }
+                catch (Exception)
+                {
+                    outcome = new FailedCancelOutcome(FalExecutionRecovery.Unavailable("Local monitoring stopped; remote cleanup could not be confirmed."));
+                }
+                (evidence, error) = FalCancellationSnapshot.Observe(outcome, automatic);
+            }
+            try
+            {
+                using var durability = _configuredDurabilityBudgetFactory();
+                record = CommitConfiguredExecution(record.JobId, snapshot => snapshot.WithCancellation(evidence), durability.Token, false);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is OperationCanceledException || ex is TimeoutException)
+            {
+                error = new GenerationError(GenerationErrorCode.DependencyUnavailable, "Remote cleanup result could not be persisted in the image ledger.", false);
+            }
+            return ImageJobCancelResult.Configured(record.State, evidence, error);
         }
 
         private async Task<ImageJobCancelResult> CancelInterruptedRecordAsync(

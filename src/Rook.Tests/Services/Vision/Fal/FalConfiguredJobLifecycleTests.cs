@@ -23,6 +23,61 @@ namespace Rook.Tests.Services.Vision.Fal
     public class FalConfiguredJobLifecycleTests
     {
         [Theory]
+        [InlineData(false, false, "confirmed_cancelled")] [InlineData(true, false, "confirmed_cancelled")]
+        [InlineData(false, false, "already_completed")] [InlineData(true, false, "already_completed")]
+        [InlineData(false, false, "cancellation_requested")] [InlineData(true, false, "cancellation_requested")]
+        [InlineData(false, true, "confirmed_cancelled")] [InlineData(true, true, "confirmed_cancelled")]
+        [InlineData(false, true, "already_completed")] [InlineData(true, true, "already_completed")]
+        [InlineData(false, true, "cancellation_requested")] [InlineData(true, true, "cancellation_requested")]
+        [InlineData(false, false, "failed")] [InlineData(true, false, "failed")]
+        [InlineData(false, true, "failed")] [InlineData(true, true, "failed")]
+        public async Task Local_stop_and_remote_cancellation_outcomes_remain_distinct(bool video, bool late, string remote)
+        {
+            using var run = new Run(video); run.Transport.CancelDisposition = remote; run.Transport.HoldSubmit = late;
+            await run.Submit();
+            await Wait(late ? run.Transport.PostEntered.Task : run.Transport.PollEntered.Task);
+            await run.Cancel();
+            var localState = run.CancelState;
+            if (late) run.Transport.PostRelease.TrySetResult(true);
+            await Wait(run.CleanupPersisted.Task);
+            var evidence = run.Snapshot()!.Cancellation!;
+            Assert.True(evidence.LocalStopped); Assert.Equal(remote, evidence.RemoteDisposition); Assert.Equal(late, evidence.Automatic);
+            Assert.Equal(remote == "already_completed" ? GenerationLifecycleState.Completed : (GenerationLifecycleState?)null, evidence.RemoteTerminalState);
+            Assert.Equal(remote == "confirmed_cancelled", evidence.RemoteCancellationConfirmed);
+            Assert.Equal(localState, video ? run.Videos.ReadAll().Records.Single().State.ToString() : run.Images.ReadAll().Records.Single().State.ToString());
+            if (!late) { Assert.Equal(remote, run.LastCancellation!.RemoteDisposition); Assert.Equal(remote != "confirmed_cancelled", run.CancelHadError); }
+            Assert.Empty(run.Store.List());
+        }
+        [Theory]
+        [InlineData(false)] [InlineData(true)]
+        public async Task Accepted_write_budget_expires_while_another_job_holds_ledger_admission(bool video)
+        {
+            using var run = new Run(video); run.Transport.HoldSubmit = true;
+            await run.Submit(); await Wait(run.Transport.PostEntered.Task);
+            using var held = await Rook.Tests.Services.Vision.Image.Jobs.LedgerAdmissionTest.Hold(video ? run.Videos.Inner : run.Images.Inner);
+            run.Transport.PostRelease.TrySetResult(true);
+            await Wait(run.BudgetCreated.Task); run.AcceptedBudget.Cancel();
+            await Wait(run.AdmissionCancelled.Task);
+            Assert.False(run.Accepted.Task.IsCompleted); Assert.Equal(0, run.Transport.Polls);
+            held.Dispose();
+            await Wait(run.Terminal.Task);
+            Assert.False(run.Accepted.Task.IsCompleted);
+            Assert.Equal("unknown", run.Snapshot()!.DispatchState);
+        }
+        [Theory]
+        [InlineData(false)] [InlineData(true)]
+        public async Task Configured_completion_preserves_durable_sidecar_results(bool posterFails)
+        {
+            using var run = new Run(true); run.Transport.Complete = true; run.PosterFails = posterFails;
+            run.Transport.FetchRelease.TrySetResult(true);
+            await run.Submit(); await Wait(run.Finished.Task);
+            var record = run.Videos.ReadAll().Records.Single();
+            Assert.Equal(VideoJobState.Complete, record.State);
+            Assert.Equal(posterFails ? "FinalizerFailed" : "Published", record.Extensions?["sidecars"]?["poster"]?["code"]?.GetValue<string>());
+            Assert.NotNull(record.Extensions?["sidecars"]?["frames"]);
+            Assert.NotNull(record.ConfiguredFalExecution!.Snapshot);
+        }
+        [Theory]
         [InlineData(false)] [InlineData(true)]
         public async Task Restarted_manager_cleans_up_removed_model_using_saved_binding(bool video)
         {
@@ -32,6 +87,20 @@ namespace Rook.Tests.Services.Vision.Fal
             await run.Cancel();
             Assert.Equal(snapshot.Handle!.CancelUrl, run.Transport.CancelUrl);
             Assert.Equal(0, run.Transport.Posts); Assert.Equal(0, run.Transport.Polls);
+        }
+
+        [Theory]
+        [InlineData(false)] [InlineData(true)]
+        public async Task Recovery_without_executor_persists_unavailable_remote_outcome(bool video)
+        {
+            using var run = new Run(video, recoverWithoutRegistration: true, recoveryAvailable: false);
+            run.Seed(run.AcceptedSnapshot());
+            if (video) run.Video!.ReconcileInterruptedJobs(); else run.Image!.ReconcileInterruptedJobs();
+            await run.Cancel();
+            Assert.Equal("unavailable", run.Snapshot()!.Cancellation!.RemoteDisposition);
+            Assert.Equal("unavailable", run.LastCancellation!.RemoteDisposition);
+            Assert.False(run.LastCancellation.RemoteCancellationConfirmed); Assert.True(run.CancelHadError);
+            Assert.Null(run.Transport.CancelUrl);
         }
 
         [Fact]
@@ -97,6 +166,7 @@ namespace Rook.Tests.Services.Vision.Fal
             Assert.Null(run.Transport.CancelUrl); Assert.Equal(0, run.Transport.Posts); Assert.Equal(0, run.Transport.Polls);
             var read = video ? run.Videos.ReadAll().Records.Single().ConfiguredFalExecution : run.Images.ReadAll().Records.Single().ConfiguredFalExecution;
             Assert.NotNull(read!.Diagnostic); Assert.Null(read.Snapshot);
+            Assert.Equal("unavailable", run.LastCancellation!.RemoteDisposition); Assert.True(run.CancelHadError);
         }
 
         [Fact]
@@ -229,8 +299,20 @@ namespace Rook.Tests.Services.Vision.Fal
             internal readonly HttpClient Client;
             internal readonly ArtifactStore Store;
             internal readonly TaskCompletionSource<bool> Terminal = Signal(), Accepted = Signal(), Settled = Signal();
+            internal readonly TaskCompletionSource<bool> BudgetCreated = Signal(), AdmissionCancelled = Signal();
+            internal readonly TaskCompletionSource<bool> CleanupPersisted = Signal();
+            internal FalCancellationSnapshot? LastCancellation;
+            internal string? CancelState;
+            internal bool CancelHadError;
+            internal readonly CancellationTokenSource AcceptedBudget = new();
+            private int _durabilityBudgets;
+            private CancellationTokenSource NewDurabilityBudget()
+            {
+                if (Interlocked.Increment(ref _durabilityBudgets) == 1) { BudgetCreated.TrySetResult(true); return AcceptedBudget; }
+                return new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            }
             internal readonly TaskCompletionSource<bool> PublicationEntered = Signal(), PublicationRelease = Signal(), Finished = Signal();
-            internal bool HoldPublication;
+            internal bool HoldPublication, PosterFails;
             internal readonly CancellationTokenSource ImageDeadline = new();
             internal readonly ControlledTimer Timer = new();
             internal readonly ImageLedger Images;
@@ -239,7 +321,7 @@ namespace Rook.Tests.Services.Vision.Fal
             internal readonly VideoJobManager? Video;
             internal Guid Id;
             private readonly FalModelDefinition _model;
-            internal Run(bool video, string? fail = null, bool recoverWithoutRegistration = false, bool sync = false)
+            internal Run(bool video, string? fail = null, bool recoverWithoutRegistration = false, bool sync = false, bool recoveryAvailable = true)
             {
                 Directory.CreateDirectory(Root); Store = new ArtifactStore(Path.Combine(Root, "artifacts"));
                 Files = new CatalogFiles(video ? CatalogFiles.VideoJson : CatalogFiles.ImageJson);
@@ -255,15 +337,15 @@ namespace Rook.Tests.Services.Vision.Fal
                 {
                     var registry = new DefaultVideoProviderRegistry(recoverWithoutRegistration ? Array.Empty<IVideoProviderRegistration>() : new[] { new ConfiguredFalVideoRegistration(_model, executor, new FalAdapterRegistry(), new NoPricing<VideoGenerationRequest, VideoCapability>()) });
                     var poster = new Rook.Tests.Services.Vision.Video.FakePosterProducer(Store);
-                    poster.OnPublishAsync = async (artifact, token) => { PublicationEntered.TrySetResult(true); if (HoldPublication) await PublicationRelease.Task; return VideoPosterSidecarResult.From(VideoPosterSidecarResultCode.Published, artifact.Id); };
+                    poster.OnPublishAsync = async (artifact, token) => { PublicationEntered.TrySetResult(true); if (HoldPublication) await PublicationRelease.Task; if (PosterFails) throw new InvalidOperationException("controlled poster failure"); return VideoPosterSidecarResult.From(VideoPosterSidecarResultCode.Published, artifact.Id); };
                     Video = new VideoJobManager(registry, new NoMedia(), Videos, new VideoCostEstimator(), Store, null, null, null, 2,
-                        new VideoArtifactMaterializer(Transport), poster, new Rook.Tests.Services.Vision.Video.FakeFrameProducer(Store), deadlineTimer: Timer, configuredRecovery: new FalExecutionRecovery(executor));
+                        new VideoArtifactMaterializer(Transport), poster, new Rook.Tests.Services.Vision.Video.FakeFrameProducer(Store), deadlineTimer: Timer, configuredRecovery: recoveryAvailable ? new FalExecutionRecovery(executor) : null, configuredDurabilityBudgetFactory: NewDurabilityBudget);
                     Video.AfterRunForTests = _ => Finished.TrySetResult(true);
                 }
                 else
                 {
                     var registry = new DefaultImageProviderRegistry(recoverWithoutRegistration ? Array.Empty<IImageProviderRegistration>() : new[] { new ConfiguredFalImageRegistration(_model, executor, new FalAdapterRegistry(), new NoPricing<ImageGenerationRequest, ImageCapability>()) });
-                    Image = new ImageJobManager(registry, Store, null, null, null, 2, new ImageArtifactMaterializer(Transport), null, Images, deadlineFactory: _ => ImageDeadline, configuredRecovery: new FalExecutionRecovery(executor));
+                    Image = new ImageJobManager(registry, Store, null, null, null, 2, new ImageArtifactMaterializer(Transport), null, Images, deadlineFactory: _ => ImageDeadline, configuredRecovery: recoveryAvailable ? new FalExecutionRecovery(executor) : null, configuredDurabilityBudgetFactory: NewDurabilityBudget);
                 }
             }
             internal FalNormalizedRequest Normalized()
@@ -291,7 +373,11 @@ namespace Rook.Tests.Services.Vision.Fal
                     Assert.Null(result.Error); Id = result.JobId!.Value;
                 }
             }
-            internal async Task Cancel() { if (Video != null) await Video.CancelAsync(Id, CancellationToken.None); else await Image!.CancelAsync(Id, CancellationToken.None); }
+            internal async Task Cancel()
+            {
+                if (Video != null) { var result = await Video.CancelAsync(Id, CancellationToken.None); LastCancellation = result.ConfiguredCancellation; CancelHadError = result.Error != null; CancelState = Videos.ReadAll().Records.Single().State.ToString(); }
+                else { var result = await Image!.CancelAsync(Id, CancellationToken.None); LastCancellation = result.ConfiguredCancellation; CancelHadError = result.Error != null; CancelState = Images.ReadAll().Records.Single().State.ToString(); }
+            }
             internal void Expire() { if (Video != null) Timer.Fire(); else ImageDeadline.Cancel(); }
             internal void Seed(FalExecutionSnapshot snapshot, bool unsupported = false)
             {
@@ -311,37 +397,54 @@ namespace Rook.Tests.Services.Vision.Fal
             internal FalExecutionSnapshot? Snapshot() => Video != null ? Videos.ReadAll().Records.Last().ConfiguredFalExecution?.Snapshot : Images.ReadAll().Records.Last().ConfiguredFalExecution?.Snapshot;
             public void Dispose() { Image?.Dispose(); Video?.Dispose(); Transport.PostRelease.TrySetResult(true); Transport.PollRelease.TrySetResult(true); Transport.FetchRelease.TrySetResult(true); PublicationRelease.TrySetResult(true); Client.Dispose(); Files.Dispose(); }
         }
-        internal sealed class ImageLedger : IImageJobLedger
+        internal sealed class ImageLedger : ICancellationAwareImageJobLedger
         {
             private readonly IImageJobLedger _inner; private readonly Run _run; private readonly string? _fail;
             internal ImageLedger(IImageJobLedger inner, Run run, string? fail) { _inner = inner; _run = run; _fail = fail; }
-            public void Append(ImageJobLedgerRecord r)
+            internal object Inner => _inner;
+            public void Append(ImageJobLedgerRecord r) => Append(r, CancellationToken.None);
+            public void Append(ImageJobLedgerRecord r, CancellationToken ct)
             {
                 if (r.ConfiguredFalExecution?.Snapshot?.DispatchState == _fail && _fail != null) throw new IOException("injected durability failure");
-                _inner.Append(r);
+                ((ICancellationAwareImageJobLedger)_inner).Append(r, ct);
+                if (r.ConfiguredFalExecution?.Snapshot?.Cancellation is { RemoteDisposition: not "unavailable" }) _run.CleanupPersisted.TrySetResult(true);
                 if (r.ConfiguredFalExecution?.Snapshot?.SubmissionOutcome != null) _run.Settled.TrySetResult(true);
                 if (r.ConfiguredFalExecution?.Snapshot?.DispatchState == "accepted") _run.Accepted.TrySetResult(true);
                 if (r.State is ImageJobState.Error or ImageJobState.Cancelled or ImageJobState.Interrupted or ImageJobState.Complete) _run.Terminal.TrySetResult(true);
             }
             public ImageJobLedgerReadResult ReadAll() => _inner.ReadAll();
+            public ImageJobLedgerReadResult ReadAll(CancellationToken ct)
+            {
+                try { return ((ICancellationAwareImageJobLedger)_inner).ReadAll(ct); }
+                catch (OperationCanceledException) { _run.AdmissionCancelled.TrySetResult(true); throw; }
+            }
         }
-        internal sealed class VideoLedger : IVideoJobLedger
+        internal sealed class VideoLedger : ICancellationAwareVideoJobLedger
         {
             private readonly IVideoJobLedger _inner; private readonly Run _run; private readonly string? _fail;
             internal VideoLedger(IVideoJobLedger inner, Run run, string? fail) { _inner = inner; _run = run; _fail = fail; }
-            public void Append(VideoJobRecord r)
+            internal object Inner => _inner;
+            public void Append(VideoJobRecord r) => Append(r, CancellationToken.None);
+            public void Append(VideoJobRecord r, CancellationToken ct)
             {
                 if (r.ConfiguredFalExecution?.Snapshot?.DispatchState == _fail && _fail != null) throw new IOException("injected durability failure");
-                _inner.Append(r);
+                ((ICancellationAwareVideoJobLedger)_inner).Append(r, ct);
+                if (r.ConfiguredFalExecution?.Snapshot?.Cancellation is { RemoteDisposition: not "unavailable" }) _run.CleanupPersisted.TrySetResult(true);
                 if (r.ConfiguredFalExecution?.Snapshot?.SubmissionOutcome != null) _run.Settled.TrySetResult(true);
                 if (r.ConfiguredFalExecution?.Snapshot?.DispatchState == "accepted") _run.Accepted.TrySetResult(true);
                 if (r.State is VideoJobState.Error or VideoJobState.Cancelled or VideoJobState.Interrupted or VideoJobState.Complete) _run.Terminal.TrySetResult(true);
             }
             public VideoJobLedgerReadResult ReadAll() => _inner.ReadAll();
+            public VideoJobLedgerReadResult ReadAll(CancellationToken ct)
+            {
+                try { return ((ICancellationAwareVideoJobLedger)_inner).ReadAll(ct); }
+                catch (OperationCanceledException) { _run.AdmissionCancelled.TrySetResult(true); throw; }
+            }
         }
         internal sealed class Transport : HttpMessageHandler
         {
             internal int Posts, Polls; internal bool HoldSubmit, RejectSubmit, Complete, Sync; internal Uri? CancelUrl;
+            internal string CancelDisposition = "confirmed_cancelled";
             internal readonly TaskCompletionSource<bool> PostEntered = Signal(), PostRelease = Signal(), PollEntered = Signal(), PollRelease = Signal();
             internal readonly TaskCompletionSource<bool> FetchEntered = Signal(), FetchRelease = Signal();
             internal readonly TaskCompletionSource<bool> CancelEntered = Signal();
@@ -355,7 +458,14 @@ namespace Rook.Tests.Services.Vision.Fal
                     if (Sync) return Response("""{"images":[{"url":"https://fal.media/image.png","content_type":"image/png"}]}""");
                     return Response("""{"request_id":"id","status_url":"https://queue.fal.run/fal-ai/synthetic/requests/id/status","response_url":"https://queue.fal.run/fal-ai/synthetic/requests/id","cancel_url":"https://queue.fal.run/fal-ai/synthetic/requests/id/cancel"}""");
                 }
-                if (request.Method == HttpMethod.Put) { CancelUrl = request.RequestUri; CancelEntered.TrySetResult(true); return Response("{\"status\":\"OK\"}"); }
+                if (request.Method == HttpMethod.Put)
+                {
+                    CancelUrl = request.RequestUri; CancelEntered.TrySetResult(true);
+                    return CancelDisposition == "already_completed" ? new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = new StringContent("{\"status\":\"ALREADY_COMPLETED\"}") }
+                        : CancelDisposition == "failed" ? new HttpResponseMessage(HttpStatusCode.NotFound) { Content = new StringContent("{\"status\":\"NOT_FOUND\"}") }
+                        : CancelDisposition == "cancellation_requested" ? new HttpResponseMessage(HttpStatusCode.Accepted) { Content = new StringContent("{\"status\":\"CANCELLATION_REQUESTED\"}") }
+                        : Response("{\"status\":\"OK\"}");
+                }
                 if (request.RequestUri!.Host == "fal.media") return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(new byte[] { 1, 2, 3, 4 }) { Headers = { ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(request.RequestUri.AbsolutePath.EndsWith(".png") ? "image/png" : "video/mp4") } } };
                 if (Complete && request.RequestUri.AbsolutePath.EndsWith("/status")) return Response("{\"status\":\"COMPLETED\"}");
                 if (Complete)

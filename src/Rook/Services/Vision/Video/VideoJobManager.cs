@@ -62,6 +62,7 @@ namespace Rook.Services.Vision.Video
         private readonly IVideoJobIdGenerator _idGenerator;
         private readonly TimeSpan _pollInterval;
         private readonly FalExecutionRecovery? _configuredRecovery;
+        private readonly Func<CancellationTokenSource> _configuredDurabilityBudgetFactory;
 
         private readonly SemaphoreSlim _concurrency;
         private readonly CancellationTokenSource _shutdownCts = new();
@@ -110,10 +111,12 @@ namespace Rook.Services.Vision.Video
             VideoRouteQuoteService? routeQuotes = null,
             IVideoDeadlineTimer? deadlineTimer = null,
             VideoPublicationService? publication = null,
-            FalExecutionRecovery? configuredRecovery = null)
+            FalExecutionRecovery? configuredRecovery = null,
+            Func<CancellationTokenSource>? configuredDurabilityBudgetFactory = null)
         {
             _registry = registry ?? throw new ArgumentNullException(nameof(registry));
             _configuredRecovery = configuredRecovery;
+            _configuredDurabilityBudgetFactory = configuredDurabilityBudgetFactory ?? FalDurableExecutionObserver.NewDurabilityBudget;
             _mediaResolver = mediaResolver ?? throw new ArgumentNullException(nameof(mediaResolver));
             _ledger = ledger ?? throw new ArgumentNullException(nameof(ledger));
             _estimator = estimator ?? throw new ArgumentNullException(nameof(estimator));
@@ -218,6 +221,8 @@ namespace Rook.Services.Vision.Video
             try
             {
                 ct.ThrowIfCancellationRequested();
+                if (_ledger is not ICancellationAwareVideoJobLedger)
+                    return Task.FromResult(JobSubmitResult.Fail(FalExecutionRecovery.Unavailable("Configured execution requires cancellation-aware ledger admission.")));
                 if (_shutdownCts.IsCancellationRequested) return Task.FromResult(JobSubmitResult.Fail(FalExecutionRecovery.Unavailable("Video manager is shutting down.")));
                 if (!_registry.TryResolve(request.Model, out var model) || model.Provider is not IConfiguredGenerationProvider configured
                     || normalized.Binding.ModelId != request.Model)
@@ -242,16 +247,24 @@ namespace Rook.Services.Vision.Video
             finally { if (!transferred) media.Dispose(); }
         }
 
-        private void CommitConfiguredExecution(RunningJob running, Func<FalExecutionSnapshot, FalExecutionSnapshot> update, CancellationToken ct, bool dispatch)
+        private VideoJobRecord CommitConfiguredExecution(RunningJob running, Func<FalExecutionSnapshot, FalExecutionSnapshot> update, CancellationToken ct, bool dispatch) =>
+            CommitConfiguredExecution(running.LatestRecord.JobId, running, update, ct, dispatch);
+
+        private VideoJobRecord CommitConfiguredExecution(Guid jobId, RunningJob? running, Func<FalExecutionSnapshot, FalExecutionSnapshot> update, CancellationToken ct, bool dispatch)
         {
-            using (FalDurableExecutionObserver.EnterGate(running.TransitionGate, ct))
+            using (FalDurableExecutionObserver.EnterGate(running?.TransitionGate ?? _ledger, ct))
             {
                 ct.ThrowIfCancellationRequested();
-                var latest = FindLedgerRecord(running.LatestRecord.JobId) ?? running.LatestRecord;
-                if (dispatch && (IsTerminal(latest.State) || running.Cts.IsCancellationRequested)) throw new OperationCanceledException();
+                var ledger = _ledger as ICancellationAwareVideoJobLedger ?? throw new IOException("Configured execution requires cancellation-aware ledger admission.");
+                var latest = ledger.ReadAll(ct).Records.FirstOrDefault(r => r.JobId == jobId) ?? running?.LatestRecord ?? throw new IOException("Configured job is missing.");
+                if (dispatch && (IsTerminal(latest.State) || running?.Cts.IsCancellationRequested == true)) throw new OperationCanceledException();
                 var snapshot = update(latest.ConfiguredFalExecution!.Snapshot!);
                 var next = VideoJobRecordFactory.WithConfiguredExecution(latest, snapshot) with { UpdatedAt = _clock.UtcNow(), Error = snapshot.ReconcileStopError(latest.Error) };
-                AppendCommittedSnapshot(next); running.LatestRecord = next;
+                ct.ThrowIfCancellationRequested();
+                ledger.Append(next, ct);
+                _routeRecordCache[next.JobId] = next;
+                if (running != null) running.LatestRecord = next;
+                return next;
             }
         }
 
@@ -275,27 +288,47 @@ namespace Rook.Services.Vision.Video
                     if (running != null) running.LatestRecord = record;
                 }
             }
+            return await CleanupConfiguredAsync(record, running, false, ct).ConfigureAwait(false);
+        }
+
+        private async Task<JobCancelResult> CleanupConfiguredAsync(VideoJobRecord record, RunningJob? running, bool automatic, CancellationToken ct)
+        {
             var read = record.ConfiguredFalExecution!;
-            if (read.Snapshot == null) return ConfiguredCancelFailure(FalExecutionRecovery.Unavailable(read.Diagnostic));
+            FalCancellationSnapshot evidence;
+            GenerationError? error;
+            if (read.Snapshot == null)
+                return JobCancelResult.Configured(record.State, new FalCancellationSnapshot(true, "unavailable", automatic), VideoProviderOutcomeAdapters.ToVideoJobError(FalExecutionRecovery.Unavailable(read.Diagnostic)));
             if (read.Snapshot.Handle == null)
-                return read.Snapshot.OutcomeUnknown ? ConfiguredCancelFailure(FalExecutionRecovery.Unavailable("Local monitoring stopped; remote submission outcome is unknown.")) : JobCancelResult.Ok(record.State);
-            ProviderCancelOutcome outcome;
-            if (running?.Model.Provider is IConfiguredGenerationProvider configured)
-                outcome = await configured.CancelConfiguredAsync(read.Snapshot.Binding, read.Snapshot.Handle, ct).ConfigureAwait(false);
-            else if (_configuredRecovery != null) outcome = await _configuredRecovery.CancelAsync(read.Snapshot, ct).ConfigureAwait(false);
-            else return ConfiguredCancelFailure(FalExecutionRecovery.Unavailable());
-            if (outcome is FailedCancelOutcome failed) return ConfiguredCancelFailure(failed.Error);
-            if (outcome is not CanceledOutcome) return JobCancelResult.Ok(record.State);
-            lock (running?.TransitionGate ?? _ledger)
             {
-                var latest = FindLedgerRecord(jobId)!;
-                if (latest.State == VideoJobState.Complete) return JobCancelResult.Ok(latest.State);
-                var next = VideoJobRecordFactory.WithState(latest, VideoJobState.Cancelled, _clock.UtcNow(), error: CancelledError());
-                try { AppendCommittedSnapshot(next); }
-                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { return ConfiguredCancelFailure(PersistenceError()); }
-                if (running != null) running.LatestRecord = next;
-                return JobCancelResult.Ok(VideoJobState.Cancelled);
+                error = read.Snapshot.OutcomeUnknown ? FalExecutionRecovery.Unavailable("Local monitoring stopped; remote submission outcome is unknown.") : null;
+                evidence = new FalCancellationSnapshot(true, error == null ? "not_requested" : "unavailable", automatic);
             }
+            else
+            {
+                ProviderCancelOutcome outcome;
+                try
+                {
+                    if (running?.Model.Provider is IConfiguredGenerationProvider provider)
+                        outcome = await provider.CancelConfiguredAsync(read.Snapshot.Binding, read.Snapshot.Handle, ct).ConfigureAwait(false);
+                    else if (_configuredRecovery != null) outcome = await _configuredRecovery.CancelAsync(read.Snapshot, ct).ConfigureAwait(false);
+                    else outcome = new FailedCancelOutcome(FalExecutionRecovery.Unavailable());
+                }
+                catch (Exception)
+                {
+                    outcome = new FailedCancelOutcome(FalExecutionRecovery.Unavailable("Local monitoring stopped; remote cleanup could not be confirmed."));
+                }
+                (evidence, error) = FalCancellationSnapshot.Observe(outcome, automatic);
+            }
+            try
+            {
+                using var durability = _configuredDurabilityBudgetFactory();
+                record = CommitConfiguredExecution(record.JobId, running, snapshot => snapshot.WithCancellation(evidence), durability.Token, false);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is OperationCanceledException || ex is TimeoutException)
+            {
+                error = PersistenceError();
+            }
+            return JobCancelResult.Configured(record.State, evidence, (error == null ? null : VideoProviderOutcomeAdapters.ToVideoJobError(error)));
         }
 
         // ─── Status ───────────────────────────────────────────────────
@@ -988,16 +1021,17 @@ namespace Rook.Services.Vision.Video
                     if (current.ConfiguredFalExecution?.Snapshot is { } configured)
                     {
                         var observer = new FalDurableExecutionObserver((handle, token) => CommitConfiguredExecution(running,
-                            snapshot => snapshot.WithDispatchState(handle == null ? "dispatch_intent" : "accepted", handle), token, handle == null));
+                            snapshot => snapshot.WithDispatchState(handle == null ? "dispatch_intent" : "accepted", handle), token, handle == null), _configuredDurabilityBudgetFactory);
                         try
                         {
                             submitOutcome = await ((IConfiguredGenerationProvider)provider).SubmitConfiguredAsync(configured.Request, running.ConfiguredMedia!, observer, ct).ConfigureAwait(false);
                         }
                         finally { running.ConfiguredMedia?.Dispose(); running.ConfiguredMedia = null; }
-                        CommitConfiguredExecution(running, snapshot => observer.Settled(snapshot, submitOutcome), CancellationToken.None, false);
+                        using (var durability = _configuredDurabilityBudgetFactory())
+                            CommitConfiguredExecution(running, snapshot => observer.Settled(snapshot, submitOutcome), durability.Token, false);
                         current = running.LatestRecord;
-                        if (ct.IsCancellationRequested && current.ConfiguredFalExecution?.Snapshot?.Handle is { } stoppedHandle)
-                            await ((IConfiguredGenerationProvider)provider).CancelConfiguredAsync(configured.Binding, stoppedHandle, CancellationToken.None).ConfigureAwait(false);
+                        if (ct.IsCancellationRequested && current.ConfiguredFalExecution?.Snapshot?.Handle != null)
+                            await CleanupConfiguredAsync(current, running, true, CancellationToken.None).ConfigureAwait(false);
                         ct.ThrowIfCancellationRequested();
                     }
                     else submitOutcome = provider is ISubmissionDispatchAwareVideoProvider dispatchAware
@@ -1240,7 +1274,11 @@ namespace Rook.Services.Vision.Video
                     if (newState == VideoJobState.Complete && (running?.Cts.IsCancellationRequested == true
                         || running?.ConfiguredBudget?.TryAdmitCompletion() == false))
                     { newState = VideoJobState.Interrupted; error = ConfiguredStopError(running!); resultArtifactId = null; }
-                    prior = prior with { Extensions = (JsonObject)durable.Extensions!.DeepClone() };
+                    // Keep worker-produced sidecar evidence while replacing only execution
+                    // authority with the latest durable snapshot under the transition gate.
+                    var extensions = prior.Extensions ?? new JsonObject();
+                    extensions[FalExecutionSnapshot.ExtensionKey] = durable.ConfiguredFalExecution.Json;
+                    prior = prior with { Extensions = extensions };
                 }
                 if (durable is not null && IsTerminal(durable.State))
                 {

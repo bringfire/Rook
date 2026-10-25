@@ -16,10 +16,11 @@ namespace Rook.Services.Vision.Fal
         public string DispatchState { get; }
         public ProviderJobHandle? Handle { get; }
         public string? SubmissionOutcome { get; }
+        public FalCancellationSnapshot? Cancellation { get; }
         public bool OutcomeUnknown => SubmissionOutcome == "unknown" || SubmissionOutcome == null && DispatchState == "dispatch_intent";
         private readonly JsonArray _media;
         public JsonArray MediaProvenance => (JsonArray)_media.DeepClone();
-        internal FalExecutionSnapshot(FalNormalizedRequest request, JsonArray media, FalPricingSnapshot? pricing, string state, ProviderJobHandle? handle, string? outcome = null)
+        internal FalExecutionSnapshot(FalNormalizedRequest request, JsonArray media, FalPricingSnapshot? pricing, string state, ProviderJobHandle? handle, string? outcome = null, FalCancellationSnapshot? cancellation = null)
         {
             if (state is not ("prepared" or "dispatch_intent" or "accepted" or "unknown")) throw new ArgumentException("Invalid dispatch state.");
             if (handle != null && FalConfiguredLifecycle.Validate(request.Binding, handle) is { } error) throw new ArgumentException(error.Message);
@@ -28,6 +29,7 @@ namespace Rook.Services.Vision.Fal
             Request = request; _media = (JsonArray)media.DeepClone(); Pricing = pricing; DispatchState = state;
             if (outcome is not (null or "not_accepted" or "accepted" or "unknown")) throw new ArgumentException("Invalid submission outcome.");
             SubmissionOutcome = outcome;
+            Cancellation = cancellation;
             Handle = handle == null ? null : new ProviderJobHandle(handle.ProviderJobId, handle.StatusUrl, handle.ResponseUrl, handle.CancelUrl, "PUT");
         }
         public static FalExecutionSnapshot Create(FalNormalizedRequest request, FalMediaSnapshot media, FalPricingSnapshot? pricing = null)
@@ -42,11 +44,13 @@ namespace Rook.Services.Vision.Fal
             return new FalExecutionSnapshot(request, provenance, pricing, "prepared", null);
         }
         public FalExecutionSnapshot WithDispatchState(string state, ProviderJobHandle? handle = null)
-            => new(Request, _media, Pricing, state, handle ?? Handle, state == "accepted" ? "accepted" : state == "unknown" ? "unknown" : SubmissionOutcome);
+            => new(Request, _media, Pricing, state, handle ?? Handle, state == "accepted" ? "accepted" : state == "unknown" ? "unknown" : SubmissionOutcome, Cancellation);
         public FalExecutionSnapshot WithOutcome(ProviderSubmitOutcome outcome) => outcome is FailedSubmitOutcome failed
             ? new(Request, _media, Pricing, failed.Disposition == SubmissionDisposition.Unknown ? "unknown" : DispatchState, Handle,
-                failed.Disposition == SubmissionDisposition.Unknown ? "unknown" : "not_accepted")
+                failed.Disposition == SubmissionDisposition.Unknown ? "unknown" : "not_accepted", Cancellation)
             : WithDispatchState("accepted", (outcome as QueuedSubmitOutcome)?.Handle);
+        public FalExecutionSnapshot WithCancellation(FalCancellationSnapshot cancellation)
+            => new(Request, _media, Pricing, DispatchState, Handle, SubmissionOutcome, cancellation ?? throw new ArgumentNullException(nameof(cancellation)));
         internal GenerationError? ReconcileStopError(GenerationError? error)
             => error?.ProviderErrorCode == "fal_submission_unknown" && SubmissionOutcome is "accepted" or "not_accepted"
                 ? new GenerationError(error.Code, SubmissionOutcome == "accepted"
