@@ -2,11 +2,11 @@
 
 Date: 2026-10-25
 
-Status: Draft for design review. Implementation planning follows approval of this design.
+Status: Approved by the user on 2026-10-25. Detailed implementation planning authorized; runtime implementation has not started.
 
 Source baseline: `807bfed4` in `C:/UDEV/Rook`.
 
-Builder review: a fresh read-only reviewer reported no material unanswered planning questions on 2026-10-25. Human design approval remains pending.
+Builder review: a fresh read-only reviewer reported no material unanswered planning questions on 2026-10-25. Human design approval received on 2026-10-25.
 
 ## 1. Intent and accepted requirements
 
@@ -16,7 +16,7 @@ The user selected the hybrid approach: declarative definitions for ordinary endp
 
 The user set the first release acceptance test: add **one new image endpoint and one new video endpoint**, with their controls usable through **both the RookVision UI and MCP**, using **configuration changes only**. The runtime must be frozen before those additions. Merely listing a model, rendering controls, or accepting an ignored options object does not pass.
 
-The detailed boundaries and scope below are proposed engineering choices for approval. They are not additional user requirements.
+The detailed boundaries and scope below are the approved engineering interpretation of these requirements.
 
 ## 2. Approaches and decision
 
