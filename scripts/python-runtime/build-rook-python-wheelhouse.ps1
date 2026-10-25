@@ -199,9 +199,9 @@ if ($CommandTimeoutSeconds -le 0) {
 }
 
 # Acquire this wheel separately from the official PyPI file URL, never via old pip.
-# https://pypi.org/project/pip/26.2.1/#files
+# https://pypi.org/project/pip/26.2.2/#files
 if ([string]::IsNullOrWhiteSpace($PipBootstrapWheel)) {
-    $PipBootstrapWheel = Join-Path $RepoRoot 'artifacts\python-bootstrap\pip-26.2.1-py3-none-any.whl'
+    $PipBootstrapWheel = Join-Path $RepoRoot 'artifacts\python-bootstrap\pip-26.2.2-py3-none-any.whl'
 }
 if (-not (Test-Path -LiteralPath $PipBootstrapWheel -PathType Leaf)) {
     Fail "Verified pip bootstrap wheel is required before package-index access: $PipBootstrapWheel"
@@ -211,8 +211,8 @@ try { $pipBootstrapBytes = $reader.ReadBytes(2097153) } finally { $reader.Dispos
 if ($pipBootstrapBytes.Length -gt 2097152) { Fail 'Pip bootstrap wheel exceeds 2 MiB' }
 $sha = [System.Security.Cryptography.SHA256]::Create()
 try { $pipBootstrapHash = [BitConverter]::ToString($sha.ComputeHash($pipBootstrapBytes)).Replace('-', '') } finally { $sha.Dispose() }
-if ($pipBootstrapHash -cne '71138ADF1F4CA900CDB7D289C21B7494329F2332B6D85F0E1C42108C0384ED3E') {
-    Fail 'Pip bootstrap wheel SHA256 does not match official pip 26.2.1'
+if ($pipBootstrapHash -cne 'FD7F4DFA8190E014013B9F08F3E973F4E4C26FFD179A204895533A7254813A70') {
+    Fail 'Pip bootstrap wheel SHA256 does not match official pip 26.2.2'
 }
 
 $pythonExe = Join-Path $RuntimeRoot 'python.exe'
@@ -251,13 +251,13 @@ Copy-Item -LiteralPath $dependencyInputLock -Destination $admittedDependencyLock
 if ((Get-Sha256 -Path $admittedDependencyLock) -cne $dependencyInputHash) { Fail 'Dependency input lock changed during admission.' }
 
 # Only this disposable build environment is upgraded; customer Python stays intact.
-$admittedPipWheel = Join-Path $BuildRoot 'pip-26.2.1-py3-none-any.whl'
+$admittedPipWheel = Join-Path $BuildRoot 'pip-26.2.2-py3-none-any.whl'
 [System.IO.File]::WriteAllBytes($admittedPipWheel, $pipBootstrapBytes)
 $buildVenv = Join-Path $BuildRoot 'build-venv'
 Invoke-CheckedProcess -FilePath $pythonExe -Arguments @('-I', '-m', 'venv', $buildVenv) -Label 'build venv creation'
 $buildPythonExe = Join-Path $buildVenv 'Scripts\python.exe'
 Invoke-CheckedProcess -FilePath $buildPythonExe -Arguments @('-I', '-m', 'pip', '--isolated', 'install', '--no-index', '--no-deps', $admittedPipWheel) -Label 'build pip offline bootstrap'
-$pipVersionCheck = @('-I', '-c', "import pip; assert pip.__version__ == '26.2.1', 'Build pip version differs'; print('Build pip: ' + pip.__version__ + ' at ' + pip.__file__)")
+$pipVersionCheck = @('-I', '-c', "import pip; assert pip.__version__ == '26.2.2', 'Build pip version differs'; print('Build pip: ' + pip.__version__ + ' at ' + pip.__file__)")
 Invoke-CheckedProcess -FilePath $buildPythonExe -Arguments $pipVersionCheck -Label 'build pip version check'
 
 Stage-LockedDependencies -PythonExe $buildPythonExe -RequirementsLock $admittedDependencyLock -Wheelhouse $wheelhouse -DependencyWheelhouse $DependencyWheelhouse
@@ -277,7 +277,7 @@ if (-not $chirpWheel) { Fail 'chirp wheel was not produced' }
 Copy-Item -LiteralPath $rookWheel.FullName -Destination $wheelhouse
 Copy-Item -LiteralPath $chirpWheel.FullName -Destination $wheelhouse
 
-$bootstrapToolPackages = @('pip==26.2.1', 'setuptools==83.0.0')
+$bootstrapToolPackages = @('pip==26.2.2', 'setuptools==84.1.0')
 # Installer tools are extracted by post_install.py, never installed into a venv
 # (#595). Keep in step with INSTALLER_TOOL_REQUIREMENTS in python_runtime_install.py.
 $installerToolPackages = @('uv==0.12.5')

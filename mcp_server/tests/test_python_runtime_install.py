@@ -61,7 +61,7 @@ def seed_runtime_inputs(layout) -> None:
     layout.private_python.parent.mkdir(parents=True, exist_ok=True)
     layout.private_python.write_text("private python", encoding="utf-8")
     layout.wheelhouse.mkdir(parents=True, exist_ok=True)
-    layout.bootstrap_lock.write_text("pip==26.2.1 --hash=sha256:" + "a" * 64 + "\n", encoding="utf-8")
+    layout.bootstrap_lock.write_text("pip==26.2.2 --hash=sha256:" + "a" * 64 + "\n", encoding="utf-8")
     layout.rook_lock.write_text("rook-mcp==1.5.10 --hash=sha256:" + "d" * 64 + "\n", encoding="utf-8")
     layout.runtime_manifest.write_text('{"schema_version":1}', encoding="utf-8")
     wheel = layout.wheelhouse / "uv-0.12.5-py3-none-win_amd64.whl"
@@ -130,8 +130,8 @@ def test_bootstrap_tool_requirements_pin_patched_pip_and_setuptools() -> None:
     runtime = load_runtime_install()
 
     assert runtime.BOOTSTRAP_TOOL_REQUIREMENTS == (
-        "pip==26.2.1",
-        "setuptools==83.0.0",
+        "pip==26.2.2",
+        "setuptools==84.1.0",
     )
 
 
@@ -148,9 +148,9 @@ def test_bootstrap_and_tool_locks_reach_temp_and_customer_installs(
     layout = runtime.RuntimeLayout.from_rook_root(tmp_path / "Rook", "3.11.9")
     layout.wheelhouse.mkdir(parents=True)
     pip_bytes = b"fixture-only reviewed pip wheel"
-    (layout.wheelhouse / "pip-26.2.1-py3-none-any.whl").write_bytes(pip_bytes)
+    (layout.wheelhouse / "pip-26.2.2-py3-none-any.whl").write_bytes(pip_bytes)
     (layout.wheelhouse / "pip-26.1.2-py3-none-any.whl").write_bytes(b"obsolete wheel")
-    (layout.wheelhouse / "setuptools-83.0.0-py3-none-any.whl").write_bytes(b"setuptools")
+    (layout.wheelhouse / "setuptools-84.1.0-py3-none-any.whl").write_bytes(b"setuptools")
     uv_wheel = layout.wheelhouse / "uv-0.12.5-py3-none-win_amd64.whl"
     with zipfile.ZipFile(uv_wheel, "w") as archive:
         archive.writestr("uv-0.12.5.data/scripts/uv.exe", b"fixture uv")
@@ -184,8 +184,8 @@ $text=$ast.Extent.Text.Substring($start[0].Extent.StartOffset,$end[0].Extent.Sta
     )
     assert observed.returncode == 0 and observed.stdout.strip() == "ok", observed.stderr
     bootstrap_rows = runtime.read_hash_lock(layout.bootstrap_lock)
-    assert ("pip", "26.2.1", hashlib.sha256(pip_bytes).hexdigest()) in bootstrap_rows
-    assert [row[:2] for row in bootstrap_rows] == [("pip", "26.2.1"), ("setuptools", "83.0.0")]
+    assert ("pip", "26.2.2", hashlib.sha256(pip_bytes).hexdigest()) in bootstrap_rows
+    assert [row[:2] for row in bootstrap_rows] == [("pip", "26.2.2"), ("setuptools", "84.1.0")]
     assert runtime.read_hash_lock(layout.installer_tools_lock) == [
         ("uv", "0.12.5", hashlib.sha256(uv_wheel.read_bytes()).hexdigest())
     ]
@@ -220,6 +220,10 @@ $text=$ast.Extent.Text.Substring($start[0].Extent.StartOffset,$end[0].Extent.Sta
             # test_build_bytecode_probe_cannot_create_its_own_evidence.
             assert "find_spec" in command[3] and "cache_from_source" in command[3]
             return subprocess.CompletedProcess(command, 0, "true", "")
+        if command[1:] == ns["firm_auth_probe"]():
+            return subprocess.CompletedProcess(
+                command, 0, json.dumps({"msal": "1.39.0", "google-auth": "2.56.3"}), ""
+            )
         if command[1] == "-c":
             code = command[2]
             if "sysconfig" in code:
@@ -245,6 +249,9 @@ $text=$ast.Extent.Text.Substring($start[0].Extent.StartOffset,$end[0].Extent.Sta
     assert selected == [(layout.bootstrap_lock, layout.bootstrap_lock.read_bytes()), (package_lock, package_lock.read_bytes())]
     record = json.loads((tmp_path / "verification.json").read_text(encoding="utf-8"))
     assert record["installer_tool"]["wheel_sha256"] == hashlib.sha256(uv_wheel.read_bytes()).hexdigest()
+    assert record["firm_auth_dependencies"] == (
+        {"msal": "1.39.0", "google-auth": "2.56.3"} if module == "rook" else {}
+    )
     assert record["uv_install_offline_contract"] is record["freeze_matches_locks"] is record["bytecode_compiled"] is True
     assert not (tmp_path / "verification-uv-cache").exists() and not (tmp_path / "verification-tools").exists()
 
@@ -786,7 +793,7 @@ def test_post_install_requires_runtime_manifest_input(tmp_path: Path) -> None:
     layout.private_python.write_text("private python", encoding="utf-8")
     layout.wheelhouse.mkdir(parents=True)
     layout.bootstrap_lock.parent.mkdir(parents=True, exist_ok=True)
-    layout.bootstrap_lock.write_text("pip==26.2.1 --hash=sha256:abc\n", encoding="utf-8")
+    layout.bootstrap_lock.write_text("pip==26.2.2 --hash=sha256:abc\n", encoding="utf-8")
     layout.rook_lock.write_text("rook-mcp==1.5.10 --hash=sha256:def\n", encoding="utf-8")
 
     assert post_install._install_from_wheelhouse(

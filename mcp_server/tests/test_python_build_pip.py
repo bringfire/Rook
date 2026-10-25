@@ -13,7 +13,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 BUILDER = REPO / "scripts/python-runtime/build-rook-python-wheelhouse.ps1"
-OFFICIAL_SHA256 = "71138ADF1F4CA900CDB7D289C21B7494329F2332B6D85F0E1C42108C0384ED3E"
+OFFICIAL_SHA256 = "FD7F4DFA8190E014013B9F08F3E973F4E4C26FFD179A204895533A7254813A70"
 
 # Execute the actual entrypoint through lock generation, then its actual audit
 # block. Only Git identity and child execution are replaced. Temporary install
@@ -54,8 +54,8 @@ function Invoke-CheckedProcess {
         'rook-mcp wheel build' { [IO.File]::WriteAllText((Join-Path $rookWheelDir 'rook_mcp-1.5.18-py3-none-any.whl'),'rook') }
         'chirp wheel build' { [IO.File]::WriteAllText((Join-Path $chirpWheelDir 'chirp-0.1.0-py3-none-any.whl'),'chirp') }
         'hash-locked dependency wheel acquisition' {
-            [IO.File]::WriteAllText((Join-Path $wheelhouse 'pip-26.2.1-py3-none-any.whl'),'fixture pip')
-            [IO.File]::WriteAllText((Join-Path $wheelhouse 'setuptools-83.0.0-py3-none-any.whl'),'setuptools')
+            [IO.File]::WriteAllText((Join-Path $wheelhouse 'pip-26.2.2-py3-none-any.whl'),'fixture pip')
+            [IO.File]::WriteAllText((Join-Path $wheelhouse 'setuptools-84.1.0-py3-none-any.whl'),'setuptools')
             [IO.File]::WriteAllText((Join-Path $wheelhouse 'uv-0.12.5-py3-none-win_amd64.whl'),'fixture uv')
         }
         'pip-audit venv creation' { }
@@ -99,7 +99,7 @@ def run_fixture(tmp_path, case):
     chirp = tmp_path / "chirp/pyproject.toml"
     chirp.parent.mkdir()
     chirp.write_text("# fixture")
-    wheel = tmp_path / "artifacts/python-bootstrap/pip-26.2.1-py3-none-any.whl"
+    wheel = tmp_path / "artifacts/python-bootstrap/pip-26.2.2-py3-none-any.whl"
     wheel.parent.mkdir(parents=True)
     if case != "missing":
         wheel.write_bytes(b"x" * 2097153 if case == "oversized" else b"synthetic bootstrap wheel")
@@ -141,13 +141,13 @@ def test_all_online_operations_use_offline_bootstrapped_build_pip(tmp_path, monk
     assert {"-I", "--isolated", "--no-index", "--no-deps"} <= set(bootstrap["argv"])
     admitted_wheel = Path(bootstrap["argv"][-1])
     assert admitted_wheel.read_bytes() == b"synthetic bootstrap wheel"
-    assert admitted_wheel.name == "pip-26.2.1-py3-none-any.whl"
-    assert "pip.__version__ == '26.2.1'" in calls[2]["argv"][-1]
+    assert admitted_wheel.name == "pip-26.2.2-py3-none-any.whl"
+    assert "pip.__version__ == '26.2.2'" in calls[2]["argv"][-1]
     version_code = calls[2]["argv"][-1]
-    for version in ("24.0", "26.1.2", "26.2.1"):
+    for version in ("24.0", "26.1.2", "26.2.1", "26.2.2"):
         with monkeypatch.context() as patch:
             patch.setitem(sys.modules, "pip", SimpleNamespace(__version__=version, __file__="fixture-pip"))
-            if version == "26.2.1":
+            if version == "26.2.2":
                 exec(compile(version_code, "build-pip-version-check", "exec"), {})
             else:
                 with pytest.raises(AssertionError, match="Build pip version differs"):
@@ -169,7 +169,7 @@ def test_all_online_operations_use_offline_bootstrapped_build_pip(tmp_path, monk
         assert call["file"] == str(Path(build_python).with_name("pip-audit.exe"))
         assert call["argv"][-2:] == ["--ignore-vuln", "CVE-2025-69872"]
     lock = (tmp_path / "installer/runtime/requirements-bootstrap-lock.txt").read_text(encoding="utf-8-sig")
-    assert f"pip==26.2.1 --hash=sha256:{hashlib.sha256(b'fixture pip').hexdigest()}" in lock
+    assert f"pip==26.2.2 --hash=sha256:{hashlib.sha256(b'fixture pip').hexdigest()}" in lock
     assert "uv==" not in lock, "uv must never enter a lock that is installed into a venv"
     tools_lock = (tmp_path / "installer/runtime/requirements-installer-tools-lock.txt").read_text(encoding="utf-8-sig")
     assert f"uv==0.12.5 --hash=sha256:{hashlib.sha256(b'fixture uv').hexdigest()}" in tools_lock

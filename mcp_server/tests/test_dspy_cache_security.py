@@ -29,11 +29,12 @@ def load_dspy_config(monkeypatch, tmp_path: Path):
     monkeypatch.delenv("DSPY_CACHEDIR", raising=False)
 
     rook_pkg = ModuleType("rook")
-    rook_pkg.__path__ = []
+    # Resolve current lightweight siblings without executing package initializers.
+    rook_pkg.__path__ = [str(module_path.parents[1])]
     learning_pkg = ModuleType("rook.learning")
     learning_pkg.__path__ = []
     agent_pkg = ModuleType("rook.agent")
-    agent_pkg.__path__ = []
+    agent_pkg.__path__ = [str(module_path.parents[1] / "agent")]
     model_profiles = ModuleType("rook.agent.model_profiles")
     model_profiles.api_base_for_model = lambda _model, api_base: api_base
     monkeypatch.setitem(sys.modules, "rook", rook_pkg)
