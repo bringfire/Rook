@@ -244,7 +244,7 @@ namespace Rook.Tests.UI.Vision
                 "open_artifacts_folder", "reveal_artifact_file",
                 // Hidden image job ops — bridge-only, not native HTTP.
                 "image_generate_start", "image_job_cancel",
-                "image_job_status", "image_job_result", "image_jobs",
+                "image_job_status", "image_job_result", "image_jobs", "image_estimate",
                 // Media gallery import ops — bridge-only, not native HTTP.
                 "start_media_import", "get_media_import_job",
                 "list_media_import_jobs",
@@ -298,6 +298,7 @@ namespace Rook.Tests.UI.Vision
         [InlineData("image_job_status", "OffUi")]
         [InlineData("image_job_result", "OffUi")]
         [InlineData("image_jobs", "OffUi")]
+        [InlineData("image_estimate", "OffUi")]
         // Media gallery import — picker on UI; job reads off-UI.
         [InlineData("start_media_import", "Ui")]
         [InlineData("get_media_import_job", "OffUi")]
@@ -368,6 +369,7 @@ namespace Rook.Tests.UI.Vision
         [InlineData("image_job_status")]
         [InlineData("image_job_result")]
         [InlineData("image_jobs")]
+        [InlineData("image_estimate")]
         [InlineData("start_media_import")]
         [InlineData("get_media_import_job")]
         [InlineData("list_media_import_jobs")]
@@ -411,15 +413,17 @@ namespace Rook.Tests.UI.Vision
                 message);
         }
 
-        [Fact]
-        public async Task ImageJobOp_WithNullImageJobHandler_ReturnsStructuredFailure()
+        [Theory]
+        [InlineData("image_job_status")]
+        [InlineData("image_estimate")]
+        public async Task ImageJobOp_WithNullImageJobHandler_ReturnsStructuredFailure(string op)
         {
             var surface = NewSurface();
             var response = await InvokeVisionBridgeAsync(
                 surface,
                 new JsonObject
                 {
-                    ["op"] = "image_job_status",
+                    ["op"] = op,
                     ["job_id"] = Guid.NewGuid().ToString("D"),
                 });
 
