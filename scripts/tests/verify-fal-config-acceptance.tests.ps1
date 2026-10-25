@@ -60,14 +60,14 @@ Assert-Test (Test-Path -LiteralPath $qualifier) 'Build the real qualifier before
 $unitRoot = Join-Path ([IO.Path]::GetTempPath()) ('rook-acceptance-full-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $unitRoot | Out-Null
 try {
-    foreach ($path in @('src/Rook/Services/Vision/Fal/Models','scripts','mcp_server/src/rook','installer','plugin/managed/net8.0','mcp','artifacts')) { New-Item -ItemType Directory -Path (Join-Path $unitRoot $path) -Force | Out-Null }
+    foreach ($path in @('src/Rook/Services/Vision/Fal/Models','scripts','mcp_server/src/rook','installer','plugin/net8.0','mcp','artifacts')) { New-Item -ItemType Directory -Path (Join-Path $unitRoot $path) -Force | Out-Null }
     '{"schema_version":1,"definitions":[]}' | Set-Content (Join-Path $unitRoot 'src/Rook/Services/Vision/Fal/Models/catalog.json')
     'compiler fixture' | Set-Content (Join-Path $unitRoot 'src/Rook/Services/Vision/Fal/Models/compiler.cs')
     'harness fixture' | Set-Content (Join-Path $unitRoot 'scripts/harness.ps1')
     'python fixture' | Set-Content (Join-Path $unitRoot 'mcp_server/src/rook/fixture.py')
     'installer fixture' | Set-Content (Join-Path $unitRoot 'installer/fixture.txt')
     'native fixture' | Set-Content (Join-Path $unitRoot 'plugin/RookNative.rhp')
-    'managed fixture' | Set-Content (Join-Path $unitRoot 'plugin/managed/net8.0/Rook.rhp')
+    'managed fixture' | Set-Content (Join-Path $unitRoot 'plugin/net8.0/Rook.rhp')
     'python executable fixture' | Set-Content (Join-Path $unitRoot 'mcp/python.exe')
     "artifacts/`nplugin/`nmcp/`n**/bin/" | Set-Content (Join-Path $unitRoot '.gitignore')
     foreach ($tfm in @('net48','net7.0','net8.0')) {
@@ -115,7 +115,7 @@ try {
         @{unit_fixture=$true;command='synthetic qualification fixture';exit_code=0} | ConvertTo-Json | Set-Content (Join-Path $attempt "$name.json")
         $link=Unit-Link "$name.json"; $link.name=$name;$link.exit_code=0;$fullProof.qualification += $link
     }
-    $modules=@();foreach ($path in @('plugin/RookNative.rhp','plugin/managed/net8.0/Rook.rhp')) { $file=Join-Path $unitRoot $path; $modules+=@{name=[IO.Path]::GetFileName($file);path=$file;version='unit-fixture';sha256=(Get-FileHash $file).Hash} }
+    $modules=@();foreach ($path in @('plugin/RookNative.rhp','plugin/net8.0/Rook.rhp')) { $file=Join-Path $unitRoot $path; $modules+=@{name=[IO.Path]::GetFileName($file);path=$file;version='unit-fixture';sha256=(Get-FileHash $file).Hash} }
     @{process_id=1;process_started_utc=$time;observed_utc=$time;modules=$modules;python=@{path=(Join-Path $unitRoot 'mcp/python.exe');package_path=(Join-Path $unitRoot 'mcp/Lib/site-packages/rook');sha256=(Get-FileHash (Join-Path $unitRoot 'mcp/python.exe')).Hash}} | ConvertTo-Json -Depth 20 | Set-Content (Join-Path $attempt 'loaded.json')
     $link=Unit-Link 'loaded.json';$link.name='loaded_paths';$link.exit_code=0;$fullProof.qualification += $link
     $evidencePath=Join-Path $attempt 'evidence.json';$reportPath=Join-Path $attempt 'acceptance.json'
