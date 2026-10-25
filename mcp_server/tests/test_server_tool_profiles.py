@@ -77,9 +77,9 @@ def test_profile_surface_counts_are_authoritative(monkeypatch):
         "readonly": len(readonly),
         "lean": len(lean),
     } == {
-        "full": 382,
-        "full_with_deprecated": 385,
-        "readonly": 120,
+        "full": 389,
+        "full_with_deprecated": 392,
+        "readonly": 125,
         "lean": 20,
     }
     assert deprecated_enabled - full == _GATED

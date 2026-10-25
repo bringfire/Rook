@@ -459,6 +459,43 @@ void HandleVisionVideoModelsList(const httplib::Request& /*req*/, httplib::Respo
         body);
 }
 
+// Configured image operations share the existing callback and transport helpers.
+void HandleVisionImageModelsList(const httplib::Request& /*req*/, httplib::Response& res)
+{
+    nlohmann::json body = nlohmann::json::object();
+    ForwardVisionDispatchWithUnavailableDiagnostic(res, "GET /vision/image/models", "list_image_models", body);
+}
+
+void HandleVisionImageEstimate(const httplib::Request& req, httplib::Response& res)
+{
+    DispatchVisionOp(req, res, "POST /vision/image/estimate", "image_estimate");
+}
+
+void HandleVisionImageSubmit(const httplib::Request& req, httplib::Response& res)
+{
+    DispatchVisionOp(req, res, "POST /vision/image/jobs", "image_generate_start");
+}
+
+void HandleVisionImageStatus(const httplib::Request& req, httplib::Response& res)
+{
+    DispatchVisionOpWithPathId(req, res, "GET /vision/image/jobs/{job_id}", "image_job_status", "job_id");
+}
+
+void HandleVisionImageResult(const httplib::Request& req, httplib::Response& res)
+{
+    DispatchVisionOpWithPathId(req, res, "GET /vision/image/jobs/{job_id}/result", "image_job_result", "job_id");
+}
+
+void HandleVisionImageCancel(const httplib::Request& req, httplib::Response& res)
+{
+    DispatchVisionOpWithPathId(req, res, "POST /vision/image/jobs/{job_id}/cancel", "image_job_cancel", "job_id");
+}
+
+void HandleVisionImageJobsList(const httplib::Request& req, httplib::Response& res)
+{
+    DispatchVideoJobsList(res, req, "GET /vision/image/jobs", "image_jobs");
+}
+
 // ─── Presentation diagnostics / repair (reconciler spec 2026-06-10) ─
 
 void HandleVisionPresentation(const httplib::Request& req, httplib::Response& res)

@@ -1114,6 +1114,30 @@ void CRookServer::RegisterRoutes()
         Rook::Handlers::HandleVisionPresentation(req, res);
     });
 
+    // Image discovery and asynchronous jobs use the same Vision callback.
+    // Literal routes and suffixes precede the generic job-id route.
+    m_server->Get("/vision/image/models", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleVisionImageModelsList(req, res);
+    });
+    m_server->Post("/vision/image/estimate", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleVisionImageEstimate(req, res);
+    });
+    m_server->Post("/vision/image/jobs", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleVisionImageSubmit(req, res);
+    });
+    m_server->Get("/vision/image/jobs", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleVisionImageJobsList(req, res);
+    });
+    m_server->Post(R"(/vision/image/jobs/([^/]+)/cancel)", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleVisionImageCancel(req, res);
+    });
+    m_server->Get(R"(/vision/image/jobs/([^/]+)/result)", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleVisionImageResult(req, res);
+    });
+    m_server->Get(R"(/vision/image/jobs/([^/]+))", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleVisionImageStatus(req, res);
+    });
+
     // PR-V2: video routes. All five forward through the same
     // vision_dispatch bridge callback (ABI v14 unchanged). Long-form
     // op names are injected by the C++ handlers and matched by C#
@@ -2208,8 +2232,10 @@ nlohmann::json BuildRookCapabilitiesDocument(
         CompanionEvidenceFor(companionStatus, "chat.ui")));
     domains.push_back(Domain("vision.media", "unknown", visionReady, visionReady ? "unknown" : "not_loaded", false,
         visionReady ? "operation_state_not_probed_phase1" : "managed_bridge_callback_not_registered", true, "native_bridge_callback_registration",
-        StringArray({ "POST /vision/generate", "POST /vision/enhance-prompt", "GET /vision/artifacts", "POST /vision/video/jobs" }),
-        StringArray({ "image_generation", "prompt_enhancement", "artifact_store", "video_jobs" }), StringArray({ "companion runtime status" }),
+        StringArray({ "POST /vision/generate", "POST /vision/enhance-prompt", "GET /vision/artifacts", "GET /vision/image/models", "POST /vision/image/estimate", "POST /vision/image/jobs",
+            "GET /vision/image/jobs", "GET /vision/image/jobs/{job_id}", "GET /vision/image/jobs/{job_id}/result", "POST /vision/image/jobs/{job_id}/cancel",
+            "POST /vision/video/jobs" }),
+        StringArray({ "image_generation", "prompt_enhancement", "artifact_store", "image_models", "image_estimates", "image_jobs", "video_jobs" }), StringArray({ "companion runtime status" }),
         nlohmann::json::array({ Evidence("callback", "visionDispatch", visionReady) }), CompanionEvidenceFor(companionStatus, "vision.media")));
     domains.push_back(Domain("reconstruction.2d_to_3d", "unknown", reconstructionReady,
         reconstructionReady ? "unknown" : "not_loaded", false,

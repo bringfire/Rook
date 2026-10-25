@@ -57,6 +57,10 @@ namespace Rook.InternalBridge
                 videoArtifactIsVisible: artifact => RookSubsystemRoot.Instance.Video.Manager.IsArtifactVisible(artifact));
         }
 
+        private static readonly Lazy<ImageJobOpHandler> _imageJobOpHandler =
+            new(() => new ImageJobOpHandler(RookSubsystemRoot.Instance.ImageJobs.Manager, Vision),
+                LazyThreadSafetyMode.ExecutionAndPublication);
+
         // V2 video. Lazy so processes that never touch video (image-only,
         // command-only) don't pay the registry-validation + Veo-provider
         // construction cost. The Lazy is process-scoped via the registrar's
@@ -88,6 +92,14 @@ namespace Rook.InternalBridge
                 "approve_artifact",
                 "delete_artifact",
                 "consume_approved",
+                // Image model discovery and shared asynchronous jobs.
+                "list_image_models",
+                ImageJobOpHandler.OpEstimate,
+                ImageJobOpHandler.OpStart,
+                ImageJobOpHandler.OpStatus,
+                ImageJobOpHandler.OpResult,
+                ImageJobOpHandler.OpCancel,
+                ImageJobOpHandler.OpList,
                 // Director publish
                 "publish_director_video",
                 // V2 video
@@ -1942,6 +1954,7 @@ namespace Rook.InternalBridge
                         (reqJson, ct) => Vision.DispatchAsync(reqJson, ct),
                         timeoutSeconds: 180);
 
+                case "list_image_models":
                 case "list_artifacts":
                 case "get_artifact":
                 case "approve_artifact":
@@ -1977,6 +1990,24 @@ namespace Rook.InternalBridge
                         requestJson,
                         reqJson => Vision.DispatchOffUi(reqJson),
                         timeoutSeconds: 180);
+
+                case ImageJobOpHandler.OpStart:
+                case ImageJobOpHandler.OpCancel:
+                    return ExecuteAsyncApiResponseCallback(
+                        responseJsonUtf8, responseJsonCapacity, responseJsonLength,
+                        httpStatusCode, requestJson,
+                        (reqJson, ct) => _imageJobOpHandler.Value.DispatchAsync(reqJson, ct),
+                        timeoutSeconds: 180);
+
+                case ImageJobOpHandler.OpEstimate:
+                case ImageJobOpHandler.OpStatus:
+                case ImageJobOpHandler.OpResult:
+                case ImageJobOpHandler.OpList:
+                    return ExecuteOffUiApiResponseCallback(
+                        responseJsonUtf8, responseJsonCapacity, responseJsonLength,
+                        httpStatusCode, requestJson,
+                        reqJson => _imageJobOpHandler.Value.DispatchOffUi(reqJson),
+                        timeoutSeconds: 30);
 
                 case VideoOpHandler.OpSubmit:
                 case VideoOpHandler.OpCancel:

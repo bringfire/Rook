@@ -8,6 +8,7 @@
 //
 //   - Image ops (generate, enhance_prompt, capture_depth, list/get/
 //     approve/delete artifacts, consume_approved) → VisionHandler.cs
+//   - Image estimates and jobs -> ImageJobOpHandler.cs
 //   - V2 video ops (submit_video_job, get_video_job, cancel_video_job,
 //     get_video_job_result, estimate_video_job) → VideoOpHandler.cs
 //
@@ -71,6 +72,16 @@ void HandleVisionConsumeApproved(const httplib::Request& req, httplib::Response&
 // publish_director_video. Native owns transport only; Python owns
 // Director publish validation and managed owns artifact safety.
 void HandleVisionDirectorPublishVideo(const httplib::Request& req, httplib::Response& res);
+
+// Configured image discovery, estimates and asynchronous job lifecycle.
+// Uses the existing vision_dispatch callback; managed owns validation.
+void HandleVisionImageModelsList(const httplib::Request& req, httplib::Response& res);
+void HandleVisionImageEstimate(const httplib::Request& req, httplib::Response& res);
+void HandleVisionImageSubmit(const httplib::Request& req, httplib::Response& res);
+void HandleVisionImageStatus(const httplib::Request& req, httplib::Response& res);
+void HandleVisionImageResult(const httplib::Request& req, httplib::Response& res);
+void HandleVisionImageCancel(const httplib::Request& req, httplib::Response& res);
+void HandleVisionImageJobsList(const httplib::Request& req, httplib::Response& res);
 
 // ─── V2 video routes ────────────────────────────────────────────────
 // All five proxy through the same vision_dispatch bridge callback

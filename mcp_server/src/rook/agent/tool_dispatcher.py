@@ -468,6 +468,9 @@ BRIDGE_ROUTES: Dict[str, Tuple[str, str]] = {
     # (jobs) live in TRANSFORM_FUNCTIONS so the dispatcher can
     # construct the URL by hand and bypass call_rhino's None-stripping
     # behavior on GET params.
+    "rhino_generate_image": ("/vision/image/jobs", "POST"),
+    "rhino_image_estimate": ("/vision/image/estimate", "POST"),
+    "rhino_image_models": ("/vision/image/models", "GET"),
     "rhino_render_video":   ("/vision/video/jobs", "POST"),
     "rhino_video_estimate": ("/vision/video/estimate", "POST"),
     "rhino_video_models":   ("/vision/video/models", "GET"),
@@ -1062,6 +1065,26 @@ def _video_jobs(params: dict) -> Tuple[Optional[str], str, Optional[dict]]:
     return "/vision/video/jobs", "GET", None
 
 
+def _image_status(params: dict) -> Tuple[Optional[str], str, Optional[dict]]:
+    endpoint, method, data = _video_status(params)
+    return endpoint.replace("/vision/video/", "/vision/image/") if endpoint else None, method, data
+
+
+def _image_cancel(params: dict) -> Tuple[Optional[str], str, Optional[dict]]:
+    endpoint, method, data = _video_cancel(params)
+    return endpoint.replace("/vision/video/", "/vision/image/") if endpoint else None, method, data
+
+
+def _image_result(params: dict) -> Tuple[Optional[str], str, Optional[dict]]:
+    endpoint, method, data = _video_result(params)
+    return endpoint.replace("/vision/video/", "/vision/image/") if endpoint else None, method, data
+
+
+def _image_jobs(params: dict) -> Tuple[Optional[str], str, Optional[dict]]:
+    endpoint, method, data = _video_jobs(params)
+    return endpoint.replace("/vision/video/", "/vision/image/") if endpoint else None, method, data
+
+
 def _encode_reconstruction_job_id(jid: Any) -> tuple[str | None, dict | None]:
     """Pre-validate and URL-encode reconstruction job_id path params."""
     from urllib.parse import quote as _quote
@@ -1174,6 +1197,10 @@ TRANSFORM_FUNCTIONS: Dict[str, Callable[[dict], Tuple[str, str, dict]]] = {
     "rhino_execute":           _transform_execute,
 
     # --- Vision Video (PR-V4) ---
+    "rhino_image_status":      _image_status,
+    "rhino_image_cancel":      _image_cancel,
+    "rhino_image_result":      _image_result,
+    "rhino_image_jobs":        _image_jobs,
     "rhino_video_status":      _video_status,
     "rhino_video_cancel":      _video_cancel,
     "rhino_video_result":      _video_result,
