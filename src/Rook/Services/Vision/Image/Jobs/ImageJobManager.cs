@@ -504,7 +504,9 @@ namespace Rook.Services.Vision.Image.Jobs
                             current = TransitionOrMarkAppendFailure(
                                 current,
                                 ImageJobState.Error,
-                                failed.Error);
+                                failed.Disposition == SubmissionDisposition.Unknown
+                                    ? failed.Error with { Retryable = false, ProviderErrorCode = "fal_submission_unknown" }
+                                    : failed.Error);
                             running.LatestRecord = current;
                             return;
 

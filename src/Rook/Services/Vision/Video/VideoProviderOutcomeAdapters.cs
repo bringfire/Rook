@@ -41,10 +41,10 @@ namespace Rook.Services.Vision.Video
                 Message: error.Message,
                 Retryable: error.Retryable,
                 ProviderMessage: providerMessage,
-                Field: error.Field) { SubmissionOutcomeUnknown = error.ProviderErrorCode == "vertex_submission_unknown", DetailCode = IsSafeCode(error.ProviderErrorCode) ? error.ProviderErrorCode : null, PreparationFailure = VideoSourcePreparationErrors.Extract(error) };
+                Field: error.Field) { SubmissionOutcomeUnknown = error.ProviderErrorCode is "vertex_submission_unknown" or "fal_submission_unknown", DetailCode = IsSafeCode(error.ProviderErrorCode) ? error.ProviderErrorCode : null, PreparationFailure = VideoSourcePreparationErrors.Extract(error) };
         }
 
-        private static bool IsSafeCode(string? code) => VideoSourcePreparationErrors.IsLocalCode(code) || code is "rook.veo.key_missing" or "rook.veo.key_rejected" or "rook.fal.key_missing" or "rook.fal.key_rejected" or "secret_access_failed" or "submission_unknown" or "estimate_stale" or "cost_cap_exceeded" or "persistence_failed" or "provider_timeout";
+        private static bool IsSafeCode(string? code) => VideoSourcePreparationErrors.IsLocalCode(code) || code is "rook.veo.key_missing" or "rook.veo.key_rejected" or "rook.fal.key_missing" or "rook.fal.key_rejected" or "secret_access_failed" or "submission_unknown" or "fal_submission_unknown" or "estimate_stale" or "cost_cap_exceeded" or "persistence_failed" or "provider_timeout";
 
         private static GenerationErrorCode ToGenerationErrorCode(VideoErrorCode code) =>
             code switch

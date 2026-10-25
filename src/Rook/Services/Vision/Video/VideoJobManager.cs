@@ -882,7 +882,8 @@ namespace Rook.Services.Vision.Video
                     lock(running.TransitionGate)
                     {
                         running.SubmissionOutcomeUnknown = submitOutcome is FailedSubmitOutcome failedSubmit
-                            && failedSubmit.Error.ProviderErrorCode == "vertex_submission_unknown";
+                            && (failedSubmit.Disposition == SubmissionDisposition.Unknown
+                                || failedSubmit.Error.ProviderErrorCode == "vertex_submission_unknown");
                         running.SubmissionSettled = true;
                     }
                     if(AfterSubmitForTests is { } afterSubmit) await afterSubmit(jobId).ConfigureAwait(false);
@@ -898,7 +899,9 @@ namespace Rook.Services.Vision.Video
                             current = AppendTransition(
                             current,
                             VideoJobState.Error,
-                            error: failed.Error);
+                            error: failed.Disposition == SubmissionDisposition.Unknown
+                                ? failed.Error with { Retryable = false, ProviderErrorCode = "fal_submission_unknown" }
+                                : failed.Error);
                             running.LatestRecord = current;
                             return;
 
