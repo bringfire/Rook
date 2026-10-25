@@ -20,8 +20,14 @@ function Invoke-Recorded([string]$Name, [string]$Executable, [string[]]$Argument
     $taskLog = Join-Path $taskRun ($Name + '.log')
     $taskStart = [DateTime]::UtcNow
     Write-Host "Running $Name"
-    & $Executable @Arguments *> $taskLog
-    $taskExit = $LASTEXITCODE
+    $taskPreviousErrorPolicy = $ErrorActionPreference
+    try {
+        # Windows PowerShell wraps native stderr in ErrorRecord. Preserve it and
+        # the process exit before interpreting failure; stderr alone is not exit.
+        $ErrorActionPreference = 'Continue'
+        & $Executable @Arguments *> $taskLog
+        $taskExit = $LASTEXITCODE
+    } finally { $ErrorActionPreference = $taskPreviousErrorPolicy }
     $taskChecks.Add([ordered]@{ name = $Name; executable = $Executable; arguments = $Arguments; exit_code = $taskExit; started_utc = $taskStart.ToString('O'); seconds = ([DateTime]::UtcNow - $taskStart).TotalSeconds; log = $taskLog })
     if ($taskExit -ne 0) { throw "$Name failed (exit $taskExit); see $taskLog" }
 }
@@ -75,6 +81,7 @@ try {
     }
     Invoke-Recorded 'vision-ui' 'node' @('--test','src/Rook.Tests/UI/Vision/image-fallback.test.cjs','src/Rook.Tests/UI/Vision/video-fallback.test.cjs','src/Rook.Tests/UI/Vision/video-framing.test.cjs','src/Rook.Tests/UI/Vision/model-controls.test.cjs','src/Rook.Tests/UI/Vision/configured-models.test.cjs')
     Invoke-Recorded 'video-python' $Python @('-m','pytest','scripts/tests/test_fal_installed_capture.py','mcp_server/tests/test_video_mcp_tools.py','mcp_server/tests/test_image_job_mcp_tools.py','mcp_server/tests/test_server_tool_profiles.py','mcp_server/tests/test_vision_mcp_tools.py','mcp_server/tests/test_tool_lifecycle.py','mcp_server/tests/test_capability_inventory.py','mcp_server/tests/test_multi_instance_targeting.py','mcp_server/tests/test_rookchat_visible_dispatchability.py','mcp_server/tests/test_dispatcher_safety.py','-q','--junitxml',(Join-Path $taskRun 'python.xml'))
+    Invoke-Recorded 'verification-recorder' 'powershell' @('-NoProfile','-File','scripts/tests/verify-vision-merge-recording.tests.ps1')
     Invoke-Recorded 'fal-acceptance-checker' 'powershell' @('-NoProfile','-File','scripts/tests/verify-fal-config-acceptance.tests.ps1')
     Invoke-Recorded 'ffmpeg-payload' 'powershell' @('-NoProfile','-ExecutionPolicy','Bypass','-File','scripts/validate-ffmpeg-bundle.ps1','-SourceBundleManifestPath','third_party/ffmpeg/source/source-bundle-manifest.json')
     Invoke-Recorded 'ffmpeg-policy-tests' 'powershell' @('-NoProfile','-ExecutionPolicy','Bypass','-File','scripts/tests/ffmpeg-bundle-validation.tests.ps1')
