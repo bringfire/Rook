@@ -78,6 +78,7 @@ try {
         Invoke-Recorded 'occupied-pool-waiter-stress' $taskProbe @((Join-Path $taskRepo 'src/Rook.Tests/bin/Release/net48/Rook.Tests.dll'))
         Invoke-Recorded 'delayed-pool-shutdown-drain' $taskProbe @((Join-Path $taskRepo 'src/Rook.Tests/bin/Release/net48/Rook.Tests.dll'),'--close-drain')
         Invoke-Recorded 'unrelated-renderer-contention' $taskProbe @((Join-Path $taskRepo 'src/Rook.Tests/bin/Release/net48/Rook.Tests.dll'),'--renderer-contention')
+        Invoke-Recorded 'single-worker-callback-projection' $taskProbe @((Join-Path $taskRepo 'src/Rook.Tests/bin/Release/net48/Rook.Tests.dll'),'--callback-projection')
     }
     Invoke-Recorded 'vision-ui' 'node' @('--test','src/Rook.Tests/UI/Vision/image-fallback.test.cjs','src/Rook.Tests/UI/Vision/video-fallback.test.cjs','src/Rook.Tests/UI/Vision/video-framing.test.cjs','src/Rook.Tests/UI/Vision/model-controls.test.cjs','src/Rook.Tests/UI/Vision/configured-models.test.cjs')
     Invoke-Recorded 'video-python' $Python @('-m','pytest','scripts/tests/test_fal_installed_capture.py','mcp_server/tests/test_video_mcp_tools.py','mcp_server/tests/test_image_job_mcp_tools.py','mcp_server/tests/test_server_tool_profiles.py','mcp_server/tests/test_vision_mcp_tools.py','mcp_server/tests/test_tool_lifecycle.py','mcp_server/tests/test_capability_inventory.py','mcp_server/tests/test_multi_instance_targeting.py','mcp_server/tests/test_rookchat_visible_dispatchability.py','mcp_server/tests/test_dispatcher_safety.py','-q','--junitxml',(Join-Path $taskRun 'python.xml'))
