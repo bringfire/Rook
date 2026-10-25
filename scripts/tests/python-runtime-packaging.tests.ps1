@@ -94,8 +94,8 @@ function Test-WheelhouseBuilderEnforcesReleaseContracts {
     Assert-Contains -Text $content -Expected '"pip", "check"' -Message 'Wheelhouse builder must run pip check.'
     Assert-Contains -Text $code -Expected '$pipAuditPackage = ''pip-audit==2.10.0''' -Message 'Wheelhouse builder must pin pip-audit tooling for reproducible release gates.'
     Assert-Contains -Text $code -Expected 'Invoke-CheckedProcess -FilePath $auditPython -Arguments @( ''-I'' , ''-m'' , ''pip'' , ''--isolated'' , ''--disable-pip-version-check'' , ''install'' , $pipAuditPackage )' -Message 'pip-audit install must ignore global/user pip configuration and be timeout bounded.'
-    Assert-Contains -Text $content -Expected '''pip==26.2.1''' -Message 'Wheelhouse builder must pin patched pip bootstrap tooling.'
-    Assert-Contains -Text $content -Expected '''setuptools==83.0.0''' -Message 'Wheelhouse builder must pin patched setuptools bootstrap tooling.'
+    Assert-Contains -Text $content -Expected '''pip==26.2.2''' -Message 'Wheelhouse builder must pin patched pip bootstrap tooling.'
+    Assert-Contains -Text $content -Expected '''setuptools==84.1.0''' -Message 'Wheelhouse builder must pin patched setuptools bootstrap tooling.'
     Assert-Contains -Text $content -Expected 'requirements-bootstrap-lock.txt' -Message 'Wheelhouse builder must write a hash-locked bootstrap requirements file.'
     Assert-Contains -Text $content -Expected 'packaging_tags.sys_tags()' -Message 'Wheelhouse builder must validate wheel tags against interpreter accepted tags.'
     Assert-Contains -Text $content -Expected '{module}.__file__' -Message 'Wheelhouse builder must record module import origin evidence.'
@@ -136,7 +136,7 @@ function Test-McpDependencyIsExactlyPinned {
             Where-Object { $_ -match '^"mcp[^\"]*",$' }
     )
     Assert-True -Condition ($mcpDependencyLines.Count -eq 1) -Message 'pyproject must declare exactly one default MCP dependency.'
-    Assert-True -Condition ($mcpDependencyLines[0] -eq '"mcp==1.28.1",') -Message 'pyproject must exactly pin MCP 1.28.1.'
+    Assert-True -Condition ($mcpDependencyLines[0] -eq '"mcp==1.30.0",') -Message 'pyproject must exactly pin MCP 1.30.0.'
 }
 
 function Test-OcrDependencyIsNotDefaultRuntimeDependency {
