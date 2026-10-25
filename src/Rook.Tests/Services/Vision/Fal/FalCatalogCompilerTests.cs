@@ -402,6 +402,144 @@ namespace Rook.Tests.Services.Vision.Fal
             }
         }
 
+        [Theory]
+        [InlineData("https://example.org/unresolved.png")]
+        [InlineData("  HTTPS://example.org/source  ")]
+        [InlineData("data:image/png;base64,AAAA")]
+        [InlineData("file:///C:/private/frame.png")]
+        [InlineData("C:\\private\\frame.png")]
+        [InlineData("\\\\server\\share\\frame.png")]
+        [InlineData("/private/frame.png")]
+        [InlineData("../private/frame.png")]
+        [InlineData("./frame.png")]
+        [InlineData("images/frame.png")]
+        [InlineData("frame.png")]
+        [InlineData("frame with spaces.png")]
+        [InlineData("frame.extensionlongerthansixteencharacters")]
+        public void Scalar_media_sources_are_rejected_independently_of_option_name(string source)
+        {
+            using var files = new CatalogFiles();
+            files.Operation["fields"]!.AsArray().Add(new JsonObject
+            {
+                ["key"] = "arbitrary_input", ["scope"] = "options", ["type"] = "string", ["max_length"] = 1000,
+                ["default"] = source, ["label"] = "Scalar input", ["payload"] = new JsonObject { ["pointer"] = "/custom_input", ["conversion"] = "identity" }
+            });
+            files.Save(); AssertInvalid(files.Compile());
+        }
+
+        [Theory]
+        [InlineData("enum")]
+        [InlineData("lookup")]
+        [InlineData("constant")]
+        public void Media_sources_cannot_be_hidden_in_scalar_enums_lookups_or_constants(string location)
+        {
+            foreach (string source in new[] { "https://example.org/frame.png", "data:image/png;base64,AAAA", "C:\\images\\frame.png", "relative/frame.png" })
+            {
+                using var files = new CatalogFiles();
+                if (location == "enum")
+                    files.Operation["fields"]!.AsArray().Add(new JsonObject { ["key"] = "source_choice", ["scope"] = "options", ["type"] = "enum", ["values"] = new JsonArray("ordinary", source), ["default"] = "ordinary", ["label"] = "Source choice", ["payload"] = new JsonObject { ["pointer"] = "/custom", ["conversion"] = "identity" } });
+                else if (location == "lookup") files.Set("/operations/0/fields/5/payload/lookup/small", JsonValue.Create(source));
+                else files.Set("/operations/0/constants/0/value", JsonValue.Create(source));
+                files.Save(); AssertInvalid(files.Compile());
+            }
+        }
+
+        [Fact]
+        public void Request_prompt_remains_text_and_can_mention_or_equal_a_URL()
+        {
+            using var files = new CatalogFiles();
+            files.Set("/operations/0/fields/0/default", JsonValue.Create("Show a facade inspired by https://example.org/reference.png"));
+            Assert.Empty(files.Compile().Diagnostics);
+            files.Set("/operations/0/fields/0/default", JsonValue.Create("https://example.org/reference.png"));
+            Assert.Empty(files.Compile().Diagnostics);
+        }
+
+        [Theory]
+        [InlineData("url_pointer", "/images/0/url", false)]
+        [InlineData("mime_pointer", "/images/0/content_type", false)]
+        [InlineData("url_pointer", "/images/-1/url", false)]
+        [InlineData("mime_pointer", "/images/+/content_type", false)]
+        [InlineData("url_pointer", "/images/-/url", false)]
+        [InlineData("url_pointer", "/images/1/url", true)]
+        [InlineData("url_pointer", "/images/00/url", true)]
+        [InlineData("url_pointer", "/other/0/url", true)]
+        [InlineData("url_pointer", "/images/0/variants/0/url", true)]
+        [InlineData("url_pointer", "/url", true)]
+        [InlineData("mime_pointer", "/other/0/mime", true)]
+        [InlineData("mime_pointer", "/images/0/variants/0/mime", true)]
+        [InlineData("collection_pointer", "/groups/0/images", true)]
+        public void Result_arrays_require_one_explicit_checked_collection(string member, string pointer, bool collection)
+        {
+            using var files = new CatalogFiles();
+            var result = files.Operation["result"]!.AsObject();
+            result["url_pointer"] = collection ? "/images/0/url" : "/image/url";
+            result["mime_pointer"] = collection ? "/images/0/content_type" : "/image/content_type";
+            if (!collection) { result.Remove("collection_pointer"); result.Remove("cardinality"); }
+            result[member] = pointer;
+            files.Save(); AssertInvalid(files.Compile());
+        }
+
+        [Theory]
+        [InlineData("/images/0/content_type")]
+        [InlineData("/metadata/content_type")]
+        public void Collection_outputs_use_response_root_pointers_with_checked_index_zero(string mime)
+        {
+            using var files = new CatalogFiles();
+            files.Set("/operations/0/result/url_pointer", JsonValue.Create("/images/0/url"));
+            files.Set("/operations/0/result/mime_pointer", JsonValue.Create(mime));
+            Assert.Empty(files.Compile().Diagnostics);
+        }
+
+        [Theory]
+        [InlineData("fal_upload")]
+        [InlineData("data_uri")]
+        public void Image_media_profiles_admit_original_data_URI_and_upload(string transport)
+        {
+            using var files = new CatalogFiles(CatalogFiles.VideoJson);
+            files.Set("/operations/0/operation_id", JsonValue.Create("image_to_image"));
+            files.Set("/operations/0/adapter/id", JsonValue.Create("fal.image.declarative"));
+            files.Set("/operations/0/result/role", JsonValue.Create("generated_image"));
+            files.Set("/operations/0/result/mime_family", JsonValue.Create("image"));
+            var media = files.Operation["media"]!.AsArray(); media.RemoveAt(1); media[0]!["role"] = "primary_image"; media[0]!["transport"] = transport;
+            files.Save(); Assert.Empty(files.Compile().Diagnostics);
+        }
+
+        [Fact]
+        public void Video_media_profile_remains_upload_only()
+        {
+            using var files = new CatalogFiles(CatalogFiles.VideoJson);
+            files.Set("/operations/0/media/0/transport", JsonValue.Create("data_uri")); AssertInvalid(files.Compile());
+        }
+
+        [Theory]
+        [InlineData("\"https://example.org/image\"", false)]
+        [InlineData("\"data:image/png;base64,AAAA\"", false)]
+        [InlineData("\"file:///C:/image\"", false)]
+        [InlineData("\"relative/file.png\"", false)]
+        [InlineData("\"frame.png\"", false)]
+        [InlineData("\"  frame.png  \"", false)]
+        [InlineData("\"large\\n\"", false)]
+        [InlineData("\"16:9\"", true)]
+        [InlineData("\"soft studio lighting\"", true)]
+        [InlineData("\"cinematic_large\"", true)]
+        [InlineData("false", true)]
+        [InlineData("1.5", true)]
+        [InlineData("null", false)]
+        [InlineData("[]", false)]
+        public void Shared_scalar_policy_is_available_for_submitted_option_validation(string json, bool allowed)
+            => Assert.Equal(allowed, FalScalarLiteralPolicy.IsAllowed(JsonNode.Parse(json)));
+
+        [Fact]
+        public void Nested_collection_and_implicit_item_relative_result_pointers_are_rejected()
+        {
+            using var files = new CatalogFiles();
+            files.Set("/operations/0/result/collection_pointer", JsonValue.Create("/groups/0/images"));
+            files.Set("/operations/0/result/url_pointer", JsonValue.Create("/groups/0/images/0/url"));
+            files.Set("/operations/0/result/mime_pointer", JsonValue.Create("/metadata/content_type")); AssertInvalid(files.Compile());
+            files.Set("/operations/0/result/collection_pointer", JsonValue.Create("/images"));
+            files.Set("/operations/0/result/url_pointer", JsonValue.Create("/url")); AssertInvalid(files.Compile());
+        }
+
         internal static void AssertInvalid(FalCatalogLoadResult result, string? message = null)
         {
             Assert.Null(result.Catalog); Assert.NotEmpty(result.Diagnostics);
@@ -434,7 +572,7 @@ namespace Rook.Tests.Services.Vision.Fal
             {"key":"strength","scope":"options","type":"number","min":0,"max":1,"step":0.1,"default":0.1,"label":"Strength","payload":{"pointer":"/strength","conversion":"identity"}},
             {"key":"resolution","scope":"request","type":"enum","values":["small","large"],"default":"small","label":"Resolution","payload":{"pointer":"/size","conversion":"enum_lookup","lookup":{"small":"S","large":"L"}}}
           ],"media":[],"constraints":[{"kind":"omit_when","field":"options.audio","when":[{"field":"request.resolution","operator":"eq","value":"small"}]}],
-          "constants":[{"pointer":"/num_images","value":1}],"result":{"role":"generated_image","mime_family":"image","collection_pointer":"/images","cardinality":1,"url_pointer":"/url","mime_pointer":"/content_type"},
+          "constants":[{"pointer":"/num_images","value":1}],"result":{"role":"generated_image","mime_family":"image","collection_pointer":"/images","cardinality":1,"url_pointer":"/images/0/url","mime_pointer":"/images/0/content_type"},
           "pricing":{"strategy":"fixed_per_output","unit":"output","revision":"price-1","rates":[{"selectors":{},"rate_usd":0.01}],"rounding":"none","source":"https://fal.ai/models/synthetic","reviewed_on":"2026-10-25"},
           "evidence":{"url":"https://fal.ai/models/synthetic","reviewed_on":"2026-10-25","qualification":"synthetic"}
         }]}

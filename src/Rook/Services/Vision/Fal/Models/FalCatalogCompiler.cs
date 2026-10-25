@@ -177,7 +177,7 @@ namespace Rook.Services.Vision.Fal.Models
             for (int i = 0; i < media.Count; i++)
             {
                 string mp = At(p, "media/" + i); var role = Object(media[i], mp);
-                ValidateMedia(role, mp, writers);
+                ValidateMedia(role, mp, writers, image);
                 if (roles.ContainsKey(Text(role, "role", mp))) Fail(mp, "Duplicate semantic media role.");
                 roles.Add(Text(role, "role", mp), role);
             }
@@ -246,7 +246,12 @@ namespace Rook.Services.Vision.Fal.Models
             if (type == "enum")
             {
                 var values = Array(field, "values", p, 256, true); var seen = new HashSet<string>(StringComparer.Ordinal);
-                for (int i = 0; i < values.Count; i++) if (!seen.Add(Text(values[i], At(p, "values/" + i)))) Fail(At(p, "values/" + i), "Duplicate enum value.");
+                for (int i = 0; i < values.Count; i++)
+                {
+                    string vp = At(p, "values/" + i);
+                    if (!seen.Add(Text(values[i], vp))) Fail(vp, "Duplicate enum value.");
+                    ScalarMediaBoundary(values[i], vp);
+                }
             }
             else if (field.ContainsKey("values")) Fail(At(p, "values"), "Only enum controls declare values.");
             if (field.ContainsKey("default")) FieldValue(field, field["default"], At(p, "default"));
@@ -273,7 +278,7 @@ namespace Rook.Services.Vision.Fal.Models
             if (media && mapping.ContainsKey("lookup")) Fail(At(p, "lookup"), "Media cannot declare enum lookups.");
         }
 
-        private static void ValidateMedia(JsonObject media, string p, List<string> writers)
+        private static void ValidateMedia(JsonObject media, string p, List<string> writers, bool image)
         {
             Closed(media, p, "role", "min_count", "max_count", "ordered", "preparation", "transport", "max_bytes", "payload");
             string role = Text(media, "role", p); OneOf(role, At(p, "role"), "primary_image", "reference_image", "start_frame", "end_frame");
@@ -283,7 +288,7 @@ namespace Rook.Services.Vision.Fal.Models
             if (role != "reference_image" && (max != 1 || ordered)) Fail(p, "Single-image roles have max_count 1 and ordered false.");
             if (role == "reference_image" && !ordered) Fail(At(p, "ordered"), "Reference images are ordered.");
             OneOf(Text(media, "preparation", p), At(p, "preparation"), "validated_original");
-            OneOf(Text(media, "transport", p), At(p, "transport"), "fal_upload");
+            OneOf(Text(media, "transport", p), At(p, "transport"), image ? new[] { "fal_upload", "data_uri" } : new[] { "fal_upload" });
             if (media.ContainsKey("max_bytes") && (Integer(media["max_bytes"], At(p, "max_bytes")) <= 0 || Integer(media["max_bytes"], At(p, "max_bytes")) > 31457280)) Fail(At(p, "max_bytes"), "max_bytes must be 1..31457280 (30 MiB conservative Rook catalog ceiling); runtime/provider limits may be lower.");
             var payload = Object(media["payload"], At(p, "payload")); ValidateMapping(payload, At(p, "payload"), writers, true);
             if (Text(payload, "conversion", At(p, "payload")) != (role == "reference_image" ? "ordered_array" : "identity")) Fail(At(p, "payload/conversion"), "Media mapping conflicts with semantic role cardinality.");
@@ -442,10 +447,38 @@ namespace Rook.Services.Vision.Fal.Models
             if (result.ContainsKey("mime_pointer")) Pointer(Text(result, "mime_pointer", p), At(p, "mime_pointer"));
             if (result.ContainsKey("collection_pointer"))
             {
-                Pointer(Text(result, "collection_pointer", p), At(p, "collection_pointer"));
+                string collection = Text(result, "collection_pointer", p);
+                Pointer(collection, At(p, "collection_pointer"));
+                if (HasArrayTraversalSegment(collection)) Fail(At(p, "collection_pointer"), "Collection pointers cannot traverse another array.");
                 if (Integer(result["cardinality"], At(p, "cardinality")) != 1) Fail(At(p, "cardinality"), "Only result cardinality 1 is supported.");
+                CheckedCollectionPointer(Text(result, "url_pointer", p), collection, At(p, "url_pointer"));
+                if (result.ContainsKey("mime_pointer") && HasArrayTraversalSegment(Text(result, "mime_pointer", p)))
+                    CheckedCollectionPointer(Text(result, "mime_pointer", p), collection, At(p, "mime_pointer"));
             }
-            else if (result.ContainsKey("cardinality")) Fail(At(p, "cardinality"), "Scalar-object results do not declare cardinality.");
+            else
+            {
+                if (result.ContainsKey("cardinality")) Fail(At(p, "cardinality"), "Scalar-object results do not declare cardinality.");
+                foreach (string member in new[] { "url_pointer", "mime_pointer" })
+                    if (result.ContainsKey(member) && HasArrayTraversalSegment(Text(result, member, p)))
+                        Fail(At(p, member), "Array traversal requires an explicit one-item collection declaration.");
+            }
+        }
+
+        private static bool HasArrayTraversalSegment(string pointer) => pointer.Split('/').Skip(1).Any(IsArrayTraversalSegment);
+        private static bool IsArrayTraversalSegment(string segment)
+        {
+            // Also reserve signed and append-like spellings rather than admitting
+            // unsupported array operators as ambiguous numeric object properties.
+            if (segment == "+" || segment == "-") return true;
+            int start = segment.StartsWith("+", StringComparison.Ordinal) || segment.StartsWith("-", StringComparison.Ordinal) ? 1 : 0;
+            return segment.Length > start && segment.Skip(start).All(c => c >= '0' && c <= '9');
+        }
+        private static void CheckedCollectionPointer(string pointer, string collection, string p)
+        {
+            string item = collection + "/0";
+            if ((pointer != item && !pointer.StartsWith(item + "/", StringComparison.Ordinal))
+                || pointer.Split('/').Skip(1).Count(IsArrayTraversalSegment) != 1)
+                Fail(p, "Result pointer must traverse exactly the declared collection at index 0, with no other array traversal.");
         }
 
         private static void ValidatePricing(JsonObject pricing, Dictionary<string, JsonObject> fields, string p)
@@ -524,6 +557,7 @@ namespace Rook.Services.Vision.Fal.Models
                 return;
             }
             string text = Text(value, p, true);
+            if (field["scope"]!.GetValue<string>() != "request" || field["key"]!.GetValue<string>() != "prompt") ScalarMediaBoundary(value, p);
             if (type == "enum" && !field["values"]!.AsArray().Any(v => v!.GetValue<string>() == text)) Fail(p, "Value is not a declared enum choice.");
             if (type == "string" && (text.Length < (field.ContainsKey("min_length") ? Integer(field["min_length"], p) : 0) || text.Length > Integer(field["max_length"], p))) Fail(p, "Value violates string length bounds.");
         }
@@ -553,7 +587,10 @@ namespace Rook.Services.Vision.Fal.Models
         {
             if (!(value is JsonValue scalar)) Fail(p, "Only non-null scalar literals are supported.");
             if (value!.GetValueKind() == JsonValueKind.Number) ExactNumber(value, p);
+            ScalarMediaBoundary(value, p);
         }
+        private static void ScalarMediaBoundary(JsonNode? value, string p)
+        { if (!FalScalarLiteralPolicy.IsAllowed(value)) Fail(p, "Scalar values cannot contain standalone media source locators. Use semantic media roles and resolved preparation."); }
         private static JsonObject Object(JsonNode? node, string p)
         { if (!(node is JsonObject json)) { Fail(p, "Expected object."); return null!; } return json; }
         private static JsonArray Array(JsonObject json, string key, string p, int max, bool nonempty = false)
@@ -602,6 +639,34 @@ namespace Rook.Services.Vision.Fal.Models
         private static void Fail(string pointer, string message) => throw new AdmissionException(pointer, message);
         private sealed class AdmissionException : Exception
         { internal string Pointer { get; } internal AdmissionException(string pointer, string message) : base(message) { Pointer = pointer; } }
+    }
+
+    /// <summary>
+    /// Shared lexical boundary for scalar controls and fixed payload literals. Task 2
+    /// must apply this policy to every supplied option value before payload mapping.
+    /// It does not validate field types, numeric bounds, or resolve/open any location.
+    /// The request prompt alone is free text and bypasses this locator policy.
+    /// </summary>
+    public static class FalScalarLiteralPolicy
+    {
+        public static bool IsAllowed(JsonNode? value)
+        {
+            if (!(value is JsonValue scalar)) return false;
+            var kind = scalar.GetValueKind();
+            if (kind == JsonValueKind.Number || kind == JsonValueKind.True || kind == JsonValueKind.False) return true;
+            if (kind != JsonValueKind.String) return false;
+            string raw = scalar.GetValue<string>();
+            if (raw.Any(char.IsControl)) return false;
+            string text = raw.Trim();
+            // URI schemes cover HTTP(S), data, file, blob, cloud storage and drive
+            // prefixes. Separators reserve absolute/relative paths for media roles.
+            if (Regex.IsMatch(text, "^[A-Za-z][A-Za-z0-9+.-]*:") || text.IndexOfAny(new[] { '/', '\\' }) >= 0
+                || text == "." || text == ".." || text == "~") return false;
+            // Bare filenames (including spaces and URL query/fragment suffixes)
+            // are locations too. Ordinary enum labels, numeric ratios and prose
+            // without locator syntax remain scalar values.
+            return !Regex.IsMatch(text, "^[^<>:\"|?*]+\\.[A-Za-z][A-Za-z0-9]*(?:[?#].*)?$");
+        }
     }
     public sealed class FalCatalogLoadResult
     {
