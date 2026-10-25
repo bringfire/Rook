@@ -27,6 +27,28 @@ namespace Rook.Tests.Services.Vision.Video
         [Theory]
         [InlineData(false)]
         [InlineData(true)]
+        public void Execution_snapshot_fixtures_are_independent_of_production_preparation_capacity(bool roundtrip)
+        {
+            var resources = VideoPreparationResources.Shared;
+            Assert.True(resources.TryAcquire(out var first));
+            using (first)
+            {
+                Assert.True(resources.TryAcquire(out var second));
+                using (second)
+                {
+                    Assert.Equal(2, resources.ActiveBundles);
+                    var fixtures = new Rook.Tests.Services.Vision.Fal.FalExecutionSnapshotTests();
+                    if (roundtrip) fixtures.Roundtrip_preserves_original_hash_and_effective_controls_without_catalog();
+                    else fixtures.Older_snapshot_without_cancellation_metadata_remains_readable();
+                    Assert.Equal(2, resources.ActiveBundles);
+                }
+            }
+            Assert.Equal(0, resources.ActiveBundles);
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
         public async Task SaturationReturnsTypedRetryableFailureBeforeAnyProviderSideEffect(bool fal)
         {
             using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));

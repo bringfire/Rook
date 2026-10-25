@@ -106,7 +106,7 @@ namespace Rook.Tests.Services.Vision.Fal
             files.Definition["operations"]!.AsArray().Add(other); files.Save();
             var binding = files.Compile().Catalog!.GetOperation("synthetic/image", "text_to_image");
             var request = new FalModelNormalizer().Normalize(binding, new FalModelInput(new JsonObject { ["prompt"] = "draw", ["seed"] = 9007199254740991L })).Request!;
-            using var media = FalMediaSnapshot.Capture(request, new Dictionary<MediaRef, ResolvedMedia>());
+            using var media = FalMediaSnapshot.Capture(request, new Dictionary<MediaRef, ResolvedMedia>(), new Rook.Services.Vision.Video.Framing.VideoPreparationResources());
             var snapshot = FalExecutionSnapshot.Create(request, media, new FalPricingSnapshot("output", "price-1", "source", 1m, 1m, .01m, .01m, .01m));
             var json = FalExecutionSnapshotCodec.Serialize(snapshot);
             files.Dispose();
@@ -182,7 +182,7 @@ namespace Rook.Tests.Services.Vision.Fal
             files.Operation["invocation"] = "queue"; files.Operation["lifecycle_root"] = "fal-ai/synthetic"; files.Save();
             var binding = files.Compile().Catalog!.GetOperation("synthetic/image", "text_to_image");
             var request = new FalModelNormalizer().Normalize(binding, new FalModelInput(new JsonObject { ["prompt"] = "draw" })).Request!;
-            using var media = FalMediaSnapshot.Capture(request, new Dictionary<MediaRef, ResolvedMedia>());
+            using var media = FalMediaSnapshot.Capture(request, new Dictionary<MediaRef, ResolvedMedia>(), new Rook.Services.Vision.Video.Framing.VideoPreparationResources());
             return FalExecutionSnapshot.Create(request, media).WithDispatchState("accepted", new ProviderJobHandle("id",
                 new Uri("https://queue.fal.run/fal-ai/synthetic/requests/id/status"), new Uri("https://queue.fal.run/fal-ai/synthetic/requests/id"),
                 new Uri("https://queue.fal.run/fal-ai/synthetic/requests/id/cancel"), "PUT", providerMetadata: new Dictionary<string, JsonNode> { ["upload"] = JsonValue.Create("https://fal.media/private")! }));
