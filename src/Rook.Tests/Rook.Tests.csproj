@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Rook\Rook.csproj" />
+    <ProjectReference Include="../Rook.Vision.Qualification/Rook.Vision.Qualification.csproj" />
     <!-- Exercise the production adjacent-bundle lookup without installing Rook. -->
     <None Include="../../third_party/ffmpeg/ffmpeg.exe;../../third_party/ffmpeg/ffmpeg-provenance.json"
           Link="ffmpeg/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />

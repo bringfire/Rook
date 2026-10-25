@@ -1,0 +1,212 @@
+{
+  "schema_version": 1,
+  "definition_id": "qualification-queue-video",
+  "revision": "revision-1",
+  "model_id": "qualification/queue-video",
+  "display_name": "Synthetic video",
+  "provider": "fal",
+  "status": "experimental",
+  "operations": [
+    {
+      "operation_id": "text_to_video",
+      "endpoint_id": "fal-ai/synthetic/video/frames",
+      "lifecycle_root": "fal-ai/synthetic",
+      "invocation": "queue",
+      "adapter": {
+        "id": "fal.video.declarative",
+        "version": 1
+      },
+      "fields": [
+        {
+          "key": "duration_seconds",
+          "scope": "request",
+          "type": "number",
+          "min": 1,
+          "max": 10,
+          "step": 1e-06,
+          "default": 5,
+          "label": "Seconds",
+          "payload": {
+            "pointer": "/duration",
+            "conversion": "identity"
+          }
+        },
+        {
+          "key": "seed",
+          "scope": "request",
+          "type": "integer",
+          "min": -9007199254740991,
+          "max": 9007199254740991,
+          "step": 1,
+          "default": 0,
+          "label": "Seed",
+          "payload": {
+            "pointer": "/seed",
+            "conversion": "identity"
+          }
+        },
+        {
+          "key": "strength",
+          "scope": "options",
+          "type": "number",
+          "min": 0,
+          "max": 1,
+          "step": 1e-06,
+          "default": 0.1,
+          "label": "Strength",
+          "payload": {
+            "pointer": "/strength",
+            "conversion": "identity"
+          }
+        },
+        {
+          "key": "audio",
+          "scope": "options",
+          "type": "boolean",
+          "default": false,
+          "label": "Audio",
+          "payload": {
+            "pointer": "/audio",
+            "conversion": "identity"
+          }
+        }
+      ],
+      "media": [],
+      "constraints": [],
+      "constants": [],
+      "result": {
+        "role": "generated_video",
+        "mime_family": "video",
+        "url_pointer": "/video/url",
+        "mime_pointer": "/video/content_type"
+      },
+      "pricing": {
+        "strategy": "per_output_second",
+        "unit": "second",
+        "quantity_field": "request.duration_seconds",
+        "revision": "price-1",
+        "rates": [
+          {
+            "selectors": {},
+            "rate_usd": 0.1
+          }
+        ],
+        "rounding": "none",
+        "source": "https://fal.ai/models/synthetic",
+        "reviewed_on": "2026-10-25"
+      },
+      "evidence": {
+        "url": "https://fal.ai/models/synthetic",
+        "reviewed_on": "2026-10-25",
+        "qualification": "synthetic"
+      }
+    },
+    {
+      "operation_id": "image_to_video",
+      "endpoint_id": "fal-ai/synthetic/video/frames",
+      "lifecycle_root": "fal-ai/synthetic",
+      "invocation": "queue",
+      "adapter": {
+        "id": "fal.video.declarative",
+        "version": 1
+      },
+      "fields": [
+        {
+          "key": "duration_seconds",
+          "scope": "request",
+          "type": "number",
+          "min": 1,
+          "max": 10,
+          "step": 1e-06,
+          "default": 5,
+          "label": "Seconds",
+          "payload": {
+            "pointer": "/duration",
+            "conversion": "identity"
+          }
+        },
+        {
+          "key": "seed",
+          "scope": "request",
+          "type": "integer",
+          "min": -9007199254740991,
+          "max": 9007199254740991,
+          "step": 1,
+          "default": 0,
+          "label": "Seed",
+          "payload": {
+            "pointer": "/seed",
+            "conversion": "identity"
+          }
+        },
+        {
+          "key": "strength",
+          "scope": "options",
+          "type": "number",
+          "min": 0,
+          "max": 1,
+          "step": 1e-06,
+          "default": 0.1,
+          "label": "Strength",
+          "payload": {
+            "pointer": "/strength",
+            "conversion": "identity"
+          }
+        },
+        {
+          "key": "audio",
+          "scope": "options",
+          "type": "boolean",
+          "default": false,
+          "label": "Audio",
+          "payload": {
+            "pointer": "/audio",
+            "conversion": "identity"
+          }
+        }
+      ],
+      "media": [
+        {
+          "role": "primary_image",
+          "min_count": 1,
+          "max_count": 1,
+          "ordered": false,
+          "preparation": "validated_original",
+          "transport": "fal_upload",
+          "payload": {
+            "pointer": "/image_url",
+            "conversion": "identity"
+          }
+        }
+      ],
+      "constraints": [],
+      "constants": [],
+      "result": {
+        "role": "generated_video",
+        "mime_family": "video",
+        "url_pointer": "/video/url",
+        "mime_pointer": "/video/content_type"
+      },
+      "pricing": {
+        "strategy": "per_output_second",
+        "unit": "second",
+        "quantity_field": "request.duration_seconds",
+        "revision": "price-1",
+        "rates": [
+          {
+            "selectors": {},
+            "rate_usd": 0.1
+          }
+        ],
+        "rounding": "none",
+        "source": "https://fal.ai/models/synthetic",
+        "reviewed_on": "2026-10-25"
+      },
+      "evidence": {
+        "url": "https://fal.ai/models/synthetic",
+        "reviewed_on": "2026-10-25",
+        "qualification": "synthetic"
+      }
+    }
+  ]
+}
