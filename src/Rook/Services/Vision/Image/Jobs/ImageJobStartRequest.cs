@@ -16,7 +16,8 @@ namespace Rook.Services.Vision.Image.Jobs
             ResolvedImageModel? resolvedModel = null,
             FalPricingSnapshot? configuredPricing = null,
             FalNormalizedRequest? configuredRequest = null,
-            FalMediaSnapshot? configuredMedia = null)
+            FalMediaSnapshot? configuredMedia = null,
+            FalSubmitConfirmation? configuredConfirmation = null)
         {
             Request = request ?? throw new ArgumentNullException(nameof(request));
             ResolvedMedia = resolvedMedia
@@ -27,15 +28,18 @@ namespace Rook.Services.Vision.Image.Jobs
             ConfiguredPricing = configuredPricing;
             ConfiguredRequest = configuredRequest;
             ConfiguredMedia = configuredMedia;
+            ConfiguredConfirmation = configuredConfirmation;
         }
 
         public ImageGenerationRequest Request { get; }
         public IReadOnlyDictionary<MediaRef, ResolvedMedia> ResolvedMedia { get; }
         public IReadOnlyList<Guid> ParentArtifactIds { get; }
         public ResolvedImageModel? ResolvedModel { get; }
+        /// <summary>Compatibility input only; configured admission recomputes its own price.</summary>
         public FalPricingSnapshot? ConfiguredPricing { get; }
         public FalNormalizedRequest? ConfiguredRequest { get; }
         /// <summary>Ownership transfers on SubmitAsync, including all rejected admission paths.</summary>
         public FalMediaSnapshot? ConfiguredMedia { get; }
+        public FalSubmitConfirmation? ConfiguredConfirmation { get; }
     }
 }

@@ -10,6 +10,9 @@ namespace Rook.Services.Vision.Video
 {
     internal sealed class VideoRouteQuoteService
     {
+        // Direct configured quote: one binding, no Google/fallback candidate selection.
+        public Rook.Services.Vision.Fal.Models.FalQuoteResult QuoteConfigured(Rook.Services.Vision.Fal.Models.FalNormalizedRequest request,
+            Rook.Services.Vision.Fal.FalMediaSnapshot media) => new Rook.Services.Vision.Fal.Models.FalQuoteService().Estimate(request, media);
         private readonly VideoSubmissionCoordinator _coordinator;
         private readonly IVideoJobClock _clock;
         internal VideoFramingPreparationService Preparation { get; }

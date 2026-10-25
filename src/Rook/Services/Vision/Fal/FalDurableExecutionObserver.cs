@@ -9,15 +9,18 @@ namespace Rook.Services.Vision.Fal
     {
         private readonly Action<ProviderJobHandle?, CancellationToken> _commit;
         private readonly Func<CancellationTokenSource> _durabilityBudgetFactory;
+        private readonly Func<GenerationError?>? _validate;
         internal ProviderJobHandle? KnownHandle { get; private set; }
-        internal FalDurableExecutionObserver(Action<ProviderJobHandle?, CancellationToken> commit, Func<CancellationTokenSource>? durabilityBudgetFactory = null)
-        { _commit = commit; _durabilityBudgetFactory = durabilityBudgetFactory ?? NewDurabilityBudget; }
+        internal FalDurableExecutionObserver(Action<ProviderJobHandle?, CancellationToken> commit, Func<CancellationTokenSource>? durabilityBudgetFactory = null,
+            Func<GenerationError?>? validate = null)
+        { _commit = commit; _durabilityBudgetFactory = durabilityBudgetFactory ?? NewDurabilityBudget; _validate = validate; }
         internal static CancellationTokenSource NewDurabilityBudget() => new(TimeSpan.FromSeconds(10));
         public Task<GenerationError?> BeforeUploadAsync(CancellationToken ct)
-        { ct.ThrowIfCancellationRequested(); return Task.FromResult<GenerationError?>(null); }
+        { ct.ThrowIfCancellationRequested(); return Task.FromResult(_validate?.Invoke()); }
         public Task<GenerationError?> BeforeDispatchAsync(CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
+            if (_validate?.Invoke() is { } invalid) return Task.FromResult<GenerationError?>(invalid);
             _commit(null, ct);
             return Task.FromResult<GenerationError?>(null);
         }

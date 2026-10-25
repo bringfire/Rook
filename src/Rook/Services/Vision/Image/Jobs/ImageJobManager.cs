@@ -160,8 +160,10 @@ namespace Rook.Services.Vision.Image.Jobs
                         Field: validation.Field)));
 
                 FalExecutionSnapshot? configuredSnapshot = null;
+                FalQuote? configuredQuote = null;
                 if (model.Provider is IConfiguredGenerationProvider && model.OptionsCodec is ConfiguredFalImageOptionsCodec codec && request.Options is FalModelOptions options)
                 {
+                    if (start.ConfiguredConfirmation == null) return Task.FromResult(ImageJobSubmitResult.Fail(FalQuoteService.ConfirmationRequired()));
                     if (_ledger is not ICancellationAwareImageJobLedger)
                         return Task.FromResult(ImageJobSubmitResult.Fail(FalExecutionRecovery.Unavailable("Configured execution requires cancellation-aware ledger admission.")));
                     var input = options.Input;
@@ -181,7 +183,13 @@ namespace Rook.Services.Vision.Image.Jobs
                     ct.ThrowIfCancellationRequested();
                     configuredMedia ??= FalMediaSnapshot.Capture(canonical, start.ResolvedMedia);
                     if (configuredMedia.Validate(canonical) is { } mediaError) return Task.FromResult(ImageJobSubmitResult.Fail(mediaError));
-                    configuredSnapshot = FalExecutionSnapshot.Create(canonical, configuredMedia, start.ConfiguredPricing);
+                    var quotes = new FalQuoteService();
+                    var quoted = quotes.Estimate(canonical, configuredMedia);
+                    if (!quoted.Success) return Task.FromResult(ImageJobSubmitResult.Fail(quoted.Error!));
+                    configuredQuote = quoted.Quote!;
+                    if (quotes.Validate(configuredQuote, canonical, configuredMedia, start.ConfiguredConfirmation) is { } confirmationError)
+                        return Task.FromResult(ImageJobSubmitResult.Fail(confirmationError));
+                    configuredSnapshot = FalExecutionSnapshot.Create(canonical, configuredMedia, configuredQuote.Pricing);
                 }
 
                 var jobId = _idGenerator.NewJobId();
@@ -207,7 +215,7 @@ namespace Rook.Services.Vision.Image.Jobs
                 _records[jobId] = initial;
 
                 var jobCts = new CancellationTokenSource();
-                var running = new RunningJob(initial, jobCts, model, start, _shutdownCts.Token) { ConfiguredMedia = configuredMedia };
+                var running = new RunningJob(initial, jobCts, model, start, _shutdownCts.Token) { ConfiguredMedia = configuredMedia, ConfiguredQuote = configuredQuote };
                 configuredMedia = null; // transferred to the worker, including queue cancellation
                 _runningJobs[jobId] = running;
 
@@ -538,7 +546,8 @@ namespace Rook.Services.Vision.Image.Jobs
                     if (current.ConfiguredFalExecution?.Snapshot is { } configured)
                     {
                         var observer = new FalDurableExecutionObserver((handle, token) => CommitConfiguredExecution(jobId,
-                            snapshot => snapshot.WithDispatchState(handle == null ? "dispatch_intent" : "accepted", handle), token, handle == null), _configuredDurabilityBudgetFactory);
+                            snapshot => snapshot.WithDispatchState(handle == null ? "dispatch_intent" : "accepted", handle), token, handle == null), _configuredDurabilityBudgetFactory,
+                            () => new FalQuoteService().Validate(running.ConfiguredQuote!, configured.Request, running.ConfiguredMedia!, running.Start.ConfiguredConfirmation));
                         try
                         {
                             submit = await ((IConfiguredGenerationProvider)provider).SubmitConfiguredAsync(configured.Request, running.ConfiguredMedia!, observer, ct).ConfigureAwait(false);
@@ -850,7 +859,7 @@ namespace Rook.Services.Vision.Image.Jobs
                 metadata["prompt"] = fields["prompt"]?.DeepClone();
                 metadata["resolution"] = fields["resolution"]?.DeepClone();
                 metadata["aspect_ratio"] = fields["aspect_ratio"]?.DeepClone();
-                metadata[FalExecutionSnapshot.ExtensionKey] = FalExecutionSnapshotCodec.Serialize(configuredArtifact);
+                metadata[FalExecutionSnapshot.ExtensionKey] = FalExecutionSnapshotCodec.SerializePublic(configuredArtifact);
             }
             var artifact = _artifactStore.Create(
                 kind: VisionHandler.ArtifactKindGeneratedImage,
@@ -1507,6 +1516,7 @@ namespace Rook.Services.Vision.Image.Jobs
             public ImageGenerationRequest Request => Context.Snapshot().EffectiveRequest ?? Start.Request;
             public readonly ImageJobStartRequest Start;
             public FalMediaSnapshot? ConfiguredMedia;
+            public FalQuote? ConfiguredQuote;
 
             public RunningJob(
                 ImageJobRecord initial,

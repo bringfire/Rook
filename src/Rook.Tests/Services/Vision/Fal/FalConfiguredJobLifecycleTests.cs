@@ -88,7 +88,7 @@ namespace Rook.Tests.Services.Vision.Fal
             await run.Submit(); await Wait(run.Transport.PostEntered.Task);
             using var held = await Rook.Tests.Services.Vision.Image.Jobs.LedgerAdmissionTest.Hold(video ? run.Videos.Inner : run.Images.Inner);
             run.Transport.PostRelease.TrySetResult(true);
-            await Wait(run.BudgetCreated.Task); run.AcceptedBudget.Cancel();
+            await Wait(run.BudgetCreated.Task); await Wait(run.AcceptedReadEntered.Task); run.AcceptedBudget.Cancel();
             await Wait(run.AdmissionCancelled.Task);
             Assert.False(run.Accepted.Task.IsCompleted); Assert.Equal(0, run.Transport.Polls);
             held.Dispose();
@@ -332,11 +332,13 @@ namespace Rook.Tests.Services.Vision.Fal
             internal readonly ArtifactStore Store;
             internal readonly TaskCompletionSource<bool> Terminal = Signal(), Accepted = Signal(), Settled = Signal();
             internal readonly TaskCompletionSource<bool> BudgetCreated = Signal(), AdmissionCancelled = Signal();
+            internal readonly TaskCompletionSource<bool> AcceptedReadEntered = Signal();
             internal readonly TaskCompletionSource<bool> CleanupPersisted = Signal();
             internal FalCancellationSnapshot? LastCancellation;
             internal string? CancelState;
             internal bool CancelHadError;
             internal readonly CancellationTokenSource AcceptedBudget = new();
+            internal readonly CancellationToken AcceptedToken;
             private int _durabilityBudgets;
             private CancellationTokenSource NewDurabilityBudget()
             {
@@ -353,10 +355,13 @@ namespace Rook.Tests.Services.Vision.Fal
             internal readonly VideoJobManager? Video;
             internal Guid Id;
             private readonly FalModelDefinition _model;
-            internal Run(bool video, string? fail = null, bool recoverWithoutRegistration = false, bool sync = false, bool recoveryAvailable = true)
+            internal Run(bool video, string? fail = null, bool recoverWithoutRegistration = false, bool sync = false, bool recoveryAvailable = true, decimal? rate = null, bool pricingAvailable = true)
             {
+                AcceptedToken = AcceptedBudget.Token;
                 Directory.CreateDirectory(Root); Store = new ArtifactStore(Path.Combine(Root, "artifacts"));
                 Files = new CatalogFiles(video ? CatalogFiles.VideoJson : CatalogFiles.ImageJson);
+                if (rate.HasValue) Files.Operation["pricing"]!["rates"]![0]!["rate_usd"] = rate.Value;
+                if (!pricingAvailable) Files.Operation.Remove("pricing");
                 Files.Operation["invocation"] = "queue"; Files.Operation["lifecycle_root"] = "fal-ai/synthetic";
                 if (sync) { Files.Operation["invocation"] = "sync"; Files.Operation.Remove("lifecycle_root"); Transport.Sync = true; }
                 if (video) { Files.Operation["operation_id"] = "text_to_video"; Files.Operation["media"] = new JsonArray();
@@ -390,20 +395,53 @@ namespace Rook.Tests.Services.Vision.Fal
             }
             internal async Task Submit(FalNormalizedRequest? normalized = null, FalMediaSnapshot? media = null)
             {
+                normalized ??= Normalized();
+                media ??= FalQuoteServiceTests.Capture(normalized);
+                var quote = new FalQuoteService().Estimate(normalized, media).Quote!;
+                var confirmation = new FalSubmitConfirmation(quote.Fingerprint, quote.MaximumEstimatedCostUsd);
                 var input = new FalModelInput(Video != null ? new JsonObject { ["duration_seconds"] = 5.5m } : new JsonObject { ["prompt"] = "canonical prompt", ["seed"] = 9007199254740991L });
                 var options = new FalModelOptions(input, Video != null ? "text_to_video" : "text_to_image");
                 if (Video != null)
                 {
                     var shell = new VideoGenerationRequest(_model.ModelId, VideoMode.T2V, 0, "placeholder", "placeholder", null, null, null, null, null, options, 1);
-                    var result = normalized == null ? await Video.SubmitAsync(shell, CancellationToken.None) : await Video.SubmitConfiguredAsync(shell, normalized, media!, null, CancellationToken.None);
+                    var result = await Video.SubmitConfiguredAsync(shell, normalized, media, null, CancellationToken.None, confirmation);
                     Assert.Null(result.Error); Id = result.JobId!.Value;
                 }
                 else
                 {
                     var request = new ImageGenerationRequest(_model.ModelId, "placeholder", "placeholder", "placeholder", 1, null, options);
-                    var result = await Image!.SubmitAsync(new ImageJobStartRequest(request, new Dictionary<MediaRef, ResolvedMedia>(), Array.Empty<Guid>(), configuredRequest: normalized, configuredMedia: media), CancellationToken.None);
+                    var result = await Image!.SubmitAsync(new ImageJobStartRequest(request, new Dictionary<MediaRef, ResolvedMedia>(), Array.Empty<Guid>(), configuredRequest: normalized, configuredMedia: media, configuredConfirmation: confirmation), CancellationToken.None);
                     Assert.Null(result.Error); Id = result.JobId!.Value;
                 }
+            }
+            internal async Task<GenerationError?> SubmitUnconfirmed()
+            {
+                var options = new FalModelOptions(Normalized().SuppliedInput);
+                if (Video != null)
+                {
+                    var result = await Video.SubmitAsync(new VideoGenerationRequest(_model.ModelId, VideoMode.T2V, 0, "placeholder", "placeholder", null, null, null, null, null, options, 1), CancellationToken.None);
+                    return result.GenerationError;
+                }
+                return (await Image!.SubmitAsync(new ImageJobStartRequest(new ImageGenerationRequest(_model.ModelId, "placeholder", "placeholder", "placeholder", 1, null, options), new Dictionary<MediaRef, ResolvedMedia>(), Array.Empty<Guid>()), CancellationToken.None)).Error;
+            }
+            internal async Task<GenerationError?> AttemptConfirmed(decimal cap, FalPricingSnapshot? forged = null, string? fingerprint = null)
+            {
+                var normalized = Normalized(); var media = FalQuoteServiceTests.Capture(normalized);
+                var quote = new FalQuoteService().Estimate(normalized, media).Quote;
+                var confirmation = new FalSubmitConfirmation(fingerprint ?? quote?.Fingerprint ?? "fal1:" + new string('0', 64), cap);
+                var options = new FalModelOptions(normalized.SuppliedInput, normalized.Binding.OperationId);
+                if (Video != null)
+                {
+                    var shell = new VideoGenerationRequest(_model.ModelId, VideoMode.T2V, 0, "placeholder", "placeholder", null, null, null, null, null, options, 1);
+                    var result = await Video.SubmitConfiguredAsync(shell, normalized, media, forged, CancellationToken.None, confirmation);
+                    if (result.JobId.HasValue) Id = result.JobId.Value;
+                    return result.GenerationError;
+                }
+                var request = new ImageGenerationRequest(_model.ModelId, "placeholder", "placeholder", "placeholder", 1, null, options);
+                var image = await Image!.SubmitAsync(new ImageJobStartRequest(request, new Dictionary<MediaRef, ResolvedMedia>(), Array.Empty<Guid>(),
+                    configuredPricing: forged, configuredRequest: normalized, configuredMedia: media, configuredConfirmation: confirmation), CancellationToken.None);
+                if (image.JobId.HasValue) Id = image.JobId.Value;
+                return image.Error;
             }
             internal async Task Cancel()
             {
@@ -447,6 +485,7 @@ namespace Rook.Tests.Services.Vision.Fal
             public ImageJobLedgerReadResult ReadAll() => _inner.ReadAll();
             public ImageJobLedgerReadResult ReadAll(CancellationToken ct)
             {
+                if (ct == _run.AcceptedToken) _run.AcceptedReadEntered.TrySetResult(true);
                 try { return ((ICancellationAwareImageJobLedger)_inner).ReadAll(ct); }
                 catch (OperationCanceledException) { _run.AdmissionCancelled.TrySetResult(true); throw; }
             }
@@ -469,6 +508,7 @@ namespace Rook.Tests.Services.Vision.Fal
             public VideoJobLedgerReadResult ReadAll() => _inner.ReadAll();
             public VideoJobLedgerReadResult ReadAll(CancellationToken ct)
             {
+                if (ct == _run.AcceptedToken) _run.AcceptedReadEntered.TrySetResult(true);
                 try { return ((ICancellationAwareVideoJobLedger)_inner).ReadAll(ct); }
                 catch (OperationCanceledException) { _run.AdmissionCancelled.TrySetResult(true); throw; }
             }
@@ -519,7 +559,7 @@ namespace Rook.Tests.Services.Vision.Fal
             public Rook.Services.Vision.Generation.JobPricing? ExtractActualSpend(IReadOnlyDictionary<string, IReadOnlyList<string>> headers, JsonNode? body) => null;
         }
         private static TaskCompletionSource<bool> Signal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private static async Task Wait(Task task)
+        internal static async Task Wait(Task task)
         { Assert.Same(task, await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(10)))); await task; }
         internal sealed class ControlledTimer : IVideoDeadlineTimer
         {

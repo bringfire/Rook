@@ -164,15 +164,7 @@ namespace Rook.Services.Vision.Video
 
             if (model.Provider is IConfiguredGenerationProvider && model.OptionsCodec is ConfiguredFalVideoOptionsCodec codec && request.Options is FalModelOptions options)
             {
-                var validation = codec.Validate(request, options, model.Capability);
-                if (!validation.Success) return JobSubmitResult.Fail(new GenerationError(GenerationErrorCode.InvalidRequest, validation.Message!, false, validation.Field));
-                var input = options.Input;
-                var normalized = codec.Normalize(new FalModelInput(input.RequestFields, input.Options, options.SelectedOperation, input.Media, input.OutputCount));
-                if (!normalized.Success) return JobSubmitResult.Fail(new GenerationError(GenerationErrorCode.InvalidRequest, normalized.Errors[0].Message, false, normalized.Errors[0].Field));
-                using var resolvedSources = await _mediaResolver.ResolveAllAsync(input.Media.Select(m => m.Source).Distinct().ToArray(), ct).ConfigureAwait(false);
-                if (!resolvedSources.Success) return JobSubmitResult.Fail(resolvedSources.Error!);
-                var captured = FalMediaSnapshot.Capture(normalized.Request!, resolvedSources.Resolved!);
-                return await SubmitConfiguredAsync(request, normalized.Request!, captured, null, ct).ConfigureAwait(false);
+                return JobSubmitResult.Fail(FalQuoteService.ConfirmationRequired());
             }
 
             var estimate = _estimator.Estimate(model, request);
@@ -213,14 +205,15 @@ namespace Rook.Services.Vision.Video
         }
 
         /// <summary>Transfers admitted media ownership to the job; all rejection paths dispose it.
-        /// The caller supplies the pinned canonical request and accepted pricing provenance.</summary>
+        /// The manager recomputes pricing; the pricing argument is ignored compatibility input.</summary>
         public Task<JobSubmitResult> SubmitConfiguredAsync(VideoGenerationRequest request, FalNormalizedRequest normalized,
-            FalMediaSnapshot media, FalPricingSnapshot? pricing, CancellationToken ct)
+            FalMediaSnapshot media, FalPricingSnapshot? pricing, CancellationToken ct, FalSubmitConfirmation? confirmation = null)
         {
             bool transferred = false;
             try
             {
                 ct.ThrowIfCancellationRequested();
+                if (confirmation == null) return Task.FromResult(JobSubmitResult.Fail(FalQuoteService.ConfirmationRequired()));
                 if (_ledger is not ICancellationAwareVideoJobLedger)
                     return Task.FromResult(JobSubmitResult.Fail(FalExecutionRecovery.Unavailable("Configured execution requires cancellation-aware ledger admission.")));
                 if (_shutdownCts.IsCancellationRequested) return Task.FromResult(JobSubmitResult.Fail(FalExecutionRecovery.Unavailable("Video manager is shutting down.")));
@@ -230,14 +223,31 @@ namespace Rook.Services.Vision.Video
                 var pinned = configured.GetBinding(normalized.Binding.OperationId);
                 if (pinned.DefinitionHash != normalized.Binding.DefinitionHash || FalCanonicalJson.Hash(pinned.ToJson()) != FalCanonicalJson.Hash(normalized.Binding.ToJson()))
                     return Task.FromResult(JobSubmitResult.Fail(new GenerationError(GenerationErrorCode.InvalidRequest, "Configured model revision changed before admission.", false)));
+                if (model.OptionsCodec is not ConfiguredFalVideoOptionsCodec codec || request.Options is not FalModelOptions options)
+                    return Task.FromResult(JobSubmitResult.Fail(new GenerationError(GenerationErrorCode.InvalidRequest, "Configured request options are required.", false)));
+                var validated = codec.Validate(request, options, model.Capability);
+                if (!validated.Success) return Task.FromResult(JobSubmitResult.Fail(new GenerationError(GenerationErrorCode.InvalidRequest, validated.Message!, false, validated.Field)));
+                var supplied = options.Input;
+                var checkedRequest = codec.Normalize(new FalModelInput(supplied.RequestFields, supplied.Options, options.SelectedOperation, supplied.Media, supplied.OutputCount));
+                if (!checkedRequest.Success) return Task.FromResult(JobSubmitResult.Fail(new GenerationError(GenerationErrorCode.InvalidRequest, checkedRequest.Errors[0].Message, false, checkedRequest.Errors[0].Field)));
+                if (FalCanonicalJson.Hash(checkedRequest.Request!.EffectiveRequestFields) != FalCanonicalJson.Hash(normalized.EffectiveRequestFields)
+                    || FalCanonicalJson.Hash(checkedRequest.Request.EffectiveOptions) != FalCanonicalJson.Hash(normalized.EffectiveOptions)
+                    || FalCanonicalJson.Hash(checkedRequest.Request.SuppliedRequestFields) != FalCanonicalJson.Hash(normalized.SuppliedRequestFields)
+                    || FalCanonicalJson.Hash(checkedRequest.Request.SuppliedOptions) != FalCanonicalJson.Hash(normalized.SuppliedOptions)
+                    || checkedRequest.Request.Binding.OperationId != normalized.Binding.OperationId
+                    || !checkedRequest.Request.Media.Select(m => (m.Role, m.Ordinal, m.Input.Source)).SequenceEqual(normalized.Media.Select(m => (m.Role, m.Ordinal, m.Input.Source))))
+                    return Task.FromResult(JobSubmitResult.Fail(new GenerationError(GenerationErrorCode.InvalidRequest, "Pinned request does not match admission controls.", false)));
                 if (media.Validate(normalized) is { } error) return Task.FromResult(JobSubmitResult.Fail(error));
-                var snapshot = FalExecutionSnapshot.Create(normalized, media, pricing);
+                var quotes = new FalQuoteService(); var quoted = quotes.Estimate(normalized, media);
+                if (!quoted.Success) return Task.FromResult(JobSubmitResult.Fail(quoted.Error!));
+                if (quotes.Validate(quoted.Quote!, normalized, media, confirmation) is { } confirmationError) return Task.FromResult(JobSubmitResult.Fail(confirmationError));
+                var snapshot = FalExecutionSnapshot.Create(normalized, media, quoted.Quote!.Pricing);
                 var initial = VideoJobRecordFactory.FromConfigured(_idGenerator.NewJobId(), request, model, snapshot, _clock.UtcNow());
                 try { AppendCommittedSnapshot(initial); }
                 catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { return Task.FromResult(JobSubmitResult.Fail(PersistenceError())); }
                 var budget = new VideoExecutionBudget(_clock.UtcNow().AddMinutes(20), _clock, _routeTimer);
                 var cts = CancellationTokenSource.CreateLinkedTokenSource(_shutdownCts.Token, budget.Token);
-                var running = new RunningJob(initial, cts, model) { ConfiguredMedia = media, ConfiguredBudget = budget };
+                var running = new RunningJob(initial, cts, model) { ConfiguredMedia = media, ConfiguredBudget = budget, ConfiguredQuote = quoted.Quote, ConfiguredConfirmation = confirmation };
                 _runningJobs[initial.JobId] = running; transferred = true;
                 _ = Task.Run(() => RunJobAsync(initial.JobId, request, new Dictionary<MediaRef, ResolvedMedia>(), running));
                 return Task.FromResult(JobSubmitResult.Ok(initial.JobId, VideoJobState.Queued));
@@ -1030,7 +1040,8 @@ namespace Rook.Services.Vision.Video
                     if (current.ConfiguredFalExecution?.Snapshot is { } configured)
                     {
                         var observer = new FalDurableExecutionObserver((handle, token) => CommitConfiguredExecution(running,
-                            snapshot => snapshot.WithDispatchState(handle == null ? "dispatch_intent" : "accepted", handle), token, handle == null), _configuredDurabilityBudgetFactory);
+                            snapshot => snapshot.WithDispatchState(handle == null ? "dispatch_intent" : "accepted", handle), token, handle == null), _configuredDurabilityBudgetFactory,
+                            () => new FalQuoteService().Validate(running.ConfiguredQuote!, configured.Request, running.ConfiguredMedia!, running.ConfiguredConfirmation));
                         try
                         {
                             submitOutcome = await ((IConfiguredGenerationProvider)provider).SubmitConfiguredAsync(configured.Request, running.ConfiguredMedia!, observer, ct).ConfigureAwait(false);
@@ -1454,7 +1465,7 @@ namespace Rook.Services.Vision.Video
                 parentIds: configuredArtifact == null ? CollectMediaParents(request)
                     : configuredArtifact.Request.Media.Select(m => m.Input.Source.ArtifactId).Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToArray(),
                 metadata: configuredArtifact == null ? null : new Dictionary<string, JsonNode?>
-                    { [FalExecutionSnapshot.ExtensionKey] = FalExecutionSnapshotCodec.Serialize(configuredArtifact) });
+                    { [FalExecutionSnapshot.ExtensionKey] = FalExecutionSnapshotCodec.SerializePublic(configuredArtifact) });
 
             try
             {
@@ -1772,6 +1783,8 @@ namespace Rook.Services.Vision.Video
             public readonly ResolvedVideoModel Model;
             public IDisposable? MediaOwner;
             public FalMediaSnapshot? ConfiguredMedia;
+            public FalQuote? ConfiguredQuote;
+            public FalSubmitConfirmation? ConfiguredConfirmation;
             public VideoExecutionBudget? ConfiguredBudget;
 
             public RunningJob(VideoJobRecord initial, CancellationTokenSource cts, ResolvedVideoModel model)

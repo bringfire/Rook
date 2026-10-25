@@ -38,7 +38,7 @@ namespace Rook.Services.Vision.Fal.Models
                 ["inactive_fields"] = new JsonArray((validation?.InactiveFields ?? Array.Empty<string>()).Select(s => (JsonNode?)JsonValue.Create(s)).ToArray()),
                 ["evidence"] = new JsonObject { ["url"] = binding.Evidence.Url, ["reviewed_on"] = binding.Evidence.ReviewedOn, ["qualification"] = binding.Evidence.Qualification }
             };
-            if (binding.Pricing != null) json["pricing"] = binding.Pricing.ToJson();
+            if (binding.Pricing != null) json["pricing"] = FalPublicPricing.Project(binding.Pricing.ToJson());
             return new FalOperationDescriptor(json);
         }
 

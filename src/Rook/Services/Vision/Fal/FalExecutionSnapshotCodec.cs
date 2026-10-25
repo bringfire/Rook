@@ -15,6 +15,18 @@ namespace Rook.Services.Vision.Fal
         // Supplied and effective controls duplicate text; JSON escaping may expand each
         // character sixfold. This is separate from the catalog's one-MiB source-file bound.
         internal const int MaxSnapshotBytes = 16 * 1024 * 1024;
+        /// <summary>Public history/artifact view. Decimal provenance outside the control-number
+        /// policy is invariant text. This view is not a persistence/lifecycle authority.</summary>
+        public static JsonObject SerializePublic(FalExecutionSnapshot snapshot) => ProjectPublic(Serialize(snapshot));
+        internal static JsonObject ProjectPublic(JsonObject serialized)
+        {
+            var json = (JsonObject)serialized.DeepClone();
+            if (json["pricing"] is JsonObject pricing) json["pricing"] = FalPublicPricing.Project(pricing);
+            if (json["binding"]?["operations"] is JsonArray operations)
+                foreach (var operation in operations)
+                    if (operation?["pricing"] is JsonObject configuredPricing) operation!["pricing"] = FalPublicPricing.Project(configuredPricing);
+            return json;
+        }
         public static JsonObject Serialize(FalExecutionSnapshot snapshot)
         {
             var binding = snapshot.Binding;
@@ -113,6 +125,8 @@ namespace Rook.Services.Vision.Fal
     {
         private readonly JsonObject _json;
         public JsonObject Json => (JsonObject)_json.DeepClone();
+        public JsonObject PublicJson => Snapshot != null ? FalExecutionSnapshotCodec.SerializePublic(Snapshot)
+            : new JsonObject { ["available"] = false, ["cleanup_available"] = false, ["diagnostic"] = Diagnostic };
         public FalExecutionSnapshot? Snapshot { get; }
         public string? Diagnostic { get; }
         public bool CleanupAvailable => Snapshot?.Handle != null;

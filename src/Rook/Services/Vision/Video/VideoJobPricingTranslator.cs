@@ -6,6 +6,14 @@ namespace Rook.Services.Vision.Video
 {
     internal static class VideoJobPricingTranslator
     {
+        internal static JobPricing FromConfigured(Rook.Services.Vision.Fal.Models.FalPricingSnapshot p)
+        {
+            bool integerQuantity = p.QuantityMin == p.QuantityMax && p.QuantityMax == decimal.Truncate(p.QuantityMax) && p.QuantityMax <= int.MaxValue;
+            bool preciseRate = p.RateUsd <= 1000000000m && p.RateUsd == decimal.Round(p.RateUsd, 6);
+            bool perSecond = p.Unit == "second" && integerQuantity && preciseRate;
+            return new JobPricing(perSecond ? PricingKind.PerSecond : PricingKind.External, "USD", integerQuantity ? (int)p.QuantityMax : 0,
+                perSecond ? p.RateUsd : null, Rook.Services.Vision.Fal.Models.FalQuote.PublicCeiling(p.EstimateMaxUsd), p.Source);
+        }
         public static JobPricing ToVideoJobPricing(
             Rook.Services.Vision.Generation.JobPricing pricing,
             PricingKind kind)

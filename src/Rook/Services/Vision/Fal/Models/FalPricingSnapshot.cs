@@ -14,6 +14,8 @@ namespace Rook.Services.Vision.Fal.Models
         public decimal RateUsd { get; }
         public decimal EstimateMinUsd { get; }
         public decimal EstimateMaxUsd { get; }
+        public string Currency => "USD";
+        public JsonObject ToPublicJson() => FalPublicPricing.Project(ToJson());
         public FalPricingSnapshot(string unit, string revision, string source, decimal quantityMin, decimal quantityMax,
             decimal rateUsd, decimal estimateMinUsd, decimal estimateMaxUsd)
         {
