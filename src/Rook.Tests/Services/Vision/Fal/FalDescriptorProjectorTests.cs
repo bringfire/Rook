@@ -8,6 +8,114 @@ namespace Rook.Tests.Services.Vision.Fal
     public class FalDescriptorProjectorTests
     {
         [Fact]
+        public void Discovery_checks_the_default_selector_combination_against_actual_rates()
+        {
+            using var f = new CatalogFiles();
+            f.Operation["pricing"]!["rates"]![0]!["selectors"] = new JsonObject { ["request.resolution"] = "large" }; f.Save();
+            var binding = FalModelNormalizerTests.Binding(f);
+            var normalized = new FalModelNormalizer().Normalize(binding, FalModelNormalizerTests.Prompt()); Assert.True(normalized.Success);
+            var discovery = new FalDescriptorProjector().Describe(binding, null).ToJson();
+            var validated = new FalDescriptorProjector().Describe(binding, normalized).ToJson();
+            Assert.Equal("unavailable_for_values", discovery["pricing_status"]!.GetValue<string>());
+            Assert.Equal(discovery["pricing_status"]!.GetValue<string>(), validated["pricing_status"]!.GetValue<string>());
+            Assert.False(discovery["paid_admission_available"]!.GetValue<bool>());
+            Assert.Contains(discovery["unavailable_reasons"]!.AsArray(), n => n!.GetValue<string>() == "pricing_unavailable_for_values");
+            Assert.True(discovery["selectable"]!.GetValue<bool>());
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Per_second_readiness_needs_an_active_quantity_in_discovery_and_normalized_input(bool inactiveDefault)
+        {
+            using var f = new CatalogFiles(CatalogFiles.VideoJson);
+            if (inactiveDefault)
+            {
+                f.Operation["fields"]!.AsArray().Add(JsonNode.Parse("""{"key":"audio","scope":"options","type":"boolean","default":false,"label":"Audio","payload":{"pointer":"/audio","conversion":"identity"}}"""));
+                f.Operation["constraints"] = JsonNode.Parse("""[{"kind":"omit_when","field":"request.duration_seconds","when":[{"field":"options.audio","operator":"eq","value":false}]}]""");
+            }
+            else f.Operation["fields"]![0]!.AsObject().Remove("default");
+            f.Save(); var binding = FalModelNormalizerTests.Binding(f);
+            var missing = new FalModelNormalizer().Normalize(binding, new FalModelInput(media: FalModelNormalizerTests.Frames())); Assert.True(missing.Success);
+            Assert.False(missing.Request!.EffectiveRequestFields.ContainsKey("duration_seconds"));
+            foreach (var validation in new FalNormalizationResult?[] { null, missing })
+            {
+                var descriptor = new FalDescriptorProjector().Describe(binding, validation).ToJson();
+                Assert.Equal("requires_inputs", descriptor["pricing_status"]!.GetValue<string>());
+                Assert.False(descriptor["paid_admission_available"]!.GetValue<bool>());
+                Assert.True(descriptor["selectable"]!.GetValue<bool>());
+            }
+            var ready = new FalModelNormalizer().Normalize(binding, new FalModelInput(
+                new JsonObject { ["duration_seconds"] = 5 }, inactiveDefault ? new JsonObject { ["audio"] = true } : null, media: FalModelNormalizerTests.Frames())); Assert.True(ready.Success);
+            Assert.Equal("available", new FalDescriptorProjector().Describe(binding, ready).ToJson()["pricing_status"]!.GetValue<string>());
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Megapixel_readiness_needs_an_active_dimension_control(bool inactiveDefault)
+        {
+            using var f = new CatalogFiles();
+            if (inactiveDefault)
+                f.Operation["constraints"]!.AsArray().Add(JsonNode.Parse("""{"kind":"omit_when","field":"request.resolution","when":[{"field":"request.resolution","operator":"eq","value":"small"}]}"""));
+            else f.Operation["fields"]![5]!.AsObject().Remove("default");
+            var pricing = f.Operation["pricing"]!.AsObject(); pricing["strategy"] = "per_output_megapixel"; pricing["unit"] = "megapixel";
+            pricing["dimensions"] = JsonNode.Parse("""{"field":"request.resolution","values":{"small":{"width":512,"height":512},"large":{"width":1024,"height":1024}}}"""); f.Save();
+            var binding = FalModelNormalizerTests.Binding(f);
+            var missing = new FalModelNormalizer().Normalize(binding, FalModelNormalizerTests.Prompt()); Assert.True(missing.Success);
+            Assert.False(missing.Request!.EffectiveRequestFields.ContainsKey("resolution"));
+            foreach (var validation in new FalNormalizationResult?[] { null, missing })
+            {
+                var descriptor = new FalDescriptorProjector().Describe(binding, validation).ToJson();
+                Assert.Equal("requires_inputs", descriptor["pricing_status"]!.GetValue<string>());
+                Assert.False(descriptor["paid_admission_available"]!.GetValue<bool>());
+                Assert.True(descriptor["selectable"]!.GetValue<bool>());
+            }
+            var ready = new FalModelNormalizer().Normalize(binding, new FalModelInput(new JsonObject { ["prompt"] = "draw", ["resolution"] = "large" })); Assert.True(ready.Success);
+            Assert.Equal("available", new FalDescriptorProjector().Describe(binding, ready).ToJson()["pricing_status"]!.GetValue<string>());
+        }
+
+        [Fact]
+        public void Omitted_default_selector_is_not_reintroduced_for_discovery_readiness()
+        {
+            using var f = new CatalogFiles();
+            f.Operation["pricing"]!["rates"]![0]!["selectors"] = new JsonObject { ["options.audio"] = false }; f.Save();
+            var binding = FalModelNormalizerTests.Binding(f);
+            var normalized = new FalModelNormalizer().Normalize(binding, FalModelNormalizerTests.Prompt()); Assert.True(normalized.Success);
+            foreach (var validation in new FalNormalizationResult?[] { null, normalized })
+            {
+                var descriptor = new FalDescriptorProjector().Describe(binding, validation).ToJson();
+                Assert.Equal("requires_inputs", descriptor["pricing_status"]!.GetValue<string>());
+                Assert.False(descriptor["paid_admission_available"]!.GetValue<bool>());
+                Assert.True(descriptor["selectable"]!.GetValue<bool>());
+            }
+        }
+
+        [Fact]
+        public void Conservative_megapixel_bound_needs_no_dimension_control()
+        {
+            using var f = new CatalogFiles();
+            f.Operation["fields"]![5]!.AsObject().Remove("default");
+            var pricing = f.Operation["pricing"]!.AsObject(); pricing["strategy"] = "per_output_megapixel"; pricing["unit"] = "megapixel";
+            pricing["max_megapixels"] = 2; f.Save();
+            var binding = FalModelNormalizerTests.Binding(f);
+            var normalized = new FalModelNormalizer().Normalize(binding, FalModelNormalizerTests.Prompt()); Assert.True(normalized.Success);
+            foreach (var validation in new FalNormalizationResult?[] { null, normalized })
+                Assert.Equal("available", new FalDescriptorProjector().Describe(binding, validation).ToJson()["pricing_status"]!.GetValue<string>());
+        }
+
+        [Fact]
+        public void Discovery_default_omission_observes_structurally_required_media_roles()
+        {
+            using var f = new CatalogFiles(CatalogFiles.VideoJson);
+            f.Operation["constraints"] = JsonNode.Parse("""[{"kind":"omit_when","field":"request.duration_seconds","when":[{"role":"start_frame","present":true}]}]"""); f.Save();
+            var binding = FalModelNormalizerTests.Binding(f);
+            var normalized = new FalModelNormalizer().Normalize(binding, new FalModelInput(media: FalModelNormalizerTests.Frames())); Assert.True(normalized.Success);
+            foreach (var validation in new FalNormalizationResult?[] { null, normalized })
+                Assert.Equal("requires_inputs", new FalDescriptorProjector().Describe(binding, validation).ToJson()["pricing_status"]!.GetValue<string>());
+        }
+
+        [Fact]
         public void Descriptor_defaults_and_effective_values_share_binding_and_preserve_common_field_metadata()
         {
             using var f = new CatalogFiles(); var binding = FalModelNormalizerTests.Binding(f);

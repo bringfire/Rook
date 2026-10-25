@@ -16,17 +16,9 @@ namespace Rook.Services.Vision.Fal.Models
             var ordered = binding.Fields.OrderBy(f => f.UiGroup == "advanced" ? 1 : 0).ThenBy(f => f.UiOrder).ThenBy(f => f.QualifiedKey, StringComparer.Ordinal).ToArray();
             var reasons = new JsonArray();
             if (binding.Status == "disabled") reasons.Add("disabled");
-            string pricingStatus = binding.Pricing == null ? "unavailable" : "available";
+            string pricingStatus = PricingStatus(binding, validation);
             if (binding.Pricing == null) reasons.Add("pricing_unavailable");
-            else if (validation?.Request is FalNormalizedRequest normalized)
-            {
-                var selectors = normalized.PricingSelectors;
-                var needed = binding.Pricing.Rates[0].Selectors.Select(s => s.Key).ToArray();
-                if (needed.Any(k => !selectors.ContainsKey(k))) pricingStatus = "requires_inputs";
-                else if (!binding.Pricing.Rates.Any(r => r.Selectors.All(s => selectors.TryGetPropertyValue(s.Key, out var value) && FalModelNormalizer.SameValue(s.Value, value))))
-                { pricingStatus = "unavailable_for_values"; reasons.Add("pricing_unavailable_for_values"); }
-            }
-            else if (binding.Pricing.Rates[0].Selectors.Any(s => !binding.Fields.Single(f => f.QualifiedKey == s.Key).HasDefault)) pricingStatus = "requires_inputs";
+            else if (pricingStatus == "unavailable_for_values") reasons.Add("pricing_unavailable_for_values");
             var json = new JsonObject
             {
                 ["model_id"] = binding.ModelId, ["display_name"] = binding.DisplayName, ["provider"] = "fal", ["status"] = binding.Status,
@@ -48,6 +40,30 @@ namespace Rook.Services.Vision.Fal.Models
             };
             if (binding.Pricing != null) json["pricing"] = binding.Pricing.ToJson();
             return new FalOperationDescriptor(json);
+        }
+
+        private static string PricingStatus(FalOperationBinding binding, FalNormalizationResult? validation)
+        {
+            var pricing = binding.Pricing;
+            if (pricing == null) return "unavailable";
+            var values = new JsonObject();
+            if (validation?.Request is FalNormalizedRequest normalized)
+            {
+                var request = normalized.EffectiveRequestFields; var options = normalized.EffectiveOptions;
+                foreach (var field in binding.Fields)
+                    if ((field.Scope == "request" ? request : options).TryGetPropertyValue(field.Key, out var value))
+                        values.Add(field.QualifiedKey, value?.DeepClone());
+            }
+            else if (validation == null) values = FalModelNormalizer.DefaultEffectiveValues(binding);
+            // Failed validation supplies no usable effective controls; never fall
+            // back to defaults for the caller's invalid submitted configuration.
+            var needed = new HashSet<string>(pricing.Rates[0].Selectors.Select(s => s.Key), StringComparer.Ordinal);
+            if (pricing.Strategy == "per_output_second") needed.Add(pricing.QuantityField!);
+            if (pricing.Strategy == "per_output_megapixel" && pricing.ToJson()["dimensions"] is JsonObject dimensions)
+                needed.Add(dimensions["field"]!.GetValue<string>());
+            if (needed.Any(k => !values.ContainsKey(k))) return "requires_inputs";
+            return pricing.Rates.Any(r => r.Selectors.All(s => values.TryGetPropertyValue(s.Key, out var value) && FalModelNormalizer.SameValue(s.Value, value)))
+                ? "available" : "unavailable_for_values";
         }
 
         private static JsonObject DescribeField(FalFieldDefinition field)

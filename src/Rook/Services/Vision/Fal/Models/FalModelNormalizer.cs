@@ -38,7 +38,7 @@ namespace Rook.Services.Vision.Fal.Models
             // Invalid controls never enter condition evaluation or a partially usable request.
             if (errors.Count != 0) return new FalNormalizationResult(binding, null, errors, inactive);
 
-            var active = binding.Constraints.Select(c => new { Constraint = c, Matches = c.When.All(p => Matches(p, values, input.Media)) }).ToArray();
+            var active = binding.Constraints.Select(c => new { Constraint = c, Matches = c.When.All(p => Matches(p, values, role => input.Media.Any(m => m.Role == role))) }).ToArray();
             foreach (var field in binding.Fields)
             {
                 string name = field.QualifiedKey;
@@ -144,9 +144,25 @@ namespace Rook.Services.Vision.Fal.Models
             return instructions;
         }
 
-        private static bool Matches(FalConditionDefinition condition, Dictionary<string, JsonNode?> values, IReadOnlyList<FalMediaInput> media)
+        // Discovery can inspect available defaults without fabricating a partially
+        // normalized request or substituting values for missing required controls.
+        // Required roles are structural; optional roles have no default presence.
+        internal static JsonObject DefaultEffectiveValues(FalOperationBinding binding)
         {
-            if (condition.Role != null) return media.Any(m => m.Role == condition.Role) == condition.Present;
+            var defaults = binding.Fields.Where(f => f.HasDefault).ToDictionary(f => f.QualifiedKey, f => f.Default, StringComparer.Ordinal);
+            var effective = new JsonObject();
+            foreach (var field in binding.Fields.Where(f => f.HasDefault))
+            {
+                bool omitted = binding.Constraints.Any(c => c.Field == field.QualifiedKey && c.Kind == "omit_when"
+                    && c.When.All(p => Matches(p, defaults, role => binding.Media.Any(m => m.Role == role && m.MinCount > 0))));
+                if (!omitted) effective.Add(field.QualifiedKey, defaults[field.QualifiedKey]?.DeepClone());
+            }
+            return effective;
+        }
+
+        private static bool Matches(FalConditionDefinition condition, Dictionary<string, JsonNode?> values, Func<string, bool> rolePresent)
+        {
+            if (condition.Role != null) return rolePresent(condition.Role) == condition.Present;
             if (!values.TryGetValue(condition.Field!, out var value)) return false;
             return condition.Operator == "eq" ? SameValue(value, condition.Value) : condition.Values!.Any(v => SameValue(value, v));
         }
