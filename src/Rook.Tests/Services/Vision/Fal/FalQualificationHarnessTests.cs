@@ -10,6 +10,25 @@ namespace Rook.Tests.Services.Vision.Fal
 {
     public class FalQualificationHarnessTests
     {
+        [Theory]
+        [InlineData("added")] [InlineData("modified")] [InlineData("removed")]
+        public void Freeze_tracks_standalone_sourceless_python_bytecode(string mutation)
+        {
+            string root = Path.Combine(Path.GetTempPath(), "rook-freeze-bytecode-" + Guid.NewGuid().ToString("N"));
+            string package = Path.Combine(root, "venv/Lib/site-packages/package"); Directory.CreateDirectory(package);
+            try
+            {
+                string module = Path.Combine(package, "module.pyc");
+                if (mutation != "added") File.WriteAllBytes(module, new byte[] { 1, 2, 3 });
+                var frozen = RuntimeFreezeManifest.Inventory(root, "installed");
+                if (mutation == "removed") File.Delete(module); else File.WriteAllBytes(module, new byte[] { 4, 5, 6 });
+                Assert.False(RuntimeFreezeManifest.Matches(frozen, RuntimeFreezeManifest.Inventory(root, "installed")));
+                var beforeCache = RuntimeFreezeManifest.Inventory(root, "installed");
+                string cache = Path.Combine(package, "__pycache__"); Directory.CreateDirectory(cache); File.WriteAllBytes(Path.Combine(cache, "generated.cpython-311.pyc"), new byte[] { 7 });
+                Assert.True(RuntimeFreezeManifest.Matches(beforeCache, RuntimeFreezeManifest.Inventory(root, "installed")));
+            }
+            finally { Directory.Delete(root, true); }
+        }
         [Fact]
         public void File_hash_matches_known_bytes_across_multiple_buffers_and_tail()
         {

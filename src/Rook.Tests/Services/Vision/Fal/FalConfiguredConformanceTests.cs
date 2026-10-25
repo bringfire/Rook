@@ -81,6 +81,16 @@ namespace Rook.Tests.Services.Vision.Fal
                 var result = JsonNode.Parse(File.ReadAllText(report))!;
                 Assert.True(exit == 0, string.Join("; ", result["cases"]!.AsArray().Where(c => c!["passed"]!.GetValue<bool>() == false).Select(c => c!.ToJsonString())));
                 Assert.True(result["cases"]!.AsArray().Count >= 30);
+                var row = result["cases"]!.AsArray().Single(c => c!["id"]!.GetValue<string>() == "sync-image-managed-controls")!;
+                var inputs = JsonNode.Parse(File.ReadAllText(Path.Combine(fixtures, "configured-cases.json")))!;
+                var request = inputs["cases"]!.AsArray().Single(c => c!["id"]!.GetValue<string>() == "sync-image-managed-controls")!["request"]!.DeepClone();
+                Assert.NotNull(row["estimate_request_sha256"]);
+                Assert.Equal(FalCanonicalJson.Hash(request), row["estimate_request_sha256"]!.GetValue<string>());
+                request["quote_fingerprint"] = row["quote_fingerprint"]!.DeepClone(); request["max_estimated_cost_usd"] = row["cap_usd"]!.DeepClone();
+                Assert.Equal(FalCanonicalJson.Hash(request), row["request_sha256"]!.GetValue<string>());
+                Assert.NotEqual(row["estimate_request_sha256"]!.GetValue<string>(), row["request_sha256"]!.GetValue<string>());
+                Assert.Equal(row["cap_usd"]!.ToJsonString(), row["confirmation"]!["max_estimated_cost_usd"]!.ToJsonString());
+                Assert.Equal(row["quote_fingerprint"]!.GetValue<string>(), row["confirmation"]!["quote_fingerprint"]!.GetValue<string>());
                 var json = File.ReadAllText(report); Assert.DoesNotContain("offline-fixture-credential", json); Assert.DoesNotContain("data:image", json); Assert.DoesNotContain("https://v3.fal.media/files/fixture-source", json);
             }
             finally { File.Delete(report); }
@@ -96,6 +106,7 @@ namespace Rook.Tests.Services.Vision.Fal
                 var cases = JsonNode.Parse(File.ReadAllText(Path.Combine(root, "configured-cases.json")))!.AsObject();
                 var selected = cases["cases"]!.AsArray().First(c => c!["id"]!.GetValue<string>() == "sync-image-managed-controls")!.DeepClone();
                 var arbitrary = "synthetic/" + Guid.NewGuid().ToString("N"); selected["request"]!["model"] = arbitrary;
+                selected["confirmation"] = new JsonObject { ["max_estimated_cost_usd"] = 1.234567m };
                 selected["expected"]!["provider_payload"]!["new_control"] = .123456m; selected["expected"]!["provider_payload"]!.AsObject().Remove("strength");
                 cases["cases"] = new JsonArray(selected);
                 File.WriteAllText(Path.Combine(root, "configured-cases.json"), cases.ToJsonString());
@@ -104,6 +115,10 @@ namespace Rook.Tests.Services.Vision.Fal
                 File.WriteAllText(Path.Combine(root, "configured-sync-image.json"), definition.ToJsonString());
                 var report = Path.Combine(root, "report.json");
                 Assert.Equal(0, await ConfiguredEndpointQualification.VerifyAsync(root, Path.Combine(root, "configured-cases.json"), report));
+                var qualified = JsonNode.Parse(File.ReadAllText(report))!["cases"]![0]!;
+                Assert.Equal(1.234567m, qualified["cap_usd"]!.GetValue<decimal>());
+                Assert.Equal(1.234567m, qualified["confirmation"]!["max_estimated_cost_usd"]!.GetValue<decimal>());
+                Assert.True(qualified["quote"]!["max_estimated_cost_usd"]!.GetValue<decimal>() < 1.234567m);
                 selected["expected"]!["provider_payload"]!["new_control"] = .5m; cases["cases"] = new JsonArray(selected.DeepClone());
                 File.WriteAllText(Path.Combine(root, "configured-cases.json"), cases.ToJsonString());
                 Assert.Equal(1, await ConfiguredEndpointQualification.VerifyAsync(root, Path.Combine(root, "configured-cases.json"), report));

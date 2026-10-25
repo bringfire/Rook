@@ -177,7 +177,9 @@ namespace Rook.Vision.Qualification
             }
             // A directory named model.json or run.log must not hide executable children.
             if (directory) return false;
-            if (name == ".env" || name == "secrets.json" || name.EndsWith(".pyc", StringComparison.OrdinalIgnoreCase)) return true;
+            // Standalone .pyc files can be executable sourceless modules. Only the
+            // generated __pycache__ directory policy above excludes bytecode.
+            if (name == ".env" || name == "secrets.json") return true;
             if (kind == "source")
             {
                 // The Models directory also contains the compiler. Only catalog JSON may change.

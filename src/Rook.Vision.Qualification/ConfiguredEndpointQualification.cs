@@ -81,7 +81,7 @@ namespace Rook.Vision.Qualification
                 }
                 else if (surface == "mcp") request = CaptureGateway(repo, temp, modality == "image" ? "rhino_image_estimate" : "rhino_video_estimate", request)["arguments"]!.DeepClone().AsObject();
                 else if (surface != "managed") throw new ArgumentException("Unknown surface.");
-                row["request_sha256"] = FalCanonicalJson.Hash(request);
+                row["estimate_request_sha256"] = FalCanonicalJson.Hash(request);
                 var parsed = FalConfiguredRequestParser.Parse(request, catalog, modality);
                 if (!parsed.Success)
                 {
@@ -109,6 +109,8 @@ namespace Rook.Vision.Qualification
                     if (!estimated.Success) { row["outcome"] = estimated.Error!.ProviderErrorCode ?? estimated.Error.Code.ToString(); return Finish(row, expected, transport, resources, true); }
                     var quote = estimated.Quote!;
                     row["quote_fingerprint"] = quote.Fingerprint; row["cap_usd"] = quote.MaximumEstimatedCostUsd;
+                    row["quote"] = new JsonObject { ["quote_fingerprint"] = quote.Fingerprint,
+                        ["max_estimated_cost_usd"] = quote.MaximumEstimatedCostUsd, ["pricing"] = Sanitize(quote.Pricing.ToPublicJson()) };
                     if (surface == "panel")
                     {
                         capture = await CapturePanel(repo, temp, descriptor, c, quote.ToJson());
@@ -122,10 +124,15 @@ namespace Rook.Vision.Qualification
                     }
                     if (c["confirmation"] is JsonObject confirmation)
                         foreach (var p in confirmation) request[p.Key] = p.Value?.DeepClone();
+                    // This digest identifies the actual final confirmed surface submission,
+                    // including its quote and cap. The estimate has a separate digest above.
+                    row["request_sha256"] = FalCanonicalJson.Hash(request);
                     var submitParsed = FalConfiguredRequestParser.Parse(request, catalog, modality);
                     if (!submitParsed.Success) throw new QualificationMismatch("Captured submission failed managed parsing.");
                     var invalid = FalSubmitConfirmation.TryParse(request, out var confirmed) ?? quotes.Validate(quote, submitParsed.Request!, snapshot, confirmed);
                     if (invalid != null) { row["outcome"] = invalid.ProviderErrorCode ?? invalid.Code.ToString(); snapshot.Dispose(); return Finish(row, expected, transport, resources); }
+                    row["cap_usd"] = confirmed!.MaxEstimatedCostUsd;
+                    row["confirmation"] = new JsonObject { ["quote_fingerprint"] = confirmed.Fingerprint, ["max_estimated_cost_usd"] = confirmed.MaxEstimatedCostUsd };
                     normalized = submitParsed.Request!;
                     row["effective_request"] = normalized.EffectiveRequestFields;
                     row["effective_options"] = normalized.EffectiveOptions;
