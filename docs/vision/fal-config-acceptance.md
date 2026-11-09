@@ -12,7 +12,7 @@ powershell -NoProfile -File scripts/tests/verify-fal-config-acceptance.tests.ps1
 Rook.Vision.Qualification.exe verify-cases --catalog CATALOG --cases CASES.json --report REPORT.json
 ```
 
-The qualifier is built from `src/Rook.Vision.Qualification` for net48/net7.0/net8.0. Run the existing `scripts/verify-vision-merge.ps1 -Python <dependency-python>` once after committing the candidate. Its three full Release managed runs are mandatory. It records the interpreter/import origin, Node controls/panel tests, Python contracts, both qualification-host builds, catalog validation, acceptance-checker tests, and existing stress/FFmpeg checks.
+The qualifier is built from `src/Rook.Vision.Qualification` for net48/net7.0/net8.0. Run the existing `scripts/verify-vision-merge.ps1 -Python <dependency-python>` once after committing the candidate. Its three full Release managed runs are mandatory. It records the interpreter/import origin, Node controls/panel tests, Python contracts, both qualification-host builds, catalog validation, acceptance-checker tests, and existing stress/FFmpeg checks. Hosted CI runs `-PortableOnly`, which passes `-PortableOnly` to the acceptance-checker tests and skips the complete qualifier traversal; a portable pass does not qualify a candidate.
 
 Build native Release from a fresh VS2022 shell with `vcvarsall.bat x64 -vcvars_ver=14.44`, then MSBuild with `/p:VCToolsVersion=14.44.35207`. Build RookBim after the companion. Run the four default Task10 script suites after all Release payloads exist: `deploy-vision-model-catalog.tests.ps1`, `deploy-local-testing-guards.tests.ps1`, `release-installer-guards.tests.ps1`, and `validate-release-artifacts.tests.ps1`. No reduced package switches qualify this gate.
 

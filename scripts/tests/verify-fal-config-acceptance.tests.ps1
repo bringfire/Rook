@@ -1,3 +1,7 @@
+# -PortableOnly runs only the evidence-checker unit section. The complete
+# traversal below needs the Rhino-dependent qualifier build, which hosted CI
+# cannot produce; managed verification always runs it and fails closed.
+param([switch]$PortableOnly)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '../verify-fal-config-acceptance.ps1')
 function Assert-Test([bool]$Condition, [string]$Message) { if (!$Condition) { throw $Message } }
@@ -53,6 +57,10 @@ try {
     Remove-Item -LiteralPath $resolved -Recurse -Force
 }
 Write-Host 'PASS: fail-closed acceptance evidence, four live jobs, code inventory, hashes and installed gates.'
+if ($PortableOnly) {
+    Write-Host 'SKIP (portable): complete qualifier traversal requires the Rhino 8 managed build; run without -PortableOnly to qualify.'
+    exit 0
+}
 
 # Complete production-verifier traversal using a real temporary Git/file tree and
 # actual qualifier output. These records are synthetic UNIT fixtures, not live proof.
