@@ -200,6 +200,8 @@
                             </div>
                         </div>
 
+                        <div id="image-catalog-diagnostics" class="model-field-error" aria-live="polite"></div>
+                        <div id="generate-configured-controls" class="configured-model-controls hidden"></div>
                         <button id="generate-btn" class="btn btn-generate">
                             <span id="generate-text">Generate</span>
                             <span id="generate-spinner" class="spinner hidden"></span>
@@ -400,6 +402,8 @@
                             </div>
                         </div>
 
+                        <div id="studio-catalog-diagnostics" class="model-field-error" aria-live="polite"></div>
+                        <div id="studio-configured-controls" class="configured-model-controls hidden"></div>
                         <button id="studio-generate-btn" class="btn btn-generate">
                             <span id="studio-generate-text">Generate</span>
                             <span id="studio-generate-spinner" class="spinner hidden"></span>
@@ -480,7 +484,7 @@
                             </div>
                             <div class="option-group">
                                 <label class="select-label">Mode</label>
-                                <div class="video-mode-radios" role="radiogroup" aria-label="Generation mode">
+                                <div id="video-mode-options" class="video-mode-radios" role="radiogroup" aria-label="Generation mode">
                                     <label class="video-mode-radio">
                                         <input type="radio" name="video-mode" value="t2v" checked>
                                         <span>T2V</span>
@@ -617,6 +621,8 @@
                             <span id="video-cost-detail" class="video-cost-detail"></span>
                         </div>
 
+                        <div id="video-catalog-diagnostics" class="model-field-error" aria-live="polite"></div>
+                        <div id="video-configured-controls" class="configured-model-controls hidden"></div>
                         <button id="video-generate-btn" class="btn btn-generate">
                             <span id="video-generate-text">Generate</span>
                             <span id="video-generate-spinner" class="spinner hidden"></span>
@@ -1047,6 +1053,7 @@
         </div>
     </div>
 
+    <script src="model-controls.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

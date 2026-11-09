@@ -17,7 +17,7 @@ from pathlib import Path
 
 
 SCHEMA_VERSION = 1
-BOOTSTRAP_TOOL_REQUIREMENTS = ("pip==26.2.1", "setuptools==83.0.0")
+BOOTSTRAP_TOOL_REQUIREMENTS = ("pip==26.2.2", "setuptools==84.1.0")
 # The installer's own tools: extracted from their hash-locked wheels at install
 # time and never installed into either venv (#595).
 INSTALLER_TOOL_REQUIREMENTS = ("uv==0.12.5",)

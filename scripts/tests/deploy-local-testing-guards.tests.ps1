@@ -654,6 +654,52 @@ function Test-PrimePayloadConsumerHandoff {
 }
 
 Test-PrimePayloadConsumerHandoff
+function Test-DeployIncludesExternalVisionCatalogs {
+    $content = Get-Content -LiteralPath $DeployScript -Raw
+    Assert-Contains $content "'vision-models\fal'" 'Full deployment must copy external fal JSON.'
+    $body = Get-FunctionBodyText $content 'Deploy-CompanionRuntimePayload'
+    Assert-Contains $body 'Copy-VisionCatalogJson' 'All full-deploy runtimes must use the generic JSON copier.'
+    $managed = Get-FunctionBodyText $content 'Deploy-ManagedOnlyPayload'
+    Assert-NotContains $managed 'Copy-VisionCatalogJson' 'Managed-only deployment must retain its rhp/pdb-only contract.'
+    [xml]$project = Get-Content -LiteralPath $RookProject -Raw
+    $json = @($project.Project.ItemGroup.Content | Where-Object Include -EQ 'Services\Vision\Fal\Models\**\*.json')
+    Assert-True ($json.Count -eq 1 -and $json[0].CopyToOutputDirectory -eq 'PreserveNewest') 'Build output must include a single generic catalog JSON glob.'
+    Assert-True ($json[0].Link -eq 'vision-models\fal\%(RecursiveDir)%(Filename)%(Extension)') 'Build JSON must be external beside each runtime.'
+
+    # Execute the real full-deploy function against temporary build/install roots.
+    # Only the unrelated robocopy runtime-assets operation is suppressed.
+    $tokens = $null; $parseErrors = $null
+    $ast = [Management.Automation.Language.Parser]::ParseInput($content, [ref]$tokens, [ref]$parseErrors)
+    $temp = Join-Path ([IO.Path]::GetTempPath()) ('rook-full-catalog-copy-' + [Guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path (Join-Path $temp 'scripts') -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $RepoRoot 'scripts/deploy-vision-model-catalog.ps1') -Destination (Join-Path $temp 'scripts/deploy-vision-model-catalog.ps1')
+    . (Join-Path $RepoRoot 'scripts/deploy-vision-model-catalog.ps1')
+    try {
+        & {
+            param($Root, $Syntax)
+            $RepoRoot = $Root; $PluginDir = Join-Path $Root 'RookNative'; $Configuration = 'Debug'
+            function Sync-Directory { param($Source,$Destination) }
+            foreach ($name in @('Copy-RequiredFile','Copy-OptionalFile','Deploy-CompanionRuntimePayload')) {
+                $fn = $Syntax.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
+                Invoke-Expression $fn.Extent.Text
+            }
+            foreach ($runtime in @('net48','net7.0','net8.0')) {
+                $build = Join-Path $Root "src/Rook/bin/Debug/$runtime"
+                New-Item -ItemType Directory -Path (Join-Path $build 'vision-models/fal/nested') -Force | Out-Null
+                foreach ($name in @('Rook.rhp','Rook.deps.json','Rook.runtimeconfig.json')) { 'payload' | Set-Content -LiteralPath (Join-Path $build $name) -Encoding ASCII }
+                '{"schema_version":1,"definitions":[]}' | Set-Content -LiteralPath (Join-Path $build 'vision-models/fal/catalog.json') -Encoding ASCII
+                '{}' | Set-Content -LiteralPath (Join-Path $build 'vision-models/fal/nested/generic.json') -Encoding ASCII
+                Deploy-CompanionRuntimePayload $runtime
+                Assert-True (Test-Path -LiteralPath (Join-Path $PluginDir "$runtime/vision-models/fal/nested/generic.json")) 'Normal full deployment must copy generic nested JSON to every runtime.'
+            }
+            Remove-Item -LiteralPath (Join-Path $Root 'src/Rook/bin/Debug/net48/vision-models/fal/catalog.json')
+            $rejected = $false
+            try { Deploy-CompanionRuntimePayload 'net48' } catch { $rejected = $true }
+            Assert-True ($rejected -and (Test-Path -LiteralPath (Join-Path $PluginDir 'net48/vision-models/fal/catalog.json'))) 'Missing build catalogs must fail full deployment without deleting the installed catalog.'
+        } $temp $ast
+    } finally { Remove-VisionSafeDirectory $temp ([IO.Path]::GetTempPath()) }
+}
+Test-DeployIncludesExternalVisionCatalogs
 Test-DevDoctorScriptContract
 Test-RookMcpProcessHelperContract
 Test-DeployScriptSelectsExplicitMsvcToolset

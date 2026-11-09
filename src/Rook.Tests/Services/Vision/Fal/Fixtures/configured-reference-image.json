@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "definition_id": "qualification-reference-image",
+  "revision": "revision-1",
+  "model_id": "qualification/reference-image",
+  "display_name": "Synthetic image",
+  "provider": "fal",
+  "status": "experimental",
+  "operations": [
+    {
+      "operation_id": "text_to_image",
+      "endpoint_id": "fal-ai/synthetic/render",
+      "invocation": "sync",
+      "adapter": {
+        "id": "fal.image.declarative",
+        "version": 1
+      },
+      "fields": [
+        {
+          "key": "prompt",
+          "scope": "request",
+          "type": "string",
+          "required": true,
+          "max_length": 1000,
+          "label": "Prompt",
+          "payload": {
+            "pointer": "/prompt",
+            "conversion": "identity"
+          }
+        },
+        {
+          "key": "aspect_ratio",
+          "scope": "request",
+          "type": "enum",
+          "values": [
+            "16:9"
+          ],
+          "default": "16:9",
+          "label": "Aspect",
+          "payload": {
+            "pointer": "/image_size",
+            "conversion": "enum_lookup",
+            "lookup": {
+              "16:9": "landscape_16_9"
+            }
+          }
+        }
+      ],
+      "media": [],
+      "constraints": [],
+      "constants": [
+        {
+          "pointer": "/num_images",
+          "value": 1
+        },
+        {
+          "pointer": "/enable_safety_checker",
+          "value": true
+        },
+        {
+          "pointer": "/output_format",
+          "value": "jpeg"
+        },
+        {
+          "pointer": "/sync_mode",
+          "value": false
+        }
+      ],
+      "result": {
+        "role": "generated_image",
+        "mime_family": "image",
+        "collection_pointer": "/images",
+        "cardinality": 1,
+        "url_pointer": "/images/0/url",
+        "mime_pointer": "/images/0/content_type"
+      },
+      "pricing": {
+        "strategy": "fixed_per_output",
+        "unit": "output",
+        "revision": "price-1",
+        "rates": [
+          {
+            "selectors": {},
+            "rate_usd": 0.01
+          }
+        ],
+        "rounding": "none",
+        "source": "https://fal.ai/models/synthetic",
+        "reviewed_on": "2026-10-25"
+      },
+      "evidence": {
+        "url": "https://fal.ai/models/synthetic",
+        "reviewed_on": "2026-10-25",
+        "qualification": "synthetic"
+      }
+    }
+  ]
+}

@@ -11,6 +11,7 @@ namespace Rook.Services.Vision.Image
     public sealed class ArtifactImageMediaResolver : IMediaResolver
     {
         private readonly ArtifactStore _store;
+        private readonly bool _preserveArtifactRoles;
         private readonly long _maxSingleImageBytes;
         private readonly long _maxAggregateImageBytes;
 
@@ -22,8 +23,10 @@ namespace Rook.Services.Vision.Image
         public ArtifactImageMediaResolver(
             ArtifactStore store,
             long maxSingleImageBytes,
-            long maxAggregateImageBytes)
+            long maxAggregateImageBytes,
+            bool preserveArtifactRoles = false)
         {
+            _preserveArtifactRoles = preserveArtifactRoles;
             _store = store ?? throw new ArgumentNullException(nameof(store));
             _maxSingleImageBytes = maxSingleImageBytes > 0
                 ? maxSingleImageBytes
@@ -118,7 +121,7 @@ namespace Rook.Services.Vision.Image
                     "Artifact-kind MediaRef has null or empty ArtifactId.");
             }
 
-            var role = ArtifactBlobRoleFor(mediaRef.Role);
+            var role = _preserveArtifactRoles ? mediaRef.Role : ArtifactBlobRoleFor(mediaRef.Role);
             var blobPath = _store.GetBlobAbsolutePath(id, role);
             var byteSize = GetFileLength(blobPath);
             ValidateImageSize(byteSize, currentAggregateBytes);

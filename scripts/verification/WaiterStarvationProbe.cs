@@ -18,6 +18,7 @@ internal static class WaiterStarvationProbe
         };
         var type = Assembly.LoadFrom(assemblyPath).GetType("Rook.Tests.InternalBridge.GhSolveReceiptRegistryTests", true);
         if (args.Length == 2) {
+            if (args[1] == "--callback-projection") return CallbackProjection(type.Assembly);
             if (args[1] == "--renderer-contention") return RendererContention(type.Assembly);
             if (args[1] != "--close-drain") throw new ArgumentException("Unknown probe mode.");
             return CloseDrain(type.Assembly);
@@ -62,6 +63,36 @@ internal static class WaiterStarvationProbe
                 if (!finished.WaitOne(10000)) throw new Exception("The owned pool blocker did not stop.");
                 ThreadPool.SetMaxThreads(workers, io);
             }
+        }
+    }
+
+    private static int CallbackProjection(Assembly assembly)
+    {
+        int workers, io, minWorkers, minIo;
+        ThreadPool.GetMaxThreads(out workers, out io);
+        ThreadPool.GetMinThreads(out minWorkers, out minIo);
+        try {
+            if (!ThreadPool.SetMinThreads(1, 1) || !ThreadPool.SetMaxThreads(1, io))
+                throw new Exception("Cannot constrain the isolated callback projection pool.");
+            var type = assembly.GetType("Rook.Tests.Handlers.ImageFallbackHandlerTests", true);
+            // The real test begins on the only pool worker. It must yield that
+            // worker while its synchronous bridge waits for Task.Run dispatch.
+            var running = Task.Run(async delegate {
+                var result = type.GetMethod("NativeUtf8CallbackPreservesIndependentCredentialProjection")
+                    .Invoke(Activator.CreateInstance(type), null);
+                var pending = result as Task;
+                if (pending != null) await pending.ConfigureAwait(false);
+            });
+            if (!running.Wait(TimeSpan.FromSeconds(10)))
+                throw new Exception("The callback projection test did not settle.");
+            Console.WriteLine("PASS: real UTF8/credential projection test starting on the sole pool worker, with its unchanged one-second bridge budget.");
+            return 0;
+        } catch (Exception ex) {
+            Console.Error.WriteLine(ex);
+            return 1;
+        } finally {
+            ThreadPool.SetMaxThreads(workers, io);
+            ThreadPool.SetMinThreads(minWorkers, minIo);
         }
     }
 

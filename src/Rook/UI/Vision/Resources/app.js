@@ -86,6 +86,183 @@ function errorToText(e) {
     return e.message || "Vision op failed.";
 }
 
+// Configured forms use the same unconfirmed request for estimates and submission.
+// No legacy UI values or client-side pricing calculations enter this builder.
+function buildConfiguredModelRequest(state) {
+    const descriptor = state.descriptor;
+    const request = {model: descriptor.model_id, operation: descriptor.operation_id, ...state.common.readOptions(), options: state.options.readOptions()};
+    const media = state.readMedia();
+    if (media.length) request.media = media;
+    return request;
+}
+function showCatalogDiagnostics(modality, diagnostics) {
+    const ids = modality === "image" ? ["image-catalog-diagnostics", "studio-catalog-diagnostics"] : ["video-catalog-diagnostics"];
+    const text = (diagnostics || []).map(d => `${d.file} ${d.pointer}: ${d.message}`).join("\n");
+    for (const id of ids) { const target = document.getElementById(id); if (target) target.textContent = text; }
+}
+function toggleConfiguredLegacy(ids, configured) {
+    for (const id of ids) {
+        const node = document.getElementById(id);
+        const row = node?.closest?.('.option-group, .prompt-input-container, .reference-section, .video-frames-section') || node;
+        row?.classList.toggle('configured-legacy-hidden', configured);
+    }
+}
+function syncConfiguredImageForms() {
+    for (const surface of ['generate','studio']) {
+        const studio = surface === 'studio', prefix = studio ? 'studio-' : '';
+        const model = selectedImageModel(studio ? el.studioModelSelect : el.modelSelect);
+        const descriptors = configuredOperations(model), signature = JSON.stringify(descriptors);
+        const old = configuredImageForms[surface], container = document.getElementById(`${surface}-configured-controls`);
+        if (!container) continue;
+        if (old?.signature !== signature) {
+            old?.dispose(); delete configuredImageForms[surface];
+            if (descriptors.length) {
+                const form = createConfiguredModelForm(container, model, () => {});
+                form.signature = signature; configuredImageForms[surface] = form;
+            }
+        }
+        container.classList.toggle('hidden', !descriptors.length);
+        toggleConfiguredLegacy([`${prefix}prompt`,`${prefix}resolution-select`,`${prefix}aspect-select`,`${prefix}add-reference-btn`], !!descriptors.length);
+    }
+}
+async function generateConfiguredImage(form, studio) {
+    const btn = studio ? el.studioGenerateBtn : el.generateBtn;
+    const text = studio ? el.studioGenerateText : el.generateText;
+    const spinner = studio ? el.studioGenerateSpinner : el.generateSpinner;
+    const show = studio ? showStudioStatus : showStatus;
+    setGenerating(btn,text,spinner,true);
+    try {
+        const quote = await form.estimate('image_estimate');
+        if (!quote || !window.confirm(`${configuredPriceLabel(quote)}\nConfirm this maximum estimated cost and generate?`)) return;
+        const args = form.confirmedRequest();
+        // Confirmation is single-use; another click requires a fresh estimate.
+        form.invalidate();
+        const result = await awaitImageJobResult(args, studio ? showStudioImageJobStatus : showImageJobStatus, id => form.setJob(id));
+        if (studio) {
+            latestStudioArtifactId=result.result_artifact_id;
+            el.studioResultImage.src=`/blob/${encodeURIComponent(result.result_artifact_id)}/image?ts=${Date.now()}`;
+            setStudioResultMode('generate');el.studioResultPanel.classList.remove('hidden');show('Image generated.','success');
+        } else renderGeneratedArtifact({artifact_id:result.result_artifact_id},'Image generated.');
+    } catch(e) {
+        form.setValidation(e.field_errors || [{field:e.field || 'generation',message:e.message}]);
+        show([errorToText(e),configuredCancellationNotice(e)].filter(Boolean).join(' · '),'error');
+    } finally {form.setJob(null);setGenerating(btn,text,spinner,false);}
+}
+
+function configuredOperations(model) {
+    return Array.isArray(model?.operations) ? model.operations.filter(d => d && typeof d === 'object' && d.operation_id && d.submission_contract) : [];
+}
+function configuredPriceLabel(quote) {
+    const p = quote.pricing || {};
+    const min = p.estimate_min_usd, max = p.estimate_max_usd;
+    return min === undefined || max === undefined ? `Maximum USD $${quote.max_estimated_cost_usd}`
+        : `USD $${min}${String(min) === String(max) ? '' : ` – $${max}`} · Maximum $${quote.max_estimated_cost_usd}`;
+}
+function configuredCancellationNotice(data) {
+    const c = data?.cancellation || data?.configured_fal_execution?.cancellation;
+    if (!c) return '';
+    const labels = {confirmed_cancelled:'Remote cancellation confirmed.', cancellation_requested:'Remote cancellation requested; not confirmed.', already_completed:'Compute completed remotely; local monitoring stopped.', already_terminal:`Remote operation already terminal${c.remote_terminal_state ? ': ' + c.remote_terminal_state : ''}.`, failed:'Remote cancellation failed; compute may continue.', unavailable:'Remote cancellation unavailable; compute may continue.',local_stop_only:'Local monitoring stopped; remote cancellation not confirmed.',not_requested:'Remote cancellation not requested.'};
+    return `${c.local_stopped ? 'Local work stopped. ' : ''}${labels[c.remote_disposition] || 'Remote cancellation not confirmed.'}`;
+}
+function createConfiguredModelForm(container, model, onChange) {
+    let revision = 0, disposed = false, quote = null, common, options, descriptor, mediaSlots = [], mediaRevision = 0;
+    const listeners = [], mediaListeners = [];
+    const state = {get descriptor(){return descriptor;},get common(){return common;},get options(){return options;},readMedia};
+    const operation = document.createElement('select'); operation.dataset.configuredOperation = 'true';
+    const title = document.createElement('label'); title.textContent = 'Operation'; title.appendChild(operation);
+    for (const d of configuredOperations(model)) {
+        const item = document.createElement('option'); item.value = d.operation_id; item.textContent = d.operation_id; operation.appendChild(item);
+    }
+    const fields = document.createElement('div'), provider = document.createElement('div'), media = document.createElement('div');
+    const errors = document.createElement('div'); errors.className = 'model-field-error'; errors.setAttribute('aria-live','polite');
+    const price = document.createElement('div'); price.className = 'configured-price'; price.setAttribute('aria-live','polite');
+    const estimateButton = document.createElement('button'); estimateButton.type = 'button'; estimateButton.className = 'btn btn-secondary'; estimateButton.textContent = 'Estimate cost';
+    const cancelButton = document.createElement('button'); cancelButton.type = 'button'; cancelButton.className = 'btn btn-secondary'; cancelButton.textContent = 'Stop image job'; cancelButton.hidden = true;
+    let jobId = null;
+    container.replaceChildren(title,fields,provider,media,errors,price,estimateButton,cancelButton);
+    function listen(node,event,fn,list = listeners){node.addEventListener(event,fn);list.push(()=>node.removeEventListener(event,fn));}
+    function identity(){return `${descriptor.model_id}/${descriptor.operation_id}/${descriptor.definition_hash}/${descriptor.revision}`;}
+    function invalidate(){revision++;quote=null;price.textContent='Obtain a fresh estimate before generation.';}
+    function readMedia(){return mediaSlots.filter(s=>s.input.value).map(s=>({semantic_role:s.role,...JSON.parse(s.input.value)}));}
+    function context(){const c={values:{...common.effectiveValues(),...options.effectiveValues()},media:readMedia()};common.updateContext(c);options.updateContext(c);}
+    function changed(){if(disposed)return;invalidate();errors.textContent='';context();onChange();}
+    function setValidation(values){const list=Array.isArray(values)?values:[];common.setValidation(list);options.setValidation(list);errors.textContent=list.map(e=>`${e.field}: ${e.message}`).join(' ');}
+    async function refreshMedia(){
+        const token=++mediaRevision;
+        try {
+            const results=await Promise.all(['generated_image','captured_viewport','preprocessed_image','imported_image','generated_video','imported_video'].map(kind=>bridgeCall('list_artifacts',{kind,limit:100})));
+            if(disposed || token!==mediaRevision)return;
+            const choices=new Map();
+            for(const data of results) for(const artifact of data.artifacts||[]) for(const file of artifact.files||[]) {
+                const allowedVideo=['start_frame','end_frame'].includes(file.role);
+                if(isVideoArtifactKind(artifact.kind) ? !allowedVideo : !(String(file.mime_type||'').startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp|tiff?)$/i.test(file.path || '') || ['image','input_image','viewport','depth_map','preprocessed_image'].includes(file.role)))continue;
+                const value=JSON.stringify({artifact_id:artifact.artifact_id,artifact_role:file.role});
+                choices.set(value,`${artifact.kind} · ${artifact.artifact_id.slice(0,8)} · ${file.role}`);
+            }
+            for(const slot of mediaSlots){
+                const prior=slot.input.value;slot.input.replaceChildren();
+                const empty=document.createElement('option');empty.value='';empty.textContent='None';slot.input.appendChild(empty);
+                for(const [value,label] of choices){const option=document.createElement('option');option.value=value;option.textContent=label;slot.input.appendChild(option);}
+                // Keep an explicit selected artifact while showing validation; never silently substitute it.
+                if(prior && !choices.has(prior)){const missing=document.createElement('option');missing.value=prior;missing.textContent='Previously selected artifact (refresh validation required)';slot.input.appendChild(missing);}
+                slot.input.value=prior;
+            }
+        }catch(e){if(!disposed && token===mediaRevision)errors.textContent=errorToText(e);}
+    }
+    function render(){
+        common?.dispose();options?.dispose();mediaListeners.splice(0).forEach(f=>f());mediaRevision++;mediaSlots=[];media.replaceChildren();
+        descriptor=configuredOperations(model).find(d=>d.operation_id===operation.value) || configuredOperations(model)[0];
+        operation.value=descriptor.operation_id;
+        estimateButton.hidden=descriptor.submission_contract==='video_job';
+        common=window.RookModelControls.create(fields,{...descriptor,options:descriptor.request_fields||[]},changed);
+        options=window.RookModelControls.create(provider,descriptor,changed);
+        for(const role of descriptor.media||[]) {
+            const group=document.createElement('fieldset'),legend=document.createElement('legend');legend.textContent=`${role.role} (${role.min_count}–${role.max_count}${role.ordered ? ', in order' : ''})`;group.appendChild(legend);
+            for(let index=0;index<role.max_count;index++){
+                const label=document.createElement('label');label.textContent=`${role.role} ${index+1}`;
+                const input=document.createElement('select');input.dataset.mediaRole=role.role;
+                const empty=document.createElement('option');empty.value='';empty.textContent='None';input.appendChild(empty);
+                label.appendChild(input);group.appendChild(label);mediaSlots.push({role:role.role,input});listen(input,'change',changed,mediaListeners);
+            }
+            media.appendChild(group);
+        }
+        if(mediaSlots.length){const refresh=document.createElement('button');refresh.type='button';refresh.className='btn-text';refresh.textContent='Refresh image artifacts';listen(refresh,'click',refreshMedia,mediaListeners);media.appendChild(refresh);}
+        invalidate();context();setValidation(descriptor.field_errors||[]);
+        if(descriptor.selectable===false || descriptor.status==='disabled' || descriptor.pricing_available===false){price.textContent=`Generation unavailable: ${(descriptor.unavailable_reasons||['pricing unavailable']).join(', ')}`;estimateButton.disabled=true;}else estimateButton.disabled=false;
+    }
+    async function estimate(op){
+        if(disposed)throw new Error('Form is no longer active.');
+        if(descriptor.selectable===false || descriptor.status==='disabled' || descriptor.pricing_available===false)throw new Error('Operation or pricing unavailable.');
+        invalidate();const args=buildConfiguredModelRequest(state),key=JSON.stringify(args),id=identity(),token=revision;
+        price.textContent='Checking estimate…';
+        try{
+            const data=await bridgeCall(op,args);
+            if(disposed || token!==revision || id!==identity() || key!==JSON.stringify(buildConfiguredModelRequest(state)))return null;
+            if(typeof data.quote_fingerprint!=='string' || typeof data.max_estimated_cost_usd!=='number')throw new Error('Estimate did not include configured confirmation.');
+            quote={data,key,id,revision:token};price.textContent=configuredPriceLabel(data);setValidation([]);return data;
+        }catch(e){if(!disposed && token===revision){quote=null;setValidation(e.field_errors||[{field:e.field||'estimate',message:e.message}]);price.textContent='Estimate unavailable.';}throw e;}
+    }
+    function confirmedRequest(){
+        const request=buildConfiguredModelRequest(state);
+        if(disposed || !quote || quote.revision!==revision || quote.id!==identity() || quote.key!==JSON.stringify(request))throw new Error('Obtain a fresh estimate before generation.');
+        return {...request,quote_fingerprint:quote.data.quote_fingerprint,max_estimated_cost_usd:quote.data.max_estimated_cost_usd};
+    }
+    listen(operation,'change',()=>{render();onChange();});
+    listen(estimateButton,'click',()=>estimate(descriptor.submission_contract==='image_job'?'image_estimate':'estimate_video_job').catch(()=>{}));
+    listen(cancelButton,'click',async()=>{
+        if(!jobId)return;
+        try{const result=await bridgeCall('image_job_cancel',{job_id:jobId});errors.textContent=configuredCancellationNotice(result)||`Image job state: ${result.state}`;}
+        catch(e){errors.textContent=`${errorToText(e)} · ${configuredCancellationNotice(e)}`;}
+        // Error cancellation envelopes can already have persisted the local stop.
+        finally{try{await bridgeCall('image_jobs',{limit:50});const status=await bridgeCall('image_job_status',{job_id:jobId});const notice=configuredCancellationNotice(status);if(notice)errors.textContent=notice;}catch(_){} }
+    });
+    render();
+    return {request:()=>buildConfiguredModelRequest(state),estimate,confirmedRequest,setValidation,refreshMedia,invalidate,
+        setJob(id){jobId=id;cancelButton.hidden=!id;},
+        get descriptor(){return descriptor;},
+        dispose(){disposed=true;invalidate();mediaRevision++;common.dispose();options.dispose();mediaListeners.forEach(f=>f());listeners.forEach(f=>f());container.replaceChildren();}};
+}
+
 // ─── State ────────────────────────────────────────────────────────
 
 let currentView = "generate";
@@ -105,6 +282,7 @@ let mediaImportPollers = new Map();   // job_id -> timeout id
 let isStartingMediaImport = false;
 let modalArtifact = null;             // currently-open gallery item
 let modalDisplayRole = null;          // blob role currently rendered in the modal image
+const configuredImageForms = {};
 let modelCatalog = [];                 // [{ short_name, supported_resolutions, ... }]
 const sessionValidationBySecret = new Map();
 const providerSecretKeyByProvider = new Map();
@@ -396,6 +574,7 @@ function promptEnhancementLabel(artifact) {
 
 async function generateImage() {
     if (el.generateBtn.disabled) return;
+    if (configuredImageForms.generate) return generateConfiguredImage(configuredImageForms.generate, false);
     const prompt = el.prompt.value.trim();
     if (!prompt) { showStatus("Please enter a prompt.", "error"); return; }
 
@@ -489,12 +668,13 @@ async function generateImageJob(prompt, model, sourcePath) {
     }
 }
 
-async function awaitImageJobResult(args, statusHandler) {
+async function awaitImageJobResult(args, statusHandler, onStart) {
     const start = await bridgeCall("image_generate_start", args);
     if (!start || typeof start.job_id !== "string" || start.job_id.length === 0) {
         throw new Error("Image job did not return a job id.");
     }
     const jobId = start.job_id;
+    if (onStart) onStart(jobId);
     let terminal = null;
     for (let attempt = 0; attempt < 180; attempt++) {
         const status = await bridgeCall("image_job_status", { job_id: jobId });
@@ -502,7 +682,7 @@ async function awaitImageJobResult(args, statusHandler) {
             throw new Error("Image job returned an invalid status.");
         }
         statusHandler(status);
-        if (["complete", "error", "cancelled", "interrupted"].includes(status.state)) {
+        if (["complete", "error", "canceled", "cancelled", "interrupted"].includes(status.state)) {
             terminal = status;
             break;
         }
@@ -732,6 +912,7 @@ function normalizeImageModelDescriptor(m) {
         credential_message: m.credential_message || "",
         fallback_available: m.fallback_available || null,
         credential_secret_key: m.credential_secret_key || "",
+        operations: configuredOperations(m),
         submission_mode: m.submission_mode || "sync",
         supported_resolutions: cap.resolutions || m.supported_resolutions || [],
         aspect_ratios: cap.aspect_ratios || [],
@@ -753,6 +934,7 @@ function normalizeLegacyAvailableModel(m) {
         credential_message: m.credential_message || "",
         fallback_available: m.fallback_available || null,
         credential_secret_key: m.credential_secret_key || "",
+        operations: configuredOperations(m),
         submission_mode: m.submission_mode || "sync",
         supported_resolutions: m.supported_resolutions || [],
         aspect_ratios: m.aspect_ratios || [],
@@ -848,7 +1030,7 @@ function effectiveCredentialAvailability(model) {
 
 function copyVideoExecutionFields(target, source) {
     if (!source) return target;
-    for (const key of ["detail_code", "requested_provider", "requested_model", "effective_provider", "effective_model", "video_route", "credential_failure", "submission_outcome_unknown", "stop_persistence", "execution_stopped", "cleanup", "cleanup_persistence", "warnings", "effective_estimated_cost_usd", "effective_pricing_source", "source_preparation", "source_preparation_error", "preparation_detail", "framing_mode", "action"]) {
+    for (const key of ["detail_code", "requested_provider", "requested_model", "effective_provider", "effective_model", "video_route", "credential_failure", "submission_outcome_unknown", "stop_persistence", "execution_stopped", "cleanup", "cleanup_persistence", "warnings", "effective_estimated_cost_usd", "effective_pricing_source", "source_preparation", "source_preparation_error", "preparation_detail", "framing_mode", "action", "cancellation", "configured_fal_execution", "field_errors", "job_id", "state"]) {
         if (Object.prototype.hasOwnProperty.call(source, key)) target[key] = source[key];
     }
     return target;
@@ -862,6 +1044,7 @@ function applyVideoEvidence(data) {
 function videoExecutionNotice(data) {
     if (!data) return "";
     const parts = [];
+    const cancellation = configuredCancellationNotice(data); if (cancellation) parts.push(cancellation);
     if (data.effective_provider) parts.push(`${providerDisplayName(data.effective_provider === "veo" ? "gemini" : data.effective_provider)} · ${data.effective_model || ""}`);
     if (typeof data.effective_estimated_cost_usd === "number") parts.push(`Estimated $${data.effective_estimated_cost_usd.toFixed(2)}`);
     if (data.video_route) {
@@ -879,7 +1062,7 @@ function videoExecutionNotice(data) {
 
 function copyImageExecutionFields(target, source) {
     if (!source) return target;
-    for (const key of ["provider", "model", "image_route", "credential_failure", "fal_dispatch_state"]) {
+    for (const key of ["provider", "model", "image_route", "credential_failure", "fal_dispatch_state", "cancellation", "configured_fal_execution", "field_errors"]) {
         if (Object.prototype.hasOwnProperty.call(source, key)) target[key] = source[key];
     }
     return target;
@@ -1067,11 +1250,13 @@ function populateImageModelDropdowns(models) {
     syncResolutionOptions();
     updateGenerateInputMode();
     updateStudioInputMode();
+    syncConfiguredImageForms();
 }
 
 async function loadImageModels() {
     try {
         const data = await bridgeCall("list_image_models");
+        showCatalogDiagnostics("image", data.catalog_diagnostics);
         if (Array.isArray(data.models) && data.models.length > 0) {
             modelCatalog = data.models.map(normalizeImageModelDescriptor);
             populateImageModelDropdowns(modelCatalog);
@@ -1389,6 +1574,7 @@ async function studioEnhancePrompt() {
 
 async function studioGenerate() {
     if (el.studioGenerateBtn.disabled) return;
+    if (configuredImageForms.studio) return generateConfiguredImage(configuredImageForms.studio, true);
     if (window.rookUnknownGoogleImageSubmission && !window.confirm("An earlier Google submission outcome is unknown; a new request may create another billed generation. Submit a deliberately new image?")) return;
     const prompt = el.studioPrompt.value.trim();
     if (!prompt) { showStudioStatus("Please enter a prompt.", "error"); return; }
@@ -2433,6 +2619,7 @@ function init() {
     // time; it no longer reshapes the source preview. No change listener
     // needed on this view — the value is read in `generateImage`.
     el.modelSelect.addEventListener("change", () => {
+        syncConfiguredImageForms();
         syncResolutionOptions();
         updateGenerateInputMode();
     });
@@ -2471,6 +2658,7 @@ function init() {
             el.studioAspectSelect));
     el.studioAspectSelect.addEventListener("change", refreshPreviewFraming);
     el.studioModelSelect.addEventListener("change", () => {
+        syncConfiguredImageForms();
         syncResolutionOptions();
         updateStudioInputMode();
     });
@@ -2586,6 +2774,7 @@ function loadVideoView() {
 
 const Video = (() => {
     // Catalog + form state.
+    let configuredForm = null, configuredSignature = null;
     let catalog = [];                 // VideoModelDescriptor projections.
     let catalogLoaded = false;
     let selectedCapability = null;
@@ -2622,6 +2811,7 @@ const Video = (() => {
     const ve = {};
 
     function cacheEls() {
+        ve.configuredControls = $("video-configured-controls");
         ve.modelSelect = $("video-model-select");
         ve.modelHint = $("video-model-hint");
         ve.durationSelect = $("video-duration-select");
@@ -2773,8 +2963,9 @@ const Video = (() => {
     function onModelChange() {
         const m = currentModel();
         selectedCapability = m ? m.capability : null;
+        if (syncConfiguredForm(m)) { scheduleEstimate(); return; }
         ve.modelHint.textContent = m
-            ? `${m.provider_name} · ${m.pricing_kind.replace("_", " ")} · ${m.pricing_source}${m.new_submission_available === false ? " · " + (m.availability_reason || "unavailable") : ""}`
+            ? `${m.provider_name} · ${String(m.pricing_kind || "configured").replace("_", " ")} · ${m.pricing_source}${m.new_submission_available === false ? " · " + (m.availability_reason || "unavailable") : ""}`
             : "";
 
         if (!selectedCapability) {
@@ -2800,6 +2991,18 @@ const Video = (() => {
         applyPersonGenDefault();
         updateGenerateEnablement();
         scheduleEstimate();
+    }
+
+    function syncConfiguredForm(model) {
+        const descriptors = configuredOperations(model), signature = JSON.stringify(descriptors);
+        if (signature !== configuredSignature) {
+            configuredForm?.dispose(); configuredForm = null; configuredSignature = signature;
+            if (descriptors.length) configuredForm = createConfiguredModelForm(ve.configuredControls, model, scheduleEstimate);
+        }
+        ve.configuredControls?.classList.toggle('hidden', !configuredForm);
+        toggleConfiguredLegacy(['video-mode-options','video-duration-select','video-resolution-select','video-aspect-select','video-person-gen-select','video-prompt','video-frames-section'], !!configuredForm);
+        if (configuredForm) ve.modelHint.textContent = `${model.provider_name} · ${configuredForm.descriptor.revision} · ${configuredForm.descriptor.pricing_status}`;
+        return !!configuredForm;
     }
 
     function disableForm() {
@@ -3222,6 +3425,7 @@ const Video = (() => {
     }
 
     function buildSubmitArgs() {
+        if (configuredForm) {try {return configuredForm.request();}catch (_) {return null;}}
         if (!selectedCapability) return null;
         const m = currentModel();
         const mode = currentMode();
@@ -3253,6 +3457,7 @@ const Video = (() => {
     }
 
     function isFormReady() {
+        if (configuredForm) return !!buildSubmitArgs();
         if (!selectedCapability) return false;
         if (!ve.durationSelect.value) return false;
         if (!ve.resolutionSelect.value) return false;
@@ -3300,11 +3505,12 @@ const Video = (() => {
                     const selected = selectedVariant();
                     if (!selected?.success) throw selected?.error || framingState.error || { message: "Prepare the selected framing before estimating.", retryable: true };
                 }
-                const data = await bridgeCall("estimate_video_job", args);
+                const data = configuredForm ? await configuredForm.estimate("estimate_video_job") : await bridgeCall("estimate_video_job", args);
+                if (!data) return null;
                 if (estimatePending !== token || key !== JSON.stringify(buildSubmitArgs())) return null;
                 if (!previewMatchesQuote(data)) throw { code: "invalid_request", detail_code: "estimate_stale", message: "Preview and estimate changed. Retry preparation and estimate.", retryable: true };
                 estimateState = { status: "ready", key, result: data, error: null, promise: null };
-                ve.costAmount.textContent = videoPriceLabel(data); ve.costDetail.textContent = `${data.resolution} · ${data.duration_seconds}s · ${data.number_of_videos}×`;
+                ve.costAmount.textContent = videoPriceLabel(data); ve.costDetail.textContent = configuredForm ? `${data.currency} · ${data.pricing?.source || ""}` : `${data.resolution} · ${data.duration_seconds}s · ${data.number_of_videos}×`;
                 ve.costStrip.dataset.lastEstimate = JSON.stringify(data); ve.costStrip.dataset.lastEstimateArgs = key;
                 renderPreflightActions(null); ve.statusMessage.classList.add("hidden"); updateGenerateEnablement(); return data;
             } catch (error) {
@@ -3312,6 +3518,7 @@ const Video = (() => {
                 estimateState = { status: "failed", key, result: null, error, promise: null };
                 delete ve.costStrip.dataset.lastEstimate; delete ve.costStrip.dataset.lastEstimateArgs;
                 ve.costAmount.textContent = "—"; ve.costDetail.textContent = preflightText(error);
+                configuredForm?.setValidation(error.field_errors || [{field:error.field || "estimate",message:error.message}]);
                 showPreflightError(error); updateGenerateEnablement(); return null;
             }
         })();
@@ -3325,6 +3532,7 @@ const Video = (() => {
     }
 
     function videoPriceLabel(data) {
+        if (data.quote_fingerprint) return configuredPriceLabel(data);
         return data.pricing && data.pricing.pricing_source === "vertex-project-billing-unpriced"
             ? "Billed to your Google Cloud project — price unavailable"
             : `$${formatDollars(data.dollars_usd)}`;
@@ -3353,12 +3561,12 @@ const Video = (() => {
         }
         const data = JSON.parse(raw);
         ve.costModalAmount.textContent = videoPriceLabel(data);
-        ve.costModalModel.textContent = data.model || "—";
+        ve.costModalModel.textContent = data.model || configuredForm?.descriptor.model_id || "—";
         ve.costModalResolution.textContent = data.resolution || "—";
         ve.costModalDuration.textContent =
             data.duration_seconds ? `${data.duration_seconds} s` : "—";
         ve.costModalSource.textContent =
-            (data.pricing && data.pricing.pricing_source) || "—";
+            (data.pricing && (data.pricing.source || data.pricing.pricing_source)) || "—";
         confirmedEstimate = { data: JSON.parse(raw), args: cachedArgs };
         const routes = data.candidate_routes || [];
         const routeRows = routes.map(route => `<tr><td>${escapeHtml(route.provider)} · ${escapeHtml(route.model)}${route.eligible ? "" : " · unavailable: " + escapeHtml(route.incompatible_field || "compatibility")}</td><td>${typeof route.total === "number" ? "$" + formatDollars(route.total) : "Unavailable"}</td></tr>`).join("");
@@ -3393,7 +3601,11 @@ const Video = (() => {
             return;
         }
         const confirmed = confirmedEstimate.data;
-        if (confirmed.estimate_fingerprint) {
+        if (configuredForm) {
+            try {Object.assign(args, configuredForm.confirmedRequest());}
+            catch(e) {clearCachedEstimate();showVideoStatus(e.message,"error");return;}
+            configuredForm.invalidate();
+        } else if (confirmed.estimate_fingerprint) {
             args.estimate_fingerprint = confirmed.estimate_fingerprint;
             args.max_estimated_cost_usd = confirmed.maximum_estimated_cost_usd;
         }
@@ -3430,6 +3642,7 @@ const Video = (() => {
             // structured server errors so the user sees e.g.
             // "options.person_generation: ..." not just the bare message.
             applyVideoEvidence(e);
+            configuredForm?.setValidation(e.field_errors || [{field:e.field || "generation",message:e.message}]);
             closeCostModal();
             clearCachedEstimate();
             const uncertainty = !e.code || e.submission_outcome_unknown;
@@ -3437,6 +3650,7 @@ const Video = (() => {
             if (uncertainty) await refreshQueue();
         } finally {
             submitPending = false;
+            if (configuredForm) clearCachedEstimate();
             updateGenerateEnablement();
             ve.costConfirmBtn.disabled = false;
             ve.costConfirmBtn.textContent = "Confirm & generate";
@@ -3455,6 +3669,7 @@ const Video = (() => {
         return previewRevision;
     }
     function hasFramingFlow() {
+        if (configuredForm) return false;
         const id = currentModel()?.model_id || "";
         return /^(veo-3\.1-(generate|fast-generate|lite-generate)-preview|fal-ai\/veo3\.1(?:\/fast|\/lite)?)$/.test(id)
             && ["i2v", "interp"].includes(currentMode()) && referenceFrames.length === 0;
@@ -3558,6 +3773,8 @@ const Video = (() => {
     }
     function availabilityError() {
         const model = currentModel();
+        if (configuredForm && (configuredForm.descriptor.selectable === false || configuredForm.descriptor.status === "disabled" || configuredForm.descriptor.pricing_available === false))
+            return {code:"dependency_unavailable",message:"Operation or pricing unavailable.",retryable:false};
         if (model?.can_generate !== false && model?.new_submission_available !== false) return null;
         return { code: "dependency_unavailable", detail_code: model.generation_unavailable_detail_code || "video_route_unavailable",
             message: model.generation_unavailable_reason || "This video endpoint is unavailable.", retryable: false,
@@ -3570,6 +3787,7 @@ const Video = (() => {
             const data = await bridgeCall("list_video_models");
             if (revision !== availabilityRevision) return null;
             const selected = ve.modelSelect.value;
+            showCatalogDiagnostics("video",data.catalog_diagnostics);
             catalog = data.models || []; const first = !catalogLoaded; catalogLoaded = true;
             populateModelDropdown();
             ve.modelSelect.value = catalog.some(m => m.model_id === selected) ? selected : (catalog.find(m => m.new_submission_available !== false) || catalog[0])?.model_id || "";
@@ -3577,7 +3795,8 @@ const Video = (() => {
             if (first) onModelChange();
             else {
                 clearCachedEstimate();
-                const m = currentModel(); ve.modelHint.textContent = m ? `${m.provider_name} · ${m.pricing_kind.replace("_", " ")} · ${m.pricing_source}` : "";
+                syncConfiguredForm(currentModel());
+                const m = currentModel(); ve.modelHint.textContent = m ? `${m.provider_name} · ${String(m.pricing_kind || "configured").replace("_", " ")} · ${m.pricing_source}` : "";
                 updateGenerateEnablement();
             }
             const error = availabilityError(); if (error) showPreflightError(error);
@@ -3681,13 +3900,14 @@ const Video = (() => {
             if (localStop && result.state === "interrupted")
                 showVideoStatus("Local monitoring stopped. The Google operation may continue and incur charges.", "info");
             applyVideoEvidence(result);
-            if (result.execution_stopped) showVideoStatus(videoExecutionNotice(result), "info");
+            if (result.execution_stopped || configuredCancellationNotice(result)) showVideoStatus(videoExecutionNotice(result), "info");
             await refreshQueue();
             // Server has flipped state; let the next poll surface it.
             // No optimistic write — the cancel race is handled domain-
             // side and we want to display the authoritative outcome.
         } catch (e) {
-            showVideoStatus(`Cancel failed: ${errorToText(e)}`, "error");
+            showVideoStatus(`Cancel failed: ${errorToText(e)} · ${configuredCancellationNotice(e)}`, "error");
+            await refreshQueue();
         }
     }
 

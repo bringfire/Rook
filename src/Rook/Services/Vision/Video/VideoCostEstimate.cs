@@ -17,8 +17,14 @@ namespace Rook.Services.Vision.Video
         decimal DollarsUsd,
         string Model,
         string Resolution,
-        int DurationSeconds,
+        int? DurationSeconds,
         int NumberOfVideos,
         IReadOnlyList<CostBreakdownComponent> Breakdown,
-        JobPricing Pricing);
+        JobPricing Pricing)
+    {
+        // Configured responses read exact controls from this authority. The Int32 duration
+        // compatibility slot is null when an admitted duration is absent or unrepresentable.
+        public Rook.Services.Vision.Fal.Models.FalNormalizedRequest? ConfiguredRequest { get; init; }
+        public Rook.Services.Vision.Fal.Models.FalPricingSnapshot? ConfiguredPricing { get; init; }
+    }
 }

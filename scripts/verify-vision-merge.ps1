@@ -14,12 +14,20 @@ $taskContext = if ($PortableOnly) { 'Windows portable verification' } else { 'Wi
 $taskCommit = $null
 $taskRepository = $null
 $taskFailure = $null
+$taskPreviousPython = $env:ROOK_TEST_PYTHON
+$taskPreviousPythonPath = $env:PYTHONPATH
 function Invoke-Recorded([string]$Name, [string]$Executable, [string[]]$Arguments) {
     $taskLog = Join-Path $taskRun ($Name + '.log')
     $taskStart = [DateTime]::UtcNow
     Write-Host "Running $Name"
-    & $Executable @Arguments *> $taskLog
-    $taskExit = $LASTEXITCODE
+    $taskPreviousErrorPolicy = $ErrorActionPreference
+    try {
+        # Windows PowerShell wraps native stderr in ErrorRecord. Preserve it and
+        # the process exit before interpreting failure; stderr alone is not exit.
+        $ErrorActionPreference = 'Continue'
+        & $Executable @Arguments *> $taskLog
+        $taskExit = $LASTEXITCODE
+    } finally { $ErrorActionPreference = $taskPreviousErrorPolicy }
     $taskChecks.Add([ordered]@{ name = $Name; executable = $Executable; arguments = $Arguments; exit_code = $taskExit; started_utc = $taskStart.ToString('O'); seconds = ([DateTime]::UtcNow - $taskStart).TotalSeconds; log = $taskLog })
     if ($taskExit -ne 0) { throw "$Name failed (exit $taskExit); see $taskLog" }
 }
@@ -30,6 +38,10 @@ function Publish-Verification([string]$State, [string]$Description) {
 }
 Push-Location $taskRepo
 try {
+    $Python = (Get-Command $Python -ErrorAction Stop).Source
+    $env:ROOK_TEST_PYTHON = $Python
+    $env:PYTHONPATH = Join-Path $taskRepo 'mcp_server/src'
+    Invoke-Recorded 'python-origin' $Python @('-c','import rook,sys; print(sys.executable); print(rook.__file__); assert rook.__file__.lower().startswith(sys.argv[1].lower())',(Join-Path $taskRepo 'mcp_server/src'))
     $taskCommit = (& git rev-parse HEAD).Trim()
     if ($LASTEXITCODE -or $taskCommit -notmatch '^[a-f0-9]{40}$') { throw 'Cannot identify the source commit.' }
     $taskInitialDirty = @(& git status --porcelain)
@@ -48,6 +60,8 @@ try {
         Invoke-Recorded 'companion-release-build' 'dotnet' @('build','src/Rook/Rook.csproj','-c','Release','-p:RhinoPluginDir=')
         Invoke-Recorded 'test-release-build' 'dotnet' @('build','src/Rook.Tests/Rook.Tests.csproj','-c','Release','-p:RhinoPluginDir=')
         Invoke-Recorded 'qualification-release-build' 'dotnet' @('build','src/Rook.Framing.Qualification/Rook.Framing.Qualification.csproj','-c','Release','-f','net48','-p:RhinoPluginDir=')
+        Invoke-Recorded 'fal-qualification-release-build' 'dotnet' @('build','src/Rook.Vision.Qualification/Rook.Vision.Qualification.csproj','-c','Release','-p:RhinoPluginDir=')
+        Invoke-Recorded 'fal-catalog' 'src/Rook.Vision.Qualification/bin/Release/net48/Rook.Vision.Qualification.exe' @('validate-catalog','--root','src/Rook/Services/Vision/Fal/Models','--report',(Join-Path $taskRun 'catalog.json'))
         $taskFilter = 'FullyQualifiedName!~LiveSmoke&FullyQualifiedName!~SupersededSolverRaceSpec_LinksToTheNormativeLifecycleDesign&FullyQualifiedName!~Task7_original_producer_values_survive_managed_http_parser'
         $taskTotal = $null
         for ($taskIndex = 1; $taskIndex -le $FullRuns; $taskIndex++) {
@@ -64,9 +78,14 @@ try {
         Invoke-Recorded 'occupied-pool-waiter-stress' $taskProbe @((Join-Path $taskRepo 'src/Rook.Tests/bin/Release/net48/Rook.Tests.dll'))
         Invoke-Recorded 'delayed-pool-shutdown-drain' $taskProbe @((Join-Path $taskRepo 'src/Rook.Tests/bin/Release/net48/Rook.Tests.dll'),'--close-drain')
         Invoke-Recorded 'unrelated-renderer-contention' $taskProbe @((Join-Path $taskRepo 'src/Rook.Tests/bin/Release/net48/Rook.Tests.dll'),'--renderer-contention')
+        Invoke-Recorded 'single-worker-callback-projection' $taskProbe @((Join-Path $taskRepo 'src/Rook.Tests/bin/Release/net48/Rook.Tests.dll'),'--callback-projection')
     }
-    Invoke-Recorded 'vision-ui' 'node' @('--test','src/Rook.Tests/UI/Vision/image-fallback.test.cjs','src/Rook.Tests/UI/Vision/video-fallback.test.cjs','src/Rook.Tests/UI/Vision/video-framing.test.cjs')
-    Invoke-Recorded 'video-python' $Python @('-m','pytest','mcp_server/tests/test_video_mcp_tools.py','mcp_server/tests/test_server_tool_profiles.py','-q','--junitxml',(Join-Path $taskRun 'python.xml'))
+    Invoke-Recorded 'vision-ui' 'node' @('--test','src/Rook.Tests/UI/Vision/image-fallback.test.cjs','src/Rook.Tests/UI/Vision/video-fallback.test.cjs','src/Rook.Tests/UI/Vision/video-framing.test.cjs','src/Rook.Tests/UI/Vision/model-controls.test.cjs','src/Rook.Tests/UI/Vision/configured-models.test.cjs')
+    Invoke-Recorded 'video-python' $Python @('-m','pytest','scripts/tests/test_fal_installed_capture.py','mcp_server/tests/test_video_mcp_tools.py','mcp_server/tests/test_image_job_mcp_tools.py','mcp_server/tests/test_server_tool_profiles.py','mcp_server/tests/test_vision_mcp_tools.py','mcp_server/tests/test_tool_lifecycle.py','mcp_server/tests/test_capability_inventory.py','mcp_server/tests/test_multi_instance_targeting.py','mcp_server/tests/test_rookchat_visible_dispatchability.py','mcp_server/tests/test_dispatcher_safety.py','-q','--junitxml',(Join-Path $taskRun 'python.xml'))
+    Invoke-Recorded 'verification-recorder' 'powershell' @('-NoProfile','-File','scripts/tests/verify-vision-merge-recording.tests.ps1')
+    $taskCheckerArguments = @('-NoProfile','-File','scripts/tests/verify-fal-config-acceptance.tests.ps1')
+    if ($PortableOnly) { $taskCheckerArguments += '-PortableOnly' }
+    Invoke-Recorded 'fal-acceptance-checker' 'powershell' $taskCheckerArguments
     Invoke-Recorded 'ffmpeg-payload' 'powershell' @('-NoProfile','-ExecutionPolicy','Bypass','-File','scripts/validate-ffmpeg-bundle.ps1','-SourceBundleManifestPath','third_party/ffmpeg/source/source-bundle-manifest.json')
     Invoke-Recorded 'ffmpeg-policy-tests' 'powershell' @('-NoProfile','-ExecutionPolicy','Bypass','-File','scripts/tests/ffmpeg-bundle-validation.tests.ps1')
     if ((& git rev-parse HEAD).Trim() -ne $taskCommit) { throw 'The source commit changed during verification.' }
@@ -78,6 +97,8 @@ try {
     throw
 } finally {
     [ordered]@{ commit = $taskCommit; initial_dirty = @($taskInitialDirty); portable_only = [bool]$PortableOnly; full_runs_required = $FullRuns; managed_tests_per_run = $taskTotal; machine = $env:COMPUTERNAME; logical_processors = [Environment]::ProcessorCount; os = [Environment]::OSVersion.VersionString; checks = @($taskChecks.ToArray()); failure = $taskFailure; finished_utc = [DateTime]::UtcNow.ToString('O') } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $taskRun 'verification.json') -Encoding utf8
+    $env:ROOK_TEST_PYTHON = $taskPreviousPython
+    $env:PYTHONPATH = $taskPreviousPythonPath
     Pop-Location
     Write-Host "Verification evidence: $taskRun"
 }

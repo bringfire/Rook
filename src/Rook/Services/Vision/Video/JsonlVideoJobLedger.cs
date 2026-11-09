@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Rook.Services.Vision.Generation;
@@ -31,7 +32,7 @@ namespace Rook.Services.Vision.Video
     /// serializes appends and protects against partial writes during
     /// concurrent reads on the same instance.
     /// </summary>
-    public sealed class JsonlVideoJobLedger : IVideoJobLedger
+    public sealed class JsonlVideoJobLedger : ICancellationAwareVideoJobLedger
     {
         private static readonly HashSet<string> KnownTopLevelKeys = new(StringComparer.Ordinal)
         {
@@ -43,7 +44,7 @@ namespace Rook.Services.Vision.Video
         };
 
         private readonly string _filePath;
-        private readonly object _lock = new();
+        private readonly SemaphoreSlim _lock = new(1, 1);
 
         public JsonlVideoJobLedger() : this(DefaultPath()) { }
 
@@ -63,18 +64,23 @@ namespace Rook.Services.Vision.Video
             return Path.Combine(appData, "Rook", "video", "job-ledger.jsonl");
         }
 
-        public void Append(VideoJobRecord record)
+        public void Append(VideoJobRecord record) => Append(record, CancellationToken.None);
+
+        public void Append(VideoJobRecord record, CancellationToken ct)
         {
             if (record is null) throw new ArgumentNullException(nameof(record));
 
             var line = SerializeRecord(record);
 
-            lock (_lock)
+            _lock.Wait(ct);
+            try
             {
+                ct.ThrowIfCancellationRequested();
                 var dir = Path.GetDirectoryName(_filePath);
                 if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
                     Directory.CreateDirectory(dir);
 
+                ct.ThrowIfCancellationRequested();
                 using var stream = new FileStream(
                     _filePath, FileMode.Append, FileAccess.Write, FileShare.Read);
                 using var writer = new StreamWriter(stream, new UTF8Encoding(false));
@@ -82,20 +88,27 @@ namespace Rook.Services.Vision.Video
                 writer.Flush();
                 stream.Flush(flushToDisk: true);
             }
+            finally { _lock.Release(); }
         }
 
-        public VideoJobLedgerReadResult ReadAll()
+        public VideoJobLedgerReadResult ReadAll() => ReadAll(CancellationToken.None);
+
+        public VideoJobLedgerReadResult ReadAll(CancellationToken ct)
         {
+            ct.ThrowIfCancellationRequested();
             if (!File.Exists(_filePath))
                 return new VideoJobLedgerReadResult(
                     Array.Empty<VideoJobRecord>(),
                     Array.Empty<LedgerReadError>());
 
             string[] lines;
-            lock (_lock)
+            _lock.Wait(ct);
+            try
             {
+                ct.ThrowIfCancellationRequested();
                 lines = File.ReadAllLines(_filePath, Encoding.UTF8);
             }
+            finally { _lock.Release(); }
 
             var byJobId = new Dictionary<Guid, VideoJobRecord>();
             var errors = new List<LedgerReadError>();

@@ -7,6 +7,11 @@ using System.Threading.Tasks;
 using Rook.Artifacts;
 using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video.Framing;
+using System.IO;
+using System.Linq;
+using Rook.Services.Vision.Fal;
+using Rook.Services.Vision.Fal.Models;
+using Rook.Services.Vision.Video.Fal;
 
 namespace Rook.Services.Vision.Video
 {
@@ -37,7 +42,7 @@ namespace Rook.Services.Vision.Video
     /// persisted <c>provider_job_id</c> remains so explicit cancel can
     /// clean up remote provider jobs.
     /// </summary>
-    public sealed partial class VideoJobManager : IVideoJobManager, IVideoConfirmedJobManager, IDisposable
+    public sealed partial class VideoJobManager : IVideoJobManager, IVideoConfirmedJobManager, IConfiguredVideoJobManager, IDisposable
     {
         public static readonly TimeSpan DefaultPollInterval = TimeSpan.FromSeconds(10);
         public const int DefaultMaxConcurrentJobs = 2;
@@ -56,6 +61,8 @@ namespace Rook.Services.Vision.Video
         private readonly IVideoJobClock _clock;
         private readonly IVideoJobIdGenerator _idGenerator;
         private readonly TimeSpan _pollInterval;
+        private readonly FalExecutionRecovery? _configuredRecovery;
+        private readonly Func<CancellationTokenSource> _configuredDurabilityBudgetFactory;
 
         private readonly SemaphoreSlim _concurrency;
         private readonly CancellationTokenSource _shutdownCts = new();
@@ -103,9 +110,13 @@ namespace Rook.Services.Vision.Video
             VideoSubmissionCoordinator? coordinator = null,
             VideoRouteQuoteService? routeQuotes = null,
             IVideoDeadlineTimer? deadlineTimer = null,
-            VideoPublicationService? publication = null)
+            VideoPublicationService? publication = null,
+            FalExecutionRecovery? configuredRecovery = null,
+            Func<CancellationTokenSource>? configuredDurabilityBudgetFactory = null)
         {
             _registry = registry ?? throw new ArgumentNullException(nameof(registry));
+            _configuredRecovery = configuredRecovery;
+            _configuredDurabilityBudgetFactory = configuredDurabilityBudgetFactory ?? FalDurableExecutionObserver.NewDurabilityBudget;
             _mediaResolver = mediaResolver ?? throw new ArgumentNullException(nameof(mediaResolver));
             _ledger = ledger ?? throw new ArgumentNullException(nameof(ledger));
             _estimator = estimator ?? throw new ArgumentNullException(nameof(estimator));
@@ -151,6 +162,11 @@ namespace Rook.Services.Vision.Video
                     Retryable: false,
                     Field: nameof(request.Model)));
 
+            if (model.Provider is IConfiguredGenerationProvider && model.OptionsCodec is ConfiguredFalVideoOptionsCodec codec && request.Options is FalModelOptions options)
+            {
+                return JobSubmitResult.Fail(FalQuoteService.ConfirmationRequired());
+            }
+
             var estimate = _estimator.Estimate(model, request);
             if (!estimate.Success)
                 return JobSubmitResult.Fail(estimate.Error!);
@@ -188,6 +204,152 @@ namespace Rook.Services.Vision.Video
             return JobSubmitResult.Ok(jobId, VideoJobState.Queued);
         }
 
+        /// <summary>Transfers admitted media ownership to the job; all rejection paths dispose it.
+        /// The manager recomputes pricing; the pricing argument is ignored compatibility input.</summary>
+        public Task<JobSubmitResult> SubmitConfiguredAsync(VideoGenerationRequest request, FalNormalizedRequest normalized,
+            FalMediaSnapshot media, FalPricingSnapshot? pricing, CancellationToken ct, FalSubmitConfirmation? confirmation = null)
+        {
+            bool transferred = false;
+            try
+            {
+                ct.ThrowIfCancellationRequested();
+                if (confirmation == null) return Task.FromResult(JobSubmitResult.Fail(FalQuoteService.ConfirmationRequired()));
+                if (_ledger is not ICancellationAwareVideoJobLedger)
+                    return Task.FromResult(JobSubmitResult.Fail(FalExecutionRecovery.Unavailable("Configured execution requires cancellation-aware ledger admission.")));
+                if (_shutdownCts.IsCancellationRequested) return Task.FromResult(JobSubmitResult.Fail(FalExecutionRecovery.Unavailable("Video manager is shutting down.")));
+                if (!_registry.TryResolve(request.Model, out var model) || model.Provider is not IConfiguredGenerationProvider configured
+                    || normalized.Binding.ModelId != request.Model)
+                    return Task.FromResult(JobSubmitResult.Fail(new GenerationError(GenerationErrorCode.InvalidRequest, "Configured request binding does not match the model.", false)));
+                var pinned = configured.GetBinding(normalized.Binding.OperationId);
+                if (pinned.DefinitionHash != normalized.Binding.DefinitionHash || FalCanonicalJson.Hash(pinned.ToJson()) != FalCanonicalJson.Hash(normalized.Binding.ToJson()))
+                    return Task.FromResult(JobSubmitResult.Fail(new GenerationError(GenerationErrorCode.InvalidRequest, "Configured model revision changed before admission.", false)));
+                if (model.OptionsCodec is not ConfiguredFalVideoOptionsCodec codec || request.Options is not FalModelOptions options)
+                    return Task.FromResult(JobSubmitResult.Fail(new GenerationError(GenerationErrorCode.InvalidRequest, "Configured request options are required.", false)));
+                var validated = codec.Validate(request, options, model.Capability);
+                if (!validated.Success) return Task.FromResult(JobSubmitResult.Fail(new GenerationError(GenerationErrorCode.InvalidRequest, validated.Message!, false, validated.Field)));
+                var supplied = options.Input;
+                var checkedRequest = codec.Normalize(new FalModelInput(supplied.RequestFields, supplied.Options, options.SelectedOperation, supplied.Media, supplied.OutputCount));
+                if (!checkedRequest.Success) return Task.FromResult(JobSubmitResult.Fail(new GenerationError(GenerationErrorCode.InvalidRequest, checkedRequest.Errors[0].Message, false, checkedRequest.Errors[0].Field)));
+                if (FalCanonicalJson.Hash(checkedRequest.Request!.EffectiveRequestFields) != FalCanonicalJson.Hash(normalized.EffectiveRequestFields)
+                    || FalCanonicalJson.Hash(checkedRequest.Request.EffectiveOptions) != FalCanonicalJson.Hash(normalized.EffectiveOptions)
+                    || FalCanonicalJson.Hash(checkedRequest.Request.SuppliedRequestFields) != FalCanonicalJson.Hash(normalized.SuppliedRequestFields)
+                    || FalCanonicalJson.Hash(checkedRequest.Request.SuppliedOptions) != FalCanonicalJson.Hash(normalized.SuppliedOptions)
+                    || checkedRequest.Request.Binding.OperationId != normalized.Binding.OperationId
+                    || !checkedRequest.Request.Media.Select(m => (m.Role, m.Ordinal, m.Input.Source)).SequenceEqual(normalized.Media.Select(m => (m.Role, m.Ordinal, m.Input.Source))))
+                    return Task.FromResult(JobSubmitResult.Fail(new GenerationError(GenerationErrorCode.InvalidRequest, "Pinned request does not match admission controls.", false)));
+                if (media.Validate(normalized) is { } error) return Task.FromResult(JobSubmitResult.Fail(error));
+                var quotes = new FalQuoteService(); var quoted = quotes.Estimate(normalized, media);
+                if (!quoted.Success) return Task.FromResult(JobSubmitResult.Fail(quoted.Error!));
+                if (quotes.Validate(quoted.Quote!, normalized, media, confirmation) is { } confirmationError) return Task.FromResult(JobSubmitResult.Fail(confirmationError));
+                var snapshot = FalExecutionSnapshot.Create(normalized, media, quoted.Quote!.Pricing);
+                var initial = VideoJobRecordFactory.FromConfigured(_idGenerator.NewJobId(), request, model, snapshot, _clock.UtcNow());
+                try { AppendCommittedSnapshot(initial); }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { return Task.FromResult(JobSubmitResult.Fail(PersistenceError())); }
+                var budget = new VideoExecutionBudget(_clock.UtcNow().AddMinutes(20), _clock, _routeTimer);
+                var cts = CancellationTokenSource.CreateLinkedTokenSource(_shutdownCts.Token, budget.Token);
+                var running = new RunningJob(initial, cts, model) { ConfiguredMedia = media, ConfiguredBudget = budget, ConfiguredQuote = quoted.Quote, ConfiguredConfirmation = confirmation };
+                _runningJobs[initial.JobId] = running; transferred = true;
+                _ = Task.Run(() => RunJobAsync(initial.JobId, request, new Dictionary<MediaRef, ResolvedMedia>(), running));
+                return Task.FromResult(JobSubmitResult.Ok(initial.JobId, VideoJobState.Queued));
+            }
+            catch (ArgumentException ex)
+            { return Task.FromResult(JobSubmitResult.Fail(new GenerationError(GenerationErrorCode.InvalidRequest, ex.Message, false))); }
+            finally { if (!transferred) media.Dispose(); }
+        }
+
+        private VideoJobRecord CommitConfiguredExecution(RunningJob running, Func<FalExecutionSnapshot, FalExecutionSnapshot> update, CancellationToken ct, bool dispatch) =>
+            CommitConfiguredExecution(running.LatestRecord.JobId, running, update, ct, dispatch);
+
+        private VideoJobRecord CommitConfiguredExecution(Guid jobId, RunningJob? running, Func<FalExecutionSnapshot, FalExecutionSnapshot> update, CancellationToken ct, bool dispatch)
+        {
+            using (FalDurableExecutionObserver.EnterGate(running?.TransitionGate ?? _ledger, ct))
+            {
+                ct.ThrowIfCancellationRequested();
+                var ledger = _ledger as ICancellationAwareVideoJobLedger ?? throw new IOException("Configured execution requires cancellation-aware ledger admission.");
+                var latest = ledger.ReadAll(ct).Records.FirstOrDefault(r => r.JobId == jobId) ?? running?.LatestRecord ?? throw new IOException("Configured job is missing.");
+                if (dispatch && (IsTerminal(latest.State) || running?.Cts.IsCancellationRequested == true)) throw new OperationCanceledException();
+                var snapshot = update(latest.ConfiguredFalExecution!.Snapshot!);
+                var next = VideoJobRecordFactory.WithConfiguredExecution(latest, snapshot) with { UpdatedAt = _clock.UtcNow(), Error = snapshot.ReconcileStopError(latest.Error) };
+                ct.ThrowIfCancellationRequested();
+                ledger.Append(next, ct);
+                _routeRecordCache[next.JobId] = next;
+                if (running != null) running.LatestRecord = next;
+                return next;
+            }
+        }
+
+        private static JobCancelResult ConfiguredCancelFailure(GenerationError error) => JobCancelResult.Fail(VideoProviderOutcomeAdapters.ToVideoJobError(error));
+        private async Task<JobCancelResult> CancelConfiguredAsync(Guid jobId, CancellationToken ct)
+        {
+            _runningJobs.TryGetValue(jobId, out var running);
+            VideoJobRecord record;
+            lock (running?.TransitionGate ?? _ledger)
+            {
+                record = FindLedgerRecord(jobId)!;
+                if (record.State == VideoJobState.Complete) return JobCancelResult.Ok(record.State);
+                if (!IsTerminal(record.State))
+                {
+                    try { running?.Cts.Cancel(); } catch (ObjectDisposedException) { }
+                    var unknown = record.ConfiguredFalExecution?.Snapshot?.OutcomeUnknown == true;
+                    record = VideoJobRecordFactory.WithState(record, unknown ? VideoJobState.Interrupted : VideoJobState.Cancelled, _clock.UtcNow(),
+                        error: unknown ? new GenerationError(GenerationErrorCode.Interrupted, "Local monitoring stopped; remote submission outcome is unknown.", false, ProviderErrorCode: "fal_submission_unknown") : (GenerationError)CancelledError());
+                    try { AppendCommittedSnapshot(record); }
+                    catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { return ConfiguredCancelFailure(PersistenceError()); }
+                    if (running != null) running.LatestRecord = record;
+                }
+            }
+            return await CleanupConfiguredAsync(record, running, false, ct).ConfigureAwait(false);
+        }
+
+        internal Func<Task>? BeforeConfiguredNoHandleCleanupCommitForTests { get; set; }
+
+        private async Task<JobCancelResult> CleanupConfiguredAsync(VideoJobRecord record, RunningJob? running, bool automatic, CancellationToken ct)
+        {
+            var read = record.ConfiguredFalExecution!;
+            FalCancellationSnapshot evidence;
+            GenerationError? error;
+            if (read.Snapshot == null)
+                return JobCancelResult.Configured(record.State, new FalCancellationSnapshot(true, "unavailable", automatic), VideoProviderOutcomeAdapters.ToVideoJobError(FalExecutionRecovery.Unavailable(read.Diagnostic)));
+            if (read.Snapshot.Handle == null)
+            {
+                (evidence, error) = read.Snapshot.ReconcileNoHandleCancellation(automatic);
+                if (BeforeConfiguredNoHandleCleanupCommitForTests is { } beforeCommit)
+                    await beforeCommit().ConfigureAwait(false);
+            }
+            else
+            {
+                ProviderCancelOutcome outcome;
+                try
+                {
+                    if (running?.Model.Provider is IConfiguredGenerationProvider provider)
+                        outcome = await provider.CancelConfiguredAsync(read.Snapshot.Binding, read.Snapshot.Handle, ct).ConfigureAwait(false);
+                    else if (_configuredRecovery != null) outcome = await _configuredRecovery.CancelAsync(read.Snapshot, ct).ConfigureAwait(false);
+                    else outcome = new FailedCancelOutcome(FalExecutionRecovery.Unavailable());
+                }
+                catch (Exception)
+                {
+                    outcome = new FailedCancelOutcome(FalExecutionRecovery.Unavailable("Local monitoring stopped; remote cleanup could not be confirmed."));
+                }
+                (evidence, error) = FalCancellationSnapshot.Observe(outcome, automatic);
+            }
+            try
+            {
+                using var durability = _configuredDurabilityBudgetFactory();
+                record = CommitConfiguredExecution(record.JobId, running, snapshot =>
+                {
+                    if (read.Snapshot.Handle == null)
+                        (evidence, error) = snapshot.ReconcileNoHandleCancellation(automatic);
+                    return snapshot.WithCancellation(evidence);
+                }, durability.Token, false);
+                evidence = record.ConfiguredFalExecution!.Snapshot!.Cancellation!;
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is OperationCanceledException || ex is TimeoutException)
+            {
+                error = PersistenceError();
+            }
+            return JobCancelResult.Configured(record.State, evidence, (error == null ? null : VideoProviderOutcomeAdapters.ToVideoJobError(error)));
+        }
+
         // ─── Status ───────────────────────────────────────────────────
 
         public Task<JobStatusResult> GetStatusAsync(Guid jobId, CancellationToken ct)
@@ -212,7 +374,7 @@ namespace Rook.Services.Vision.Video
                         Retryable: false,
                         Field: nameof(jobId))));
 
-            return Task.FromResult(TranslateToStatus(record));
+            return Task.FromResult(TranslateToStatus(record) with { Execution = ConfiguredProjection(record) });
         }
 
         // ─── Cancel ───────────────────────────────────────────────────
@@ -280,6 +442,11 @@ namespace Rook.Services.Vision.Video
 
         public async Task<JobCancelResult> CancelAsync(Guid jobId, CancellationToken ct)
         {
+            // Preserve the running-job probe before ledger reads, including on the legacy path.
+            _runningJobs.TryGetValue(jobId, out var configuredRunning);
+            if (configuredRunning?.LatestRecord.ConfiguredFalExecution != null
+                || configuredRunning == null && FindLedgerRecord(jobId)?.ConfiguredFalExecution != null)
+                return await CancelConfiguredAsync(jobId, ct).ConfigureAwait(false);
             if (TryGetRoutedRecord(jobId, out var routedRecord)) return await CancelRoutedAsync(routedRecord!, ct).ConfigureAwait(false);
             if (jobId == Guid.Empty)
                 return JobCancelResult.Fail(new VideoJobError(
@@ -583,34 +750,21 @@ namespace Rook.Services.Vision.Video
                         Retryable: false,
                         Field: nameof(jobId))));
 
-            if (record.State != VideoJobState.Complete || record.ResultArtifactId is null)
-                return Task.FromResult(JobFetchResult.Failed(
-                    record.State,
-                    ToVideoJobError(
-                        record.Error,
-                        new VideoJobError(
-                            Code: VideoErrorCode.ExecutionFailed,
-                            Message: $"Job not complete (state={record.State}).",
-                            Retryable: false))));
-
-            var artifact = _artifactStore.Get(record.ResultArtifactId.Value);
-            if (artifact is null)
-                return Task.FromResult(JobFetchResult.Failed(
-                    VideoJobState.Error,
-                    new VideoJobError(
-                        Code: VideoErrorCode.ExecutionFailed,
-                        Message: $"Result artifact {record.ResultArtifactId:D} not found.",
-                        Retryable: false)));
-
-            var files = new List<JobResultFile>(artifact.Files.Count);
-            foreach (var f in artifact.Files)
-                files.Add(new JobResultFile(f.Role, f.Path));
-
-            return Task.FromResult(JobFetchResult.Complete(
-                record.ResultArtifactId.Value, files));
+            return Task.FromResult(FetchExisting(record) with { Execution = ConfiguredProjection(record) });
         }
 
-        // ─── List jobs (PR-V3) ────────────────────────────────────────
+        private JobFetchResult FetchExisting(VideoJobRecord record)
+        {
+            if (record.State != VideoJobState.Complete || record.ResultArtifactId is null)
+                return JobFetchResult.Failed(record.State, ToVideoJobError(record.Error,
+                    new VideoJobError(VideoErrorCode.ExecutionFailed, $"Job not complete (state={record.State}).", false)));
+            var artifact = _artifactStore.Get(record.ResultArtifactId.Value);
+            if (artifact == null) return JobFetchResult.Failed(VideoJobState.Error,
+                new VideoJobError(VideoErrorCode.ExecutionFailed, $"Result artifact {record.ResultArtifactId:D} not found.", false));
+            var files = new List<JobResultFile>(artifact.Files.Count);
+            foreach (var file in artifact.Files) files.Add(new JobResultFile(file.Role, file.Path));
+            return JobFetchResult.Complete(record.ResultArtifactId.Value, files);
+        }
 
         /// <summary>
         /// Hard ceiling for <see cref="ListJobsAsync"/>'s
@@ -663,7 +817,7 @@ namespace Rook.Services.Vision.Video
 
             var entries = new List<JobListEntry>(ordered.Count);
             foreach (var r in ordered)
-                entries.Add(ProjectEntry(r) with { Execution = r.Extensions?.ContainsKey("video_execution") == true ? RouteProjection(r) : null });
+                entries.Add(ProjectEntry(r) with { Execution = r.ConfiguredFalExecution != null ? ConfiguredProjection(r) : r.Extensions?.ContainsKey("video_execution") == true ? RouteProjection(r) : null });
 
             return Task.FromResult(new JobListResult(entries, warnings, applied));
         }
@@ -735,6 +889,15 @@ namespace Rook.Services.Vision.Video
             }
 
             return merged;
+        }
+
+        private static VideoExecutionProjection? ConfiguredProjection(VideoJobRecord record)
+        {
+            var read = record.ConfiguredFalExecution;
+            if (read == null) return null;
+            var summary = read.Snapshot?.Request.EffectiveRequestFields;
+            if (summary != null) { summary["model"] = record.Model; summary["operation"] = read.Snapshot!.Binding.OperationId; }
+            return new VideoExecutionProjection(new JsonObject { [FalExecutionSnapshot.ExtensionKey] = read.PublicJson, ["request_summary"] = summary });
         }
 
         private static JobListEntry ProjectEntry(VideoJobRecord record)
@@ -825,7 +988,11 @@ namespace Rook.Services.Vision.Video
                     record,
                     VideoJobState.Interrupted,
                     now,
-                    error: new VideoJobError(
+                    error: record.ConfiguredFalExecution is { } configuredRead ? new GenerationError(GenerationErrorCode.Interrupted,
+                        configuredRead.Diagnostic ?? (configuredRead.Snapshot?.OutcomeUnknown == true
+                            ? "Video job interrupted after dispatch; remote submission outcome is unknown. No work was resumed."
+                            : "Configured video job interrupted by reload; no work was resumed."), false,
+                        ProviderErrorCode: configuredRead.Snapshot?.OutcomeUnknown == true ? "fal_submission_unknown" : null) : (GenerationError)new VideoJobError(
                         Code: VideoErrorCode.Interrupted,
                         Message: "Job interrupted by plugin reload.",
                         Retryable: true));
@@ -865,7 +1032,25 @@ namespace Rook.Services.Vision.Video
                     running.LatestRecord = current;
                     ct.ThrowIfCancellationRequested();
 
-                    var submitOutcome = provider is ISubmissionDispatchAwareVideoProvider dispatchAware
+                    ProviderSubmitOutcome submitOutcome;
+                    if (current.ConfiguredFalExecution?.Snapshot is { } configured)
+                    {
+                        var observer = new FalDurableExecutionObserver((handle, token) => CommitConfiguredExecution(running,
+                            snapshot => snapshot.WithDispatchState(handle == null ? "dispatch_intent" : "accepted", handle), token, handle == null), _configuredDurabilityBudgetFactory,
+                            () => new FalQuoteService().Validate(running.ConfiguredQuote!, configured.Request, running.ConfiguredMedia!, running.ConfiguredConfirmation));
+                        try
+                        {
+                            submitOutcome = await ((IConfiguredGenerationProvider)provider).SubmitConfiguredAsync(configured.Request, running.ConfiguredMedia!, observer, ct).ConfigureAwait(false);
+                        }
+                        finally { running.ConfiguredMedia?.Dispose(); running.ConfiguredMedia = null; }
+                        using (var durability = _configuredDurabilityBudgetFactory())
+                            CommitConfiguredExecution(running, snapshot => observer.Settled(snapshot, submitOutcome), durability.Token, false);
+                        current = running.LatestRecord;
+                        if (ct.IsCancellationRequested && current.ConfiguredFalExecution?.Snapshot?.Handle != null)
+                            await CleanupConfiguredAsync(current, running, true, CancellationToken.None).ConfigureAwait(false);
+                        ct.ThrowIfCancellationRequested();
+                    }
+                    else submitOutcome = provider is ISubmissionDispatchAwareVideoProvider dispatchAware
                         ? await dispatchAware.SubmitWithDispatchAsync(request,resolvedMedia,() =>
                         {
                             lock(running.TransitionGate)
@@ -882,7 +1067,8 @@ namespace Rook.Services.Vision.Video
                     lock(running.TransitionGate)
                     {
                         running.SubmissionOutcomeUnknown = submitOutcome is FailedSubmitOutcome failedSubmit
-                            && failedSubmit.Error.ProviderErrorCode == "vertex_submission_unknown";
+                            && (failedSubmit.Disposition == SubmissionDisposition.Unknown
+                                || failedSubmit.Error.ProviderErrorCode == "vertex_submission_unknown");
                         running.SubmissionSettled = true;
                     }
                     if(AfterSubmitForTests is { } afterSubmit) await afterSubmit(jobId).ConfigureAwait(false);
@@ -898,7 +1084,9 @@ namespace Rook.Services.Vision.Video
                             current = AppendTransition(
                             current,
                             VideoJobState.Error,
-                            error: failed.Error);
+                            error: failed.Disposition == SubmissionDisposition.Unknown
+                                ? failed.Error with { Retryable = false, ProviderErrorCode = "fal_submission_unknown" }
+                                : failed.Error);
                             running.LatestRecord = current;
                             return;
 
@@ -933,7 +1121,7 @@ namespace Rook.Services.Vision.Video
                         var statusOutcome = await GetProviderStatusAsync(
                             running.Model,
                             handle,
-                            ct).ConfigureAwait(false);
+                            ct, current.ConfiguredFalExecution?.Snapshot?.Binding).ConfigureAwait(false);
 
                         ct.ThrowIfCancellationRequested();
                         switch (statusOutcome)
@@ -975,7 +1163,7 @@ namespace Rook.Services.Vision.Video
                     }
 
                     // Download
-                    var fetch = await FetchProviderResultAsync(running.Model, handle, ct)
+                    var fetch = await FetchProviderResultAsync(running.Model, handle, ct, current.ConfiguredFalExecution?.Snapshot?.Binding)
                         .ConfigureAwait(false);
 
                     ct.ThrowIfCancellationRequested();
@@ -1048,8 +1236,9 @@ namespace Rook.Services.Vision.Video
                 if (!IsTerminal(current.State))
                 {
                     var cancelled = AppendTransition(
-                        current, provider is ILocalMonitoringProvider ? VideoJobState.Interrupted : VideoJobState.Cancelled,
-                        error: provider is ILocalMonitoringProvider ? LocalStopError(running) : new VideoJobError(
+                        current, provider is ILocalMonitoringProvider || running.ConfiguredBudget != null ? VideoJobState.Interrupted : VideoJobState.Cancelled,
+                        error: running.ConfiguredBudget != null ? ConfiguredStopError(running)
+                            : provider is ILocalMonitoringProvider ? LocalStopError(running) : new VideoJobError(
                             Code: provider is ILocalMonitoringProvider ? VideoErrorCode.Interrupted : VideoErrorCode.Cancelled,
                             Message: provider is ILocalMonitoringProvider ? LocalStopOnlyOutcome.Message : "Job cancelled.",
                             Retryable: false));
@@ -1071,6 +1260,8 @@ namespace Rook.Services.Vision.Video
             }
             finally
             {
+                running.ConfiguredMedia?.Dispose();
+                running.ConfiguredBudget?.Dispose();
                 running.MediaOwner?.Dispose();
                 _runningJobs.TryRemove(jobId, out _);
                 running.Cts.Dispose();
@@ -1093,6 +1284,18 @@ namespace Rook.Services.Vision.Video
             lock (running?.TransitionGate ?? _ledger)
             {
                 var durable = FindLedgerRecord(prior.JobId);
+                if (durable?.ConfiguredFalExecution != null)
+                {
+                    // Stop and completion share this gate. A stale worker cannot publish after stop.
+                    if (newState == VideoJobState.Complete && (running?.Cts.IsCancellationRequested == true
+                        || running?.ConfiguredBudget?.TryAdmitCompletion() == false))
+                    { newState = VideoJobState.Interrupted; error = ConfiguredStopError(running!); resultArtifactId = null; }
+                    // Keep worker-produced sidecar evidence while replacing only execution
+                    // authority with the latest durable snapshot under the transition gate.
+                    var extensions = prior.Extensions ?? new JsonObject();
+                    extensions[FalExecutionSnapshot.ExtensionKey] = durable.ConfiguredFalExecution.Json;
+                    prior = prior with { Extensions = extensions };
+                }
                 if (durable is not null && IsTerminal(durable.State))
                 {
                     // A submission admitted before stop can return its original operation afterward.
@@ -1110,6 +1313,13 @@ namespace Rook.Services.Vision.Video
                 return next;
             }
         }
+
+        private static GenerationError ConfiguredStopError(RunningJob running)
+            => new(GenerationErrorCode.Interrupted,
+                running.LatestRecord.ConfiguredFalExecution?.Snapshot?.OutcomeUnknown == true
+                    ? "Configured video stopped after dispatch; remote submission outcome is unknown."
+                    : running.ConfiguredBudget?.FirstStopReason == VideoStopReason.Deadline ? "Configured video execution deadline exceeded (20 minutes)." : "Configured video execution stopped.", false,
+                ProviderErrorCode: running.LatestRecord.ConfiguredFalExecution?.Snapshot?.OutcomeUnknown == true ? "fal_submission_unknown" : null);
 
         private static GenerationError LocalStopError(RunningJob running)
         {
@@ -1135,6 +1345,11 @@ namespace Rook.Services.Vision.Video
             lock (running.TransitionGate)
             {
                 var durable = FindLedgerRecord(current.JobId);
+                if (current.ConfiguredFalExecution != null && running.Cts.IsCancellationRequested)
+                {
+                    running.LatestRecord = AppendTransition(durable ?? current, VideoJobState.Interrupted, error: ConfiguredStopError(running));
+                    return false;
+                }
                 if (durable is not null && IsTerminal(durable.State))
                 { running.LatestRecord = durable; return false; }
                 return true;
@@ -1144,8 +1359,9 @@ namespace Rook.Services.Vision.Video
         private static Task<ProviderStatusOutcome> GetProviderStatusAsync(
             ResolvedVideoModel model,
             ProviderJobHandle handle,
-            CancellationToken ct)
+            CancellationToken ct, FalOperationBinding? binding = null)
         {
+            if (binding != null && model.Provider is IConfiguredGenerationProvider configured) return configured.GetStatusConfiguredAsync(binding, handle, ct);
             return model.Provider is IModelAwareVideoProvider modelAwareProvider
                 ? modelAwareProvider.GetStatusAsync(model.ModelId, handle, ct)
                 : model.Provider.GetStatusAsync(handle, ct);
@@ -1154,8 +1370,9 @@ namespace Rook.Services.Vision.Video
         private static Task<ProviderResultOutcome> FetchProviderResultAsync(
             ResolvedVideoModel model,
             ProviderJobHandle handle,
-            CancellationToken ct)
+            CancellationToken ct, FalOperationBinding? binding = null)
         {
+            if (binding != null && model.Provider is IConfiguredGenerationProvider configured) return configured.FetchResultConfiguredAsync(binding, handle, ct);
             return model.Provider is IModelAwareVideoProvider modelAwareProvider
                 ? modelAwareProvider.FetchResultAsync(model.ModelId, handle, ct)
                 : model.Provider.FetchResultAsync(handle, ct);
@@ -1237,10 +1454,14 @@ namespace Rook.Services.Vision.Video
         {
             if (!await CanPublishAsync(current, running, metadata).ConfigureAwait(false)) return running.LatestRecord;
             var ext = ExtensionFromMime(materialized.MimeType!);
+            var configuredArtifact = current.ConfiguredFalExecution?.Snapshot;
             var artifact = _artifactStore.Create(
                 kind: "generated_video",
                 blobs: new[] { new BlobInput(VideoMediaRoles.Video, materialized.Bytes!, ext) },
-                parentIds: CollectMediaParents(request));
+                parentIds: configuredArtifact == null ? CollectMediaParents(request)
+                    : configuredArtifact.Request.Media.Select(m => m.Input.Source.ArtifactId).Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToArray(),
+                metadata: configuredArtifact == null ? null : new Dictionary<string, JsonNode?>
+                    { [FalExecutionSnapshot.ExtensionKey] = FalExecutionSnapshotCodec.SerializePublic(configuredArtifact) });
 
             try
             {
@@ -1557,6 +1778,10 @@ namespace Rook.Services.Vision.Video
             public readonly CancellationTokenSource Cts;
             public readonly ResolvedVideoModel Model;
             public IDisposable? MediaOwner;
+            public FalMediaSnapshot? ConfiguredMedia;
+            public FalQuote? ConfiguredQuote;
+            public FalSubmitConfirmation? ConfiguredConfirmation;
+            public VideoExecutionBudget? ConfiguredBudget;
 
             public RunningJob(VideoJobRecord initial, CancellationTokenSource cts, ResolvedVideoModel model)
             {

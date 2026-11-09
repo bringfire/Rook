@@ -1,0 +1,330 @@
+{
+  "schema_version": 1,
+  "definition_id": "qualification-sync-image",
+  "revision": "revision-1",
+  "model_id": "qualification/sync-image",
+  "display_name": "Synthetic image",
+  "provider": "fal",
+  "status": "experimental",
+  "operations": [
+    {
+      "operation_id": "text_to_image",
+      "endpoint_id": "fal-ai/synthetic/render",
+      "invocation": "sync",
+      "adapter": {
+        "id": "fal.image.declarative",
+        "version": 1
+      },
+      "fields": [
+        {
+          "key": "prompt",
+          "scope": "request",
+          "type": "string",
+          "required": true,
+          "max_length": 1000,
+          "label": "Prompt",
+          "description": "Plain text",
+          "ui": {
+            "group": "basic",
+            "order": 0
+          },
+          "payload": {
+            "pointer": "/prompt",
+            "conversion": "identity"
+          },
+          "default": "default rook"
+        },
+        {
+          "key": "audio",
+          "scope": "options",
+          "type": "boolean",
+          "default": false,
+          "label": "Audio",
+          "payload": {
+            "pointer": "/audio",
+            "conversion": "identity"
+          }
+        },
+        {
+          "key": "count",
+          "scope": "options",
+          "type": "integer",
+          "min": 1,
+          "max": 3,
+          "default": 1,
+          "label": "Count",
+          "payload": {
+            "pointer": "/count",
+            "conversion": "integer_to_string"
+          }
+        },
+        {
+          "key": "seed",
+          "scope": "request",
+          "type": "integer",
+          "min": -9007199254740991,
+          "max": 9007199254740991,
+          "step": 1,
+          "default": 0,
+          "label": "Seed",
+          "payload": {
+            "pointer": "/seed",
+            "conversion": "identity"
+          }
+        },
+        {
+          "key": "strength",
+          "scope": "options",
+          "type": "number",
+          "min": 0,
+          "max": 1,
+          "step": 1e-06,
+          "default": 0.1,
+          "label": "Strength",
+          "payload": {
+            "pointer": "/strength",
+            "conversion": "identity"
+          }
+        },
+        {
+          "key": "resolution",
+          "scope": "request",
+          "type": "enum",
+          "values": [
+            "small",
+            "large"
+          ],
+          "default": "large",
+          "label": "Resolution",
+          "payload": {
+            "pointer": "/size",
+            "conversion": "enum_lookup",
+            "lookup": {
+              "small": "S",
+              "large": "L"
+            }
+          }
+        }
+      ],
+      "media": [],
+      "constraints": [
+        {
+          "kind": "omit_when",
+          "field": "options.audio",
+          "when": [
+            {
+              "field": "request.resolution",
+              "operator": "eq",
+              "value": "small"
+            }
+          ]
+        }
+      ],
+      "constants": [
+        {
+          "pointer": "/num_images",
+          "value": 1
+        }
+      ],
+      "result": {
+        "role": "generated_image",
+        "mime_family": "image",
+        "collection_pointer": "/images",
+        "cardinality": 1,
+        "url_pointer": "/images/0/url",
+        "mime_pointer": "/images/0/content_type"
+      },
+      "pricing": {
+        "strategy": "fixed_per_output",
+        "unit": "output",
+        "revision": "price-1",
+        "rates": [
+          {
+            "selectors": {},
+            "rate_usd": 0.01
+          }
+        ],
+        "rounding": "none",
+        "source": "https://fal.ai/models/synthetic",
+        "reviewed_on": "2026-10-25"
+      },
+      "evidence": {
+        "url": "https://fal.ai/models/synthetic",
+        "reviewed_on": "2026-10-25",
+        "qualification": "synthetic"
+      }
+    },
+    {
+      "operation_id": "image_to_image",
+      "endpoint_id": "fal-ai/synthetic/render",
+      "invocation": "sync",
+      "adapter": {
+        "id": "fal.image.declarative",
+        "version": 1
+      },
+      "fields": [
+        {
+          "key": "prompt",
+          "scope": "request",
+          "type": "string",
+          "required": true,
+          "max_length": 1000,
+          "label": "Prompt",
+          "description": "Plain text",
+          "ui": {
+            "group": "basic",
+            "order": 0
+          },
+          "payload": {
+            "pointer": "/prompt",
+            "conversion": "identity"
+          },
+          "default": "default rook"
+        },
+        {
+          "key": "audio",
+          "scope": "options",
+          "type": "boolean",
+          "default": false,
+          "label": "Audio",
+          "payload": {
+            "pointer": "/audio",
+            "conversion": "identity"
+          }
+        },
+        {
+          "key": "count",
+          "scope": "options",
+          "type": "integer",
+          "min": 1,
+          "max": 3,
+          "default": 1,
+          "label": "Count",
+          "payload": {
+            "pointer": "/count",
+            "conversion": "integer_to_string"
+          }
+        },
+        {
+          "key": "seed",
+          "scope": "request",
+          "type": "integer",
+          "min": -9007199254740991,
+          "max": 9007199254740991,
+          "step": 1,
+          "default": 0,
+          "label": "Seed",
+          "payload": {
+            "pointer": "/seed",
+            "conversion": "identity"
+          }
+        },
+        {
+          "key": "strength",
+          "scope": "options",
+          "type": "number",
+          "min": 0,
+          "max": 1,
+          "step": 1e-06,
+          "default": 0.1,
+          "label": "Strength",
+          "payload": {
+            "pointer": "/strength",
+            "conversion": "identity"
+          }
+        },
+        {
+          "key": "resolution",
+          "scope": "request",
+          "type": "enum",
+          "values": [
+            "small",
+            "large"
+          ],
+          "default": "large",
+          "label": "Resolution",
+          "payload": {
+            "pointer": "/size",
+            "conversion": "enum_lookup",
+            "lookup": {
+              "small": "S",
+              "large": "L"
+            }
+          }
+        }
+      ],
+      "media": [
+        {
+          "role": "primary_image",
+          "min_count": 1,
+          "max_count": 1,
+          "ordered": false,
+          "preparation": "validated_original",
+          "transport": "data_uri",
+          "payload": {
+            "pointer": "/image_url",
+            "conversion": "identity"
+          }
+        },
+        {
+          "role": "reference_image",
+          "min_count": 0,
+          "max_count": 2,
+          "ordered": true,
+          "preparation": "validated_original",
+          "transport": "data_uri",
+          "payload": {
+            "pointer": "/references",
+            "conversion": "ordered_array"
+          }
+        }
+      ],
+      "constraints": [
+        {
+          "kind": "omit_when",
+          "field": "options.audio",
+          "when": [
+            {
+              "field": "request.resolution",
+              "operator": "eq",
+              "value": "small"
+            }
+          ]
+        }
+      ],
+      "constants": [
+        {
+          "pointer": "/num_images",
+          "value": 1
+        }
+      ],
+      "result": {
+        "role": "generated_image",
+        "mime_family": "image",
+        "collection_pointer": "/images",
+        "cardinality": 1,
+        "url_pointer": "/images/0/url",
+        "mime_pointer": "/images/0/content_type"
+      },
+      "pricing": {
+        "strategy": "fixed_per_output",
+        "unit": "output",
+        "revision": "price-1",
+        "rates": [
+          {
+            "selectors": {},
+            "rate_usd": 0.01
+          }
+        ],
+        "rounding": "none",
+        "source": "https://fal.ai/models/synthetic",
+        "reviewed_on": "2026-10-25"
+      },
+      "evidence": {
+        "url": "https://fal.ai/models/synthetic",
+        "reviewed_on": "2026-10-25",
+        "qualification": "synthetic"
+      }
+    }
+  ]
+}

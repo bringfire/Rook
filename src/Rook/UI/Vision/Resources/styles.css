@@ -2993,3 +2993,20 @@ body {
 .video-framing-source-label, .video-framing-dimensions { font-size: 10px; line-height: 1.4; overflow-wrap: anywhere; }
 .video-preflight-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 @media (max-width: 440px) { .video-framing-cards { gap: 7px; } .video-framing-card { padding: 8px; } .video-framing-card[aria-checked="true"] { padding: 7px; } }
+
+/* Descriptor controls share a scalar presentation for common/provider fields. */
+.configured-legacy-hidden, .model-control[hidden], .configured-model-controls [hidden] { display: none !important; }
+.configured-model-controls { display: grid; gap: 12px; margin: 12px 0; }
+.configured-model-controls label { display: grid; gap: 6px; font-size: 12px; }
+.configured-model-controls input, .configured-model-controls select, .configured-model-controls textarea {
+    width: 100%; box-sizing: border-box; padding: 8px; color: inherit; background: var(--paper-card); border: 1px solid var(--rule); border-radius: 4px;
+}
+.configured-model-controls textarea { min-height: 70px; resize: vertical; }
+.model-controls-basic, .model-controls-advanced, .model-control { display: grid; gap: 6px; }
+.model-control { margin: 10px 0; }
+.model-control-inactive { opacity: .75; }
+.model-control [data-required="true"]::before { content: 'Required'; font-size: 10px; }
+.model-field-error { color: var(--accent-red); white-space: pre-wrap; font-size: 12px; }
+.model-field-error:empty { display: none; }
+.configured-price { font-size: 13px; }
+.configured-model-controls [aria-invalid="true"] { border-color: var(--accent-red); }

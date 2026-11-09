@@ -13255,41 +13255,147 @@ Returns the full profile JSON including features, surfaces, and elements.""",
         # Google 3.1 uses Google first and compatible, lifecycle-qualified fal fallback.
         # Credential presence and new-submission availability are separate metadata.
         Tool(
+            name="rhino_image_models",
+            description="List registered image models and operation descriptors, including typed fields, options, media roles, pricing availability and catalog_diagnostics. Configured models use the image-job contract.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "port": {"type": "integer", "description": "Specific Rhino port to target."},
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="rhino_image_estimate",
+            description="Estimate an image job without submitting to a provider. Select fields and options from rhino_image_models. Configured quotes return quote_fingerprint and max_estimated_cost_usd for confirmation.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "model": {"type": "string", "description": "Registered model id from rhino_image_models."},
+                    "operation": {"type": "string", "description": "Operation id from the model descriptor; omit only if unambiguous."},
+                    "prompt": {"type": "string", "description": "Prompt when declared by the selected operation."},
+                    "resolution": {"type": "string", "description": "Resolution declared by the operation."},
+                    "aspect_ratio": {"type": "string", "description": "Aspect ratio declared by the operation."},
+                    "duration_seconds": {"type": "number", "minimum": -1000000000, "maximum": 1000000000, "description": "Duration only when declared by the operation."},
+                    "seed": {"type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991, "description": "Seed when declared by the operation."},
+                    "options": {"type": "object", "description": "Typed scalar options from the operation descriptor. Defaults and requiredness are validated by managed code."},
+                    "media": {"type": "array", "items": {"type": "object"}, "description": "Ordered artifact references: {semantic_role, artifact_id, artifact_role}. No paths, URLs or inline bytes."},
+                    "quote_fingerprint": {"type": "string", "description": "Configured quote fingerprint from rhino_image_estimate; required for configured submission."},
+                    "max_estimated_cost_usd": {"type": "number", "minimum": 0, "maximum": 1000000000, "description": "Authorized USD ceiling from the confirmed quote; managed validates exact precision."},
+                    "port": {"type": "integer", "description": "Specific Rhino port to target."},
+                },
+                "required": ["model"],
+            },
+        ),
+        Tool(
+            name="rhino_generate_image",
+            description="Submit an asynchronous image job. Configured models require quote_fingerprint and max_estimated_cost_usd from a confirmed rhino_image_estimate. Returns job_id and state; poll rhino_image_status then rhino_image_result. Legacy rhino_render_view remains available.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "model": {"type": "string", "description": "Registered model id from rhino_image_models."},
+                    "operation": {"type": "string", "description": "Operation id from the model descriptor; omit only if unambiguous."},
+                    "prompt": {"type": "string", "description": "Prompt when declared by the selected operation."},
+                    "resolution": {"type": "string", "description": "Resolution declared by the operation."},
+                    "aspect_ratio": {"type": "string", "description": "Aspect ratio declared by the operation."},
+                    "duration_seconds": {"type": "number", "minimum": -1000000000, "maximum": 1000000000, "description": "Duration only when declared by the operation."},
+                    "seed": {"type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991, "description": "Seed when declared by the operation."},
+                    "options": {"type": "object", "description": "Typed scalar options from the operation descriptor. Defaults and requiredness are validated by managed code."},
+                    "media": {"type": "array", "items": {"type": "object"}, "description": "Ordered artifact references: {semantic_role, artifact_id, artifact_role}. No paths, URLs or inline bytes."},
+                    "quote_fingerprint": {"type": "string", "description": "Configured quote fingerprint from rhino_image_estimate; required for configured submission."},
+                    "max_estimated_cost_usd": {"type": "number", "minimum": 0, "maximum": 1000000000, "description": "Authorized USD ceiling from the confirmed quote; managed validates exact precision."},
+                    "port": {"type": "integer", "description": "Specific Rhino port to target."},
+                },
+                "required": ["model"],
+            },
+        ),
+        Tool(
+            name="rhino_image_status",
+            description="Read image job status and execution evidence.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "job_id": {"type": "string", "description": "Canonical image job GUID."},
+                    "port": {"type": "integer", "description": "Specific Rhino port to target."},
+                },
+                "required": ["job_id"],
+            },
+        ),
+        Tool(
+            name="rhino_image_result",
+            description="Read image job result artifact and file roles. No inline image bytes.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "job_id": {"type": "string", "description": "Canonical image job GUID."},
+                    "port": {"type": "integer", "description": "Specific Rhino port to target."},
+                },
+                "required": ["job_id"],
+            },
+        ),
+        Tool(
+            name="rhino_image_cancel",
+            description="Stop an image job locally and request remote cancellation. Inspect cancellation metadata: local stop does not imply remote confirmation.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "job_id": {"type": "string", "description": "Canonical image job GUID."},
+                    "port": {"type": "integer", "description": "Specific Rhino port to target."},
+                },
+                "required": ["job_id"],
+            },
+        ),
+        Tool(
+            name="rhino_image_jobs",
+            description="List recent image jobs with execution evidence and request summaries. Default limit is managed by the runtime.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Maximum number of jobs to return."},
+                    "port": {"type": "integer", "description": "Specific Rhino port to target."},
+                },
+                "required": [],
+            },
+        ),
+        Tool(
             name="rhino_render_video",
             description=(
-                "Submit a video generation job to a video provider (Veo). "
+                "Submit a video generation job to a registered video provider. "
                 "Takes a model id (see rhino_video_models for the catalog), "
                 "mode (t2v/i2v/interp), duration, resolution, aspect ratio, "
-                "prompt, and provider-specific options. Optional start_frame / "
+                "prompt, and descriptor-driven options. Configured defaults and required fields come from operation descriptors. Optional start_frame / "
                 "end_frame / reference_frames reference uploaded media by "
                 "artifact_id only — inline base64 and local paths are rejected "
                 "at the boundary. Returns {job_id, state} immediately; the job "
                 "runs in the background. Poll rhino_video_status for progress, "
                 "then rhino_video_result once state == 'complete'. Use "
                 "rhino_video_estimate to dry-run cost before submitting. "
-                "Google 3.1 uses Google first with compatible fal fallback for missing or definitively rejected Google credentials, subject to endpoint availability. Direct fal is intentional. Estimate first; pass its estimate_fingerprint and maximum_estimated_cost_usd as max_estimated_cost_usd to bind confirmation to the quoted request, media, routes, and prices. Unknown submissions are never replayed automatically."
+                "Configured models use operation descriptors and require quote_fingerprint plus max_estimated_cost_usd from a confirmed estimate. Google 3.1 uses Google first with compatible fal fallback for missing or definitively rejected Google credentials, subject to endpoint availability. Direct fal is intentional. Estimate first; pass its estimate_fingerprint and maximum_estimated_cost_usd as max_estimated_cost_usd to bind confirmation to the quoted request, media, routes, and prices. Unknown submissions are never replayed automatically."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "model": {"type": "string", "description": "Model id from rhino_video_models (e.g. 'veo-3.0-fast-generate-001'). Use rhino_video_models to enumerate valid ids — short forms like 'veo-3.0-fast' are NOT registered."},
+                    "operation": {"type": "string", "description": "Operation id from the configured model descriptor; optional if unambiguous."},
+                    "media": {"type": "array", "items": {"type": "object"}, "description": "Ordered artifact references: {semantic_role, artifact_id, artifact_role}. Cannot combine with legacy frame fields."},
                     "mode": {"type": "string", "description": "Generation mode: 't2v' (text-to-video), 'i2v' (image-to-video), or 'interp' (frame interpolation between start_frame and end_frame)."},
-                    "duration_seconds": {"type": "integer", "description": "Clip length in seconds (model-dependent — see capability.durations)."},
+                    "duration_seconds": {"type": "number", "minimum": -1000000000, "maximum": 1000000000, "description": "Clip length in seconds (model-dependent — see capability.durations)."},
                     "resolution": {"type": "string", "description": "Output resolution (model-dependent — see capability.resolutions)."},
                     "aspect_ratio": {"type": "string", "description": "Output aspect ratio (model-dependent — see capability.aspect_ratios)."},
                     "source_framing": {"type": "string", "enum": ["fit", "fill"], "description": "Optional automatic source preparation for Veo 3.1 i2v/interp. fit preserves the whole image with black padding; fill center-crops to the output shape. Explicit framing requires the estimate fingerprint and numeric cost cap at submit; originals stay unchanged."},
-                    "options": {"type": "object", "description": "Provider-specific options. Google 3.1 options {} uses mode defaults; explicit person_generation preserves that policy and can prevent fal fallback. Other Google models require person_generation. Direct fal Veo options {} uses its fixed profile."},
+                    "options": {"type": "object", "description": "Provider-specific options. Configured models use typed operation options. Google 3.1 options {} uses mode defaults; explicit person_generation preserves that policy and can prevent fal fallback. Other Google models require person_generation. Direct fal Veo options {} uses its fixed profile."},
                     "prompt": {"type": "string", "description": "Optional generation prompt."},
                     "start_frame": {"type": "object", "description": "Optional input frame for i2v / interp. Shape: {kind: 'artifact_id', artifact_id: '<uuid>', role?: '<role>'}."},
                     "end_frame": {"type": "object", "description": "Optional terminal frame for interp mode. Same shape as start_frame."},
                     "reference_frames": {"type": "array", "items": {"type": "object"}, "description": "Optional style/identity reference frames. Each entry shares the start_frame shape."},
-                    "seed": {"type": "integer", "description": "Optional deterministic seed."},
+                    "seed": {"type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991, "description": "Optional deterministic seed."},
                     "number_of_videos": {"type": "integer", "description": "Omit or set to 1; v1 policy rejects any other value (CapabilityValidator). Multi-variant generation is not yet supported."},
+                    "quote_fingerprint": {"type": "string", "description": "Configured fal quote fingerprint from rhino_video_estimate; requires max_estimated_cost_usd."},
                     "estimate_fingerprint": {"type": "string", "description": "Optional versioned fingerprint from rhino_video_estimate; requires max_estimated_cost_usd. A stale quote requires fresh human confirmation."},
-                    "max_estimated_cost_usd": {"type": "number", "minimum": 0, "description": "Maximum authorized estimate in USD for a single route. Cap-only legacy clients authorize any compatible route within the cap."},
+                    "max_estimated_cost_usd": {"type": "number", "minimum": 0, "maximum": 1000000000, "description": "Maximum authorized estimate in USD for a single route. Cap-only legacy clients authorize any compatible route within the cap."},
                     "port": {"type": "integer", "description": "Specific Rhino port to target."},
                 },
-                "required": ["model", "mode", "duration_seconds", "resolution", "aspect_ratio", "options"],
+                "required": ["model"],
             },
         ),
         Tool(
@@ -13314,7 +13420,7 @@ Returns the full profile JSON including features, surfaces, and elements.""",
         Tool(
             name="rhino_video_cancel",
             description=(
-                "Request cancellation of a submitted video job. Returns "
+                "Request cancellation of a submitted video job. Configured jobs also return cancellation metadata distinguishing local stop from remote confirmation. Returns "
                 "{job_id, state} reflecting the post-cancel terminal state — "
                 "typically 'cancelled', but may be 'complete' if the job "
                 "finished between intent and provider acknowledgement."
@@ -13353,15 +13459,17 @@ Returns the full profile JSON including features, surfaces, and elements.""",
                 "rhino_render_video (model, mode, duration, resolution, "
                 "aspect_ratio, options, optional number_of_videos). Returns "
                 "{dollars_usd, model, resolution, duration_seconds, "
-                "number_of_videos, breakdown[], pricing}. No provider call, "
+                "number_of_videos, breakdown[], pricing}. Configured quotes return quote_fingerprint and max_estimated_cost_usd; confirmed configured submission requires both. No provider submission, "
                 "no job created. Google 3.1 estimates inspect local source media and return conditional route prices, maximum_estimated_cost_usd, and estimate_fingerprint. Confirm that fingerprint and bound at submission; prices are estimates, not final billing."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "model": {"type": "string", "description": "Model id from rhino_video_models (use the full registered id, e.g. 'veo-3.0-fast-generate-001')."},
+                    "operation": {"type": "string", "description": "Operation id from the configured model descriptor; optional if unambiguous."},
+                    "media": {"type": "array", "items": {"type": "object"}, "description": "Ordered artifact references: {semantic_role, artifact_id, artifact_role}. Cannot combine with legacy frame fields."},
                     "mode": {"type": "string", "description": "Generation mode: 't2v', 'i2v', or 'interp'."},
-                    "duration_seconds": {"type": "integer", "description": "Clip length in seconds."},
+                    "duration_seconds": {"type": "number", "minimum": -1000000000, "maximum": 1000000000, "description": "Clip length in seconds."},
                     "resolution": {"type": "string", "description": "Output resolution."},
                     "aspect_ratio": {"type": "string", "description": "Output aspect ratio."},
                     "source_framing": {"type": "string", "enum": ["fit", "fill"], "description": "Optional automatic source preparation for Veo 3.1 i2v/interp. fit adds black padding; fill center-crops. Estimate returns source_preparation evidence bound into the confirmation fingerprint. Omit for legacy requests."},
@@ -13370,11 +13478,13 @@ Returns the full profile JSON including features, surfaces, and elements.""",
                     "start_frame": {"type": "object", "description": "Optional media ref (same shape as rhino_render_video)."},
                     "end_frame": {"type": "object", "description": "Optional media ref."},
                     "reference_frames": {"type": "array", "items": {"type": "object"}, "description": "Optional reference media refs."},
-                    "seed": {"type": "integer", "description": "Optional seed; included in the confirmed request fingerprint."},
+                    "seed": {"type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991, "description": "Optional seed; included in the confirmed request fingerprint."},
                     "number_of_videos": {"type": "integer", "description": "Omit or set to 1; v1 policy rejects any other value (CapabilityValidator)."},
+                    "quote_fingerprint": {"type": "string", "description": "Configured fal quote fingerprint."},
+                    "max_estimated_cost_usd": {"type": "number", "minimum": 0, "maximum": 1000000000, "description": "Configured confirmation ceiling in USD."},
                     "port": {"type": "integer", "description": "Specific Rhino port to target."},
                 },
-                "required": ["model", "mode", "duration_seconds", "resolution", "aspect_ratio", "options"],
+                "required": ["model"],
             },
         ),
         Tool(
@@ -13408,7 +13518,7 @@ Returns the full profile JSON including features, surfaces, and elements.""",
                 "supports_reference_images, max_reference_images, "
                 "must_8s_with}}. Use this to discover supported models, valid "
                 "mode/resolution/aspect_ratio/duration combinations, and "
-                "reference-image limits before calling rhino_render_video."
+                "reference-image limits before calling rhino_render_video. Configured rows expose operations with request_fields, options, media, constraints and pricing availability. catalog_diagnostics reports catalog errors."
             ),
             inputSchema={
                 "type": "object",
@@ -21132,6 +21242,34 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
         # rhino_video_jobs builds the ?limit query manually so explicit
         # null/empty/garbage all reach managed unchanged (call_rhino's
         # GET-params builder would silently drop None).
+        case "rhino_image_models":
+            result = await call_rhino("/vision/image/models", "GET", None, port=port)
+
+        case "rhino_image_estimate":
+            result = await call_rhino("/vision/image/estimate", "POST", arguments, port=port)
+
+        case "rhino_generate_image":
+            result = await call_rhino("/vision/image/jobs", "POST", arguments, port=port)
+
+        case "rhino_image_status" | "rhino_image_result" | "rhino_image_cancel":
+            _encoded, _err = _encode_video_job_id(arguments.get("job_id", ""))
+            if _err is not None:
+                result = _err
+            else:
+                _suffix = {"rhino_image_status": "", "rhino_image_result": "/result", "rhino_image_cancel": "/cancel"}[name]
+                _method = "POST" if name == "rhino_image_cancel" else "GET"
+                _body = {} if name == "rhino_image_cancel" else None
+                result = await call_rhino(f"/vision/image/jobs/{_encoded}{_suffix}", _method, _body, port=port)
+
+        case "rhino_image_jobs":
+            from urllib.parse import quote as _quote_image
+            _endpoint = "/vision/image/jobs"
+            if "limit" in arguments:
+                _raw_limit = arguments["limit"]
+                _limit_str = "" if _raw_limit is None else str(_raw_limit)
+                _endpoint += f"?limit={_quote_image(_limit_str, safe='')}"
+            result = await call_rhino(_endpoint, "GET", None, port=port)
+
         case "rhino_render_video":
             result = await call_rhino(
                 "/vision/video/jobs", "POST", arguments, port=port

@@ -1,5 +1,6 @@
 using System;
 using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Fal;
 
 namespace Rook.Services.Vision.Image.Jobs
 {
@@ -16,5 +17,6 @@ namespace Rook.Services.Vision.Image.Jobs
         DateTimeOffset UpdatedAt,
         ImageRouteReceipt? ImageRoute = null,
         ImageCredentialFailure? CredentialFailure = null,
-        ImageFalDispatchState? FalDispatchState = null);
+        ImageFalDispatchState? FalDispatchState = null,
+        FalExecutionSnapshotReadResult? ConfiguredFalExecution = null);
 }

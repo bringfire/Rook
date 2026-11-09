@@ -53,19 +53,23 @@ namespace Rook.Services.Vision.Generation
         public ProviderJobHandle Handle { get; }
     }
 
-    /// <summary>Pre-meter failure: the submission itself never
-    /// reached compute. Auth, request-shape validation, network,
-    /// quota returned synchronously. Provider's billing meter never
-    /// ran (Phase 0 evidence: fal returns
-    /// <c>x-fal-billable-units: 0</c> on input-validation rejection).
-    /// Manager logs as no-cost failure.</summary>
+    public enum SubmissionDisposition
+    {
+        NotAccepted,
+        Unknown,
+    }
+
+    /// <summary>A failed submit. Only NotAccepted promises that no submission was
+    /// accepted. Unknown retains potential provider compute/cost and must never be replayed.</summary>
     public sealed class FailedSubmitOutcome : ProviderSubmitOutcome
     {
-        public FailedSubmitOutcome(GenerationError Error)
+        public FailedSubmitOutcome(GenerationError Error, SubmissionDisposition Disposition = SubmissionDisposition.NotAccepted)
         {
             this.Error = Error ?? throw new ArgumentNullException(nameof(Error));
+            this.Disposition = Disposition;
         }
 
         public GenerationError Error { get; }
+        public SubmissionDisposition Disposition { get; }
     }
 }

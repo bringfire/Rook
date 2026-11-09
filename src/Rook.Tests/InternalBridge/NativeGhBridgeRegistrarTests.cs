@@ -794,14 +794,14 @@ namespace Rook.Tests.InternalBridge
         }
 
         [Fact]
-        public void ExpectedVisionOps_HasExactly18Ops()
+        public void ExpectedVisionOps_HasExactly25Ops()
         {
             // Pinned count: 8 image + 1 Director publish + 5 V2 video
-            // + 2 V4 video list ops + 2 presentation ops.
+            // + 2 V4 video list ops + 2 presentation ops + 7 image catalog/job ops.
             // If this drifts, either a new op landed (update both the
             // count and the per-op test above) or one was removed
             // (intentional retirement).
-            Assert.Equal(18, NativeGhBridgeRegistrar.ExpectedVisionOps.Count);
+            Assert.Equal(25, NativeGhBridgeRegistrar.ExpectedVisionOps.Count);
         }
 
         [Fact]
@@ -840,8 +840,8 @@ namespace Rook.Tests.InternalBridge
         [InlineData("set_provider_secret")]
         [InlineData("test_provider_secret")]
         [InlineData("clear_provider_secret")]
-        [InlineData("list_image_models")]
-        public void ExpectedVisionOps_DoesNotExposeProviderSettingsOps(string op)
+        [InlineData("image_job_wait")]
+        public void ExpectedVisionOps_DoesNotExposeHiddenOps(string op)
         {
             Assert.DoesNotContain(op, NativeGhBridgeRegistrar.ExpectedVisionOps);
         }

@@ -216,7 +216,7 @@ if ([Environment]::CurrentDirectory -eq (Get-Location).Path) {{ throw 'Fixture r
         self.assertEqual(len(names), len(set(names)))
         self.assertNotIn("rook-mcp", names)
         self.assertNotIn("chirp", names)
-        self.assertIn("multidict==6.8.0 --hash=sha256:b03ca066b47b18b205cc080dca6f76cbd159f8cdd33a02a0700164c13b37e463", rows)
+        self.assertIn("multidict==6.9.1 --hash=sha256:5f89dad732280e7a10b74d40b91364f88e13c3f2c08c2ef83a8cd42f7a61af2e", rows)
 
 
 if __name__ == "__main__":
