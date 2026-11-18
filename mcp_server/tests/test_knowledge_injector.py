@@ -24,7 +24,7 @@ from rook.learning.knowledge_injector import (
     _SKIP_TOOLS,
     _INTENT_TOOLS,
 )
-from rook.learning.phase_tracker import WorkflowPhase
+from rook.learning.phase_tracker import PhaseTracker, WorkflowPhase
 
 
 # -------------------------------------------------------------------------
@@ -438,6 +438,73 @@ class TestInjectKnowledge:
             enriched = asyncio.run(inject_knowledge("gh_move", {}, result))
         assert enriched["data"]["knowledge_hint"] == "per-tool hint"
         assert "workflow_hint" not in enriched["data"]
+
+    def test_workflow_hint_not_attached_to_rhino_tool(self):
+        """Workflow hints are Grasshopper notes; a Rhino tool result must not carry one."""
+        result = {"success": True, "data": {"objects": [], "totalCount": 0}}
+        tracker = MagicMock()
+        tracker.current_phase.return_value = WorkflowPhase.DEBUGGING
+        tracker.should_inject_workflow_hint.return_value = True
+        with patch(
+            "rook.learning.knowledge_injector.get_phase_tracker",
+            return_value=tracker,
+        ), patch(
+            "rook.learning.knowledge_injector._fetch_and_score",
+            return_value=(None, None),
+        ), patch(
+            "rook.learning.knowledge_injector._fetch_workflow_hint",
+            return_value="VERY IMPORTANT! Be careful which components you choose!",
+        ) as fetch_workflow_hint:
+            enriched = asyncio.run(
+                inject_knowledge("rhino_objects", {"layer": "shakes::0"}, result)
+            )
+        assert "workflow_hint" not in enriched["data"]
+        fetch_workflow_hint.assert_not_called()
+        # The once-per-phase injection must not be spent on a tool that cannot use it.
+        tracker.should_inject_workflow_hint.assert_not_called()
+
+    def test_workflow_hint_still_attached_to_gh_tool(self):
+        result = {"success": True, "data": {"some": "value"}}
+        tracker = MagicMock()
+        tracker.current_phase.return_value = WorkflowPhase.GH_BUILD
+        tracker.should_inject_workflow_hint.return_value = True
+        with patch(
+            "rook.learning.knowledge_injector.get_phase_tracker",
+            return_value=tracker,
+        ), patch(
+            "rook.learning.knowledge_injector._fetch_and_score",
+            return_value=(None, None),
+        ), patch(
+            "rook.learning.knowledge_injector._fetch_workflow_hint",
+            return_value="workflow hint",
+        ):
+            enriched = asyncio.run(inject_knowledge("gh_move", {}, result))
+        assert enriched["data"]["workflow_hint"] == "workflow hint"
+
+    def test_run_of_rhino_object_queries_gets_no_workflow_hint(self):
+        """The recorded sequence: repeated rhino_objects calls enter the DEBUGGING
+        phase, and the fifth result used to carry a Grasshopper teaching note."""
+        tracker = PhaseTracker()
+        with patch(
+            "rook.learning.knowledge_injector.get_phase_tracker",
+            return_value=tracker,
+        ), patch(
+            "rook.learning.knowledge_injector._fetch_and_score",
+            return_value=(None, None),
+        ), patch(
+            "rook.learning.knowledge_injector._fetch_workflow_hint",
+            return_value="VERY IMPORTANT! Be careful which components you choose!",
+        ):
+            for _ in range(6):
+                tracker.record_call("rhino_objects")
+                result = {"success": True, "data": {"objects": []}}
+                enriched = asyncio.run(
+                    inject_knowledge("rhino_objects", {"layer": "shakes::0"}, result)
+                )
+                assert "workflow_hint" not in enriched["data"]
+        # Precondition of the defect: the tracker really is in a sustained phase.
+        assert tracker.current_phase() == WorkflowPhase.DEBUGGING
+        assert tracker.should_inject_workflow_hint() is True
 
 
 # -------------------------------------------------------------------------

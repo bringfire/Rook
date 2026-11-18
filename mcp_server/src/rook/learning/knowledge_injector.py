@@ -161,8 +161,10 @@ async def inject_knowledge(
                     "source": meta.get("source") if meta else None,
                     "hint": hint[:120],
                 })
-            elif tracker.should_inject_workflow_hint():
-                # P1: Workflow-level hint only when no per-tool hint was injected
+            elif store_type == _WORKFLOW_HINT_STORE and tracker.should_inject_workflow_hint():
+                # P1: Workflow-level hint only when no per-tool hint was injected.
+                # Gated on the tool's store (checked first, so a tool the hint does
+                # not belong to never consumes the once-per-phase injection).
                 wf_hint = _fetch_workflow_hint(phase)
                 if wf_hint:
                     data["workflow_hint"] = wf_hint
@@ -409,6 +411,14 @@ def _fetch_general(
 # ---------------------------------------------------------------------------
 # Workflow-level hints (P1)
 # ---------------------------------------------------------------------------
+
+# Workflow hints come from UnifiedStore, which holds Grasshopper knowledge only
+# (components, recipes, teaching notes). They are therefore attached only to
+# results of tools routed to the "gh" store. Phase detection also counts Rhino
+# tools (rhino_objects and rhino_selection drive DEBUGGING), so without this
+# gate a run of Rhino object queries got a Grasshopper teaching note —
+# "Be careful which components you choose!" — attached to a rhino_objects result.
+_WORKFLOW_HINT_STORE = "gh"
 
 # Tags used to search UnifiedStore for workflow-level hints per phase.
 _WORKFLOW_SEARCH_TAGS: dict[WorkflowPhase, list[str]] = {
