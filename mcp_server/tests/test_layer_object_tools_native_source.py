@@ -220,3 +220,62 @@ async def test_rhino_select_schema_advertises_the_sublayer_opt_in(monkeypatch):
     assert "default false" in prop["description"].lower()
     assert "includeSublayers" in tool.description
     assert "selects 0 objects" in tool.description
+
+
+# --- rhino_objects: an unrecognized type is an error --------------------------
+#
+# ParseObjectTypeFilter returns 0 for a name it does not know, and 0 means
+# "no filter" to the object iterator, so `type: "Unknown"` returned every
+# object in the document.
+
+
+def _native_type_filter_names() -> list[str]:
+    table = _extract_function(
+        _read(DOCUMENT_HELPERS),
+        "inline const std::vector<ObjectTypeFilterEntry>& ObjectTypeFilterEntries",
+    )
+    return re.findall(r'\{"(\w+)",\s+ON::\w+\}', table)
+
+
+def test_type_filter_parser_and_accepted_list_share_one_table():
+    source = _read(DOCUMENT_HELPERS)
+
+    assert "ObjectTypeFilterEntries()" in _extract_function(
+        source, "inline unsigned int ParseObjectTypeFilter"
+    )
+    assert "ObjectTypeFilterEntries()" in _extract_function(
+        source, "inline std::string ObjectTypeFilterNames"
+    )
+
+    names = _native_type_filter_names()
+    assert len(names) == 13
+    assert {"Point", "Curve", "Brep", "Mesh", "Extrusion", "ClipPlane"} <= set(names)
+    # "Unknown" is what the serializer prints for types it has no name for;
+    # it is not a type that can be filtered on.
+    assert "Unknown" not in names
+    # The objects query iterates without lights, so "Light" could never match.
+    assert "Light" not in names
+
+
+def test_objects_handler_rejects_an_unrecognized_type_before_querying():
+    body = _extract_function(_read(OBJECTS), "void HandleObjects")
+    reject = body.index("!typeFilter.empty() && ParseObjectTypeFilter(typeFilter) == 0")
+    dispatch = body.index("CMainThreadDispatcher::Instance().Dispatch")
+
+    assert reject < dispatch
+    rejection = body[reject:dispatch]
+    assert '{"errorCode", "invalid_input"}' in rejection
+    assert "ObjectTypeFilterNames()" in rejection
+    assert "acceptedTypes" in rejection
+    assert "CRookServer::SendErrorData(res, err);" in rejection
+    assert "return;" in rejection
+
+
+@pytest.mark.asyncio
+async def test_rhino_objects_schema_lists_exactly_the_native_type_names(monkeypatch):
+    tool = (await _public_tools(monkeypatch))["rhino_objects"]
+    description = tool.inputSchema["properties"]["type"]["description"]
+
+    listed = description.split("Accepted values:")[1].split(".")[0]
+    assert [name.strip() for name in listed.split(",")] == _native_type_filter_names()
+    assert "rejected" in description

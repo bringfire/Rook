@@ -9,6 +9,7 @@
 #include "Threading/RequestContext.h"
 #include "Models/Snapshots.h"
 #include <string>
+#include <vector>
 #include <cmath>
 
 namespace Rook {
@@ -133,8 +134,54 @@ inline std::string ObjectTypeToString(ON::object_type type)
     }
 }
 
+// The object type names accepted as a `type` filter, with their bitmask.
+// Single source for ParseObjectTypeFilter and for the "accepted values" list
+// in the error a caller gets for an unrecognized type, so the two cannot drift.
+//
+// "Light" is deliberately absent: GET /objects iterates without lights, so a
+// Light filter could never match and would read as "this document has none".
+struct ObjectTypeFilterEntry
+{
+    const char* name;
+    unsigned int type;
+};
+
+inline const std::vector<ObjectTypeFilterEntry>& ObjectTypeFilterEntries()
+{
+    static const std::vector<ObjectTypeFilterEntry> entries = {
+        {"Point",             ON::point_object},
+        {"PointSet",          ON::pointset_object},
+        {"Curve",             ON::curve_object},
+        {"Surface",           ON::surface_object},
+        {"Brep",              ON::brep_object},
+        {"Mesh",              ON::mesh_object},
+        {"Annotation",        ON::annotation_object},
+        {"InstanceReference", ON::instance_reference},
+        {"TextDot",           ON::text_dot},
+        {"Hatch",             ON::hatch_object},
+        {"SubD",              ON::subd_object},
+        {"Extrusion",         ON::extrusion_object},
+        {"ClipPlane",         ON::clipplane_object},
+    };
+    return entries;
+}
+
+// "Point, PointSet, Curve, ..." — for error messages.
+inline std::string ObjectTypeFilterNames()
+{
+    std::string names;
+    for (const auto& entry : ObjectTypeFilterEntries())
+    {
+        if (!names.empty()) names += ", ";
+        names += entry.name;
+    }
+    return names;
+}
+
 // Parse a type filter string (e.g. "Brep") to ON::object_type bitmask.
-// Returns 0 if unrecognized (meaning "no filter").
+// Returns 0 if typeStr is empty (no filter requested) OR unrecognized.
+// A caller that received a non-empty typeStr must treat 0 as an error:
+// 0 handed to an object iterator means "no filter", i.e. every object.
 // Case-insensitive.
 inline unsigned int ParseObjectTypeFilter(const std::string& typeStr)
 {
@@ -150,20 +197,11 @@ inline unsigned int ParseObjectTypeFilter(const std::string& typeStr)
         return true;
     };
 
-    if (iequals(typeStr, "Point"))             return ON::point_object;
-    if (iequals(typeStr, "PointSet"))          return ON::pointset_object;
-    if (iequals(typeStr, "Curve"))             return ON::curve_object;
-    if (iequals(typeStr, "Surface"))           return ON::surface_object;
-    if (iequals(typeStr, "Brep"))              return ON::brep_object;
-    if (iequals(typeStr, "Mesh"))              return ON::mesh_object;
-    if (iequals(typeStr, "Light"))             return ON::light_object;
-    if (iequals(typeStr, "Annotation"))        return ON::annotation_object;
-    if (iequals(typeStr, "InstanceReference")) return ON::instance_reference;
-    if (iequals(typeStr, "TextDot"))           return ON::text_dot;
-    if (iequals(typeStr, "Hatch"))             return ON::hatch_object;
-    if (iequals(typeStr, "SubD"))              return ON::subd_object;
-    if (iequals(typeStr, "Extrusion"))         return ON::extrusion_object;
-    if (iequals(typeStr, "ClipPlane"))         return ON::clipplane_object;
+    for (const auto& entry : ObjectTypeFilterEntries())
+    {
+        if (iequals(typeStr, entry.name))
+            return entry.type;
+    }
 
     return 0;
 }

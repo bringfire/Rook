@@ -3983,7 +3983,16 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
                 "type": "object",
                 "properties": {
                     "layer": {"type": "string", "description": "Filter by layer path"},
-                    "type": {"type": "string", "description": "Filter by object type (Point, Curve, Brep, Mesh, etc)"},
+                    "type": {
+                        "type": "string",
+                        "description": (
+                            "Filter by object type (case-insensitive). Accepted values: "
+                            "Point, PointSet, Curve, Surface, Brep, Mesh, Annotation, "
+                            "InstanceReference, TextDot, Hatch, SubD, Extrusion, ClipPlane. "
+                            "Any other value is rejected with invalid_input (it does not "
+                            "fall back to returning every object)."
+                        ),
+                    },
                     "name": {"type": "string", "description": "Filter by name (partial match)"},
                     "limit": {"type": "integer", "description": "Maximum objects to return (default 100, max 500)"},
                     "offset": {"type": "integer", "description": "Skip this many objects (for pagination)"}

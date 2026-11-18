@@ -283,3 +283,24 @@ async def test_select_include_sublayers_without_a_layer_is_rejected(fresh_docume
 
     assert _is_error(res), f"includeSublayers without layer should fail: {res!r}"
     assert "requires 'layer'" in str(res)
+
+
+# --- rhino_objects: an unrecognized type is an error --------------------------
+
+
+async def test_objects_rejects_an_unrecognized_type_and_lists_the_accepted_ones(fresh_document, tag):
+    await _setup(f'point(layer("{tag}_pts"), 0); point(layer("{tag}_pts"), 1)')
+
+    res = await _tool("rhino_objects", {"type": "Unknown", "limit": 1})
+
+    assert _is_error(res), f"an unknown type must not match every object: {res!r}"
+    for accepted in ("Point", "Curve", "Brep", "ClipPlane"):
+        assert accepted in str(res)
+
+
+async def test_objects_type_filter_is_still_case_insensitive(fresh_document, tag):
+    await _setup(f'point(layer("{tag}_pts"), 0); point(layer("{tag}_pts"), 1)')
+
+    res = await _ok("rhino_objects", {"type": "point", "layer": f"{tag}_pts"})
+
+    assert res["totalCount"] == 2

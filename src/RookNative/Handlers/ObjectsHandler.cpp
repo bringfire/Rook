@@ -465,6 +465,26 @@ void HandleObjects(const httplib::Request& req, httplib::Response& res)
     limit = (std::max)(1, (std::min)(limit, 500));
     offset = (std::max)(offset, 0);
 
+    // Reject an unrecognized type filter. ParseObjectTypeFilter returns 0 for
+    // it, and 0 means "no filter" to the iterator below, so an unknown type
+    // (e.g. "Unknown", "Detail", a typo) used to return every object in the
+    // document as if it had matched.
+    if (!typeFilter.empty() && ParseObjectTypeFilter(typeFilter) == 0)
+    {
+        nlohmann::json accepted = nlohmann::json::array();
+        for (const auto& entry : ObjectTypeFilterEntries())
+            accepted.push_back(entry.name);
+
+        nlohmann::json err = {
+            {"errorCode", "invalid_input"},
+            {"errorMessage", "Unknown object type '" + typeFilter +
+                "'. Accepted values (case-insensitive): " + ObjectTypeFilterNames()},
+        };
+        err["acceptedTypes"] = std::move(accepted);
+        CRookServer::SendErrorData(res, err);
+        return;
+    }
+
     // Capture by value into the dispatch lambda
     auto future = CMainThreadDispatcher::Instance().Dispatch(
         [layerFilter, typeFilter, nameFilter, limit, offset, docSn]() -> ObjectsResult
