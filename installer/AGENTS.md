@@ -150,6 +150,36 @@ never assume a particular model is available.
 
 ---
 
+## Beyond the Tools — Where Code Runs
+
+Rook ships more than its MCP tools. Typed routes come first wherever one fits;
+when none does, write code instead of concluding that a tool is missing. Code
+can run in three places:
+
+1. **Inside Rhino** — `rhino_execute` runs Python 3 in Rhino's own interpreter,
+   with RhinoCommon and rhinoscriptsyntax, against the live document. Printed
+   output is returned to you.
+2. **Inside Grasshopper** — Python or C# script components (see above), for
+   logic that belongs in the definition.
+3. **Outside Rhino** — Rook's managed Python 3.11 at
+   `%LOCALAPPDATA%\Rook\venv\Scripts\python.exe`, run from your own shell when
+   your client provides one.
+
+Rhino's own Python, used by `rhino_execute` and Grasshopper Python components,
+has no scientific libraries by default. The managed runtime does: NumPy, SciPy,
+scikit-learn, pandas, NetworkX, OpenCV, scikit-image, Matplotlib, seaborn, and
+Pillow. It cannot see the Rhino document, so read geometry out as numbers
+through Rook's tools (`rhino_objects`, `rhino_geometry`, or a short
+`rhino_execute` script that prints coordinates), analyse them there, and write
+the results back through typed routes.
+
+You may run code in the managed runtime, but never install, upgrade, or remove
+packages in it: Rook's own server runs from it. For exact contact between
+objects, `scene_exact_neighbors` uses a bundled Open CASCADE kernel to compute
+shared-face adjacency; bounding-box adjacency is only approximate.
+
+---
+
 ## Critical Rules
 
 ### Be persistent and honest
