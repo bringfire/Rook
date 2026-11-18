@@ -51,12 +51,19 @@ bool ContainsPathSeparator(const std::string& value)
     return value.find(kLayerPathSeparator) != std::string::npos;
 }
 
-bool LayerExistsByFullPath(CRhinoDoc* pDoc, const std::string& fullPath)
+int FindLayerIndexByFullPath(CRhinoDoc* pDoc, const std::string& fullPath)
 {
     ON_wString wPath = Utf8ToWide(fullPath);
     const int idx = pDoc->m_layer_table.FindLayerFromFullPathName(
         static_cast<const wchar_t*>(wPath), -1);
-    return idx >= 0 && !pDoc->m_layer_table[idx].IsDeleted();
+    if (idx >= 0 && !pDoc->m_layer_table[idx].IsDeleted())
+        return idx;
+    return -1;
+}
+
+bool LayerExistsByFullPath(CRhinoDoc* pDoc, const std::string& fullPath)
+{
+    return FindLayerIndexByFullPath(pDoc, fullPath) >= 0;
 }
 
 void ValidateNewLayerName(const std::string& name)

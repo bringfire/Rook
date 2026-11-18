@@ -31,6 +31,7 @@ using Rook::Infrastructure::GetLayerFullPath;
 using Rook::Infrastructure::JoinLayerPath;
 using Rook::Infrastructure::ContainsPathSeparator;
 using Rook::Infrastructure::LayerExistsByFullPath;
+using Rook::Infrastructure::FindLayerIndexByFullPath;
 using Rook::Infrastructure::ValidateNewLayerName;
 using Rook::Infrastructure::ResolveLayerRef;
 
@@ -174,12 +175,10 @@ LayerMutationResult ApplyLayerPropertiesMutation(
 
     // ---- Resolution: target layer
     int idx = -1;
-    std::string targetFullPathBefore;
     try
     {
         const ResolvedLayerRef layerRef = ResolveLayerRef(pDoc, name, "name");
         idx = layerRef.index;
-        targetFullPathBefore = layerRef.fullPath;
     }
     catch (const std::exception&)
     {
@@ -282,8 +281,11 @@ LayerMutationResult ApplyLayerPropertiesMutation(
             }
         }
         const std::string targetFullPath = JoinLayerPath(parentPath, targetLeafName);
-        if (LayerExistsByFullPath(pDoc, targetFullPath) &&
-            targetFullPath != targetFullPathBefore)
+        // Rhino resolves layer paths case-insensitively, so a case-only rename
+        // ("mullions" -> "MULLIONS") finds the layer being renamed. Only a
+        // DIFFERENT layer at the target path is a collision.
+        const int existingIdx = FindLayerIndexByFullPath(pDoc, targetFullPath);
+        if (existingIdx >= 0 && existingIdx != idx)
         {
             return MakeLayerFailure("name_collision",
                 "Layer '" + targetFullPath + "' already exists");
@@ -1356,7 +1358,10 @@ void HandleLayerRename(const httplib::Request& req, httplib::Response& res)
             }
         }
         const std::string targetFullPath = JoinLayerPath(parentPath, newName);
-        if (LayerExistsByFullPath(pDoc, targetFullPath) && targetFullPath != layerRef.fullPath)
+        // Compare by layer index, not by path string: Rhino's lookup is
+        // case-insensitive, so a case-only rename resolves to this same layer.
+        const int existingIdx = FindLayerIndexByFullPath(pDoc, targetFullPath);
+        if (existingIdx >= 0 && existingIdx != idx)
             throw std::invalid_argument("Cannot rename: layer '" + targetFullPath + "' already exists");
 
         ON_Layer layerCopy = pDoc->m_layer_table[idx];
