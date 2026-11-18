@@ -86,3 +86,100 @@ def test_rename_collision_compares_layer_identity_not_path_text(signature):
     assert "existingIdx >= 0 && existingIdx != idx" in body
     # The defect: a case-sensitive comparison of the two path strings.
     assert "targetFullPath != " not in body
+
+
+# --- What holds a layer: dependencies, delete, merge --------------------------
+#
+# Rhino refuses to delete a layer while any undeleted object is on it. Hidden
+# objects, lights and objects on a turned-off layer count, and the default
+# iterator (normal_or_locked_objects, no lights) returns none of them. Objects
+# in the deleted state, kept for undo, do not hold a layer.
+
+
+def test_layer_holder_scan_counts_hidden_objects_and_not_deleted_ones():
+    source = _read(LAYER_OPS)
+    scan = _extract_function(source, "LayerHolders CollectLayerHolders")
+
+    assert "CRhinoObjectIterator::undeleted_objects" in scan
+    assert "CRhinoObjectIterator::normal_or_locked_objects" not in scan
+    assert "it.IncludeLights(true);" in scan
+    assert "ON::light_object" in scan
+    assert "ON::hidden_object" in scan
+    # Deleted-but-undoable objects are counted separately, for information.
+    assert "CRhinoObjectIterator::deleted_objects" in scan
+    assert "++holders.deletedObjects;" in scan
+
+    holders = _extract_function(source, "struct LayerHolders")
+    can_delete = _extract_function(holders, "bool CanDelete() const")
+    assert "objects == 0" in can_delete
+    assert "deletedObjects" not in can_delete
+
+
+@pytest.mark.parametrize(
+    "signature",
+    ["void HandleLayerDependencies", "void HandleDeleteLayer", "void HandleLayerMerge"],
+)
+def test_dependencies_delete_and_merge_share_one_holder_scan(signature):
+    body = _extract_function(_read(LAYER_OPS), signature)
+
+    assert "CollectLayerHolders(pDoc, " in body
+    assert "CRhinoObjectIterator::normal_or_locked_objects" not in body
+
+
+def test_dependencies_reports_every_holder_and_agrees_with_delete():
+    body = _extract_function(_read(LAYER_OPS), "void HandleLayerDependencies")
+
+    for key in (
+        "directObjects",
+        "hiddenObjects",
+        "hiddenObjectTypes",
+        "hiddenObjectIds",
+        "lightObjects",
+        "layerVisible",
+        "deletedObjectsInUndo",
+        "childLayers",
+        "blockReferences",
+        "isCurrentLayer",
+        "blockers",
+    ):
+        assert f'wr.data["{key}"]' in body, key
+    assert 'wr.data["canDelete"] = holders.CanDelete();' in body
+
+
+def test_layer_delete_says_what_holds_the_layer_and_never_purges():
+    body = _extract_function(_read(LAYER_OPS), "void HandleDeleteLayer")
+
+    assert "holders.DescribeObjects()" in body
+    assert "rhino_layer_dependencies" in body
+    # Deleting a layer must never delete objects: no purge path, opt-in or not.
+    assert "PurgeLayer" not in body
+    assert '"purge"' not in body
+
+
+def test_layer_merge_moves_hidden_objects_and_explains_a_failed_delete():
+    body = _extract_function(_read(LAYER_OPS), "void HandleLayerMerge")
+    move = body[body.index("int moved = 0;") :]
+
+    assert "CRhinoObjectIterator::undeleted_objects" in move
+    assert "it.IncludeLights(true);" in move
+    assert 'wr.data["hiddenObjectsMoved"] = hiddenMoved;' in move
+    failure = move[move.index("DeleteLayer(srcRef.index, true)") :]
+    assert "DescribeBlockers()" in failure
+
+
+@pytest.mark.asyncio
+async def test_layer_tool_descriptions_state_the_holder_rules(monkeypatch):
+    tools = await _public_tools(monkeypatch)
+
+    dependencies = tools["rhino_layer_dependencies"].description
+    for field in (
+        "hiddenObjects",
+        "hiddenObjectIds",
+        "lightObjects",
+        "layerVisible",
+        "deletedObjectsInUndo",
+        "blockers",
+    ):
+        assert field in dependencies, field
+    assert "no purge option" in tools["rhino_layer_delete"].description
+    assert "hiddenObjectsMoved" in tools["rhino_layer_merge"].description

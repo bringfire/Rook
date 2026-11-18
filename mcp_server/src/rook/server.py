@@ -4495,7 +4495,14 @@ Examples:
         ),
         Tool(
             name="rhino_layer_delete",
-            description="Delete an empty layer.",
+            description=(
+                "Delete an empty layer. Refused, with the reason, while anything holds "
+                "the layer: objects (hidden objects, lights and objects on a turned-off layer "
+                "count, although rhino_objects does not list them), child layers, block "
+                "definition geometry, or being the current layer. There is no purge "
+                "option: this tool never deletes objects. Use rhino_layer_dependencies "
+                "to see the holders first."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -4652,7 +4659,13 @@ Examples:
         ),
         Tool(
             name="rhino_layer_merge",
-            description="Move all objects from source to target layer, then delete the source layer. Source must have no child layers and must not be the current layer.",
+            description=(
+                "Move all objects from source to target layer, then delete the source layer. "
+                "Source must have no child layers and must not be the current layer. "
+                "Hidden objects on the source layer are moved too (they stay hidden) and are "
+                "counted in hiddenObjectsMoved, and lights are moved as well; otherwise they "
+                "would keep the source layer alive."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -4664,7 +4677,17 @@ Examples:
         ),
         Tool(
             name="rhino_layer_dependencies",
-            description="Analyze what holds a layer alive: direct objects, block definition references, child layers, and whether it is the current layer. Returns canDelete indicating if the layer can be safely deleted.",
+            description=(
+                "Analyze what holds a layer alive: direct objects, block definition references, "
+                "child layers, and whether it is the current layer. Returns canDelete indicating "
+                "if the layer can be safely deleted, and blockers listing each reason it cannot. "
+                "directObjects counts every undeleted object, including hidden objects, lights and "
+                "objects on a turned-off layer (rhino_objects lists none of these); hiddenObjects, "
+                "hiddenObjectTypes and hiddenObjectIds describe the hidden ones, lightObjects counts "
+                "the lights, and layerVisible says whether the layer is on. "
+                "deletedObjectsInUndo is informational: objects in the deleted state that Rhino "
+                "keeps for undo do not block a delete."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {

@@ -156,3 +156,95 @@ async def test_rename_onto_a_different_layer_is_still_a_collision(fresh_document
     assert _is_error(res), f"renaming onto another layer should fail: {res!r}"
     assert "already exists" in str(res)
     assert {f"{tag}_alpha", f"{tag}_beta"} <= await _layer_paths()
+
+
+# --- What holds a layer: dependencies, delete, merge --------------------------
+
+
+async def test_hidden_object_holds_a_layer_and_dependencies_says_so(fresh_document, tag):
+    held = f"{tag}_held"
+    hidden_id = (await _setup(f'print(point(layer("{held}"), 0, hidden=True))')).strip()
+
+    deps = await _ok("rhino_layer_dependencies", {"name": held})
+
+    assert deps["directObjects"] == 1
+    assert deps["hiddenObjects"] == 1
+    assert deps["hiddenObjectTypes"] == {"Point": 1}
+    assert deps["hiddenObjectIds"] == [hidden_id]
+    assert deps["canDelete"] is False
+    assert deps["blockers"], "a held layer must list what holds it"
+
+    res = await _tool("rhino_layer_delete", {"name": held})
+    assert _is_error(res), f"delete must agree with canDelete=false: {res!r}"
+    assert "hidden" in str(res)
+    assert held in await _layer_paths()
+
+
+async def test_objects_on_a_turned_off_layer_hold_it(fresh_document, tag):
+    switched_off = f"{tag}_switched_off"
+    await _setup(f'point(layer("{switched_off}"), 0)')
+    await _ok("rhino_layer_visibility", {"name": switched_off, "visible": False})
+
+    deps = await _ok("rhino_layer_dependencies", {"name": switched_off})
+
+    assert deps["directObjects"] == 1
+    assert deps["hiddenObjects"] == 0
+    assert deps["layerVisible"] is False
+    assert deps["canDelete"] is False
+
+
+async def test_light_holds_a_layer_and_merge_moves_it(fresh_document, tag):
+    source, target = f"{tag}_lit", f"{tag}_lights"
+    await _setup(f'light(layer("{source}"), 0); layer("{target}")')
+
+    deps = await _ok("rhino_layer_dependencies", {"name": source})
+    assert deps["directObjects"] == 1
+    assert deps["lightObjects"] == 1
+    assert deps["canDelete"] is False
+
+    res = await _tool("rhino_layer_delete", {"name": source})
+    assert _is_error(res), f"delete must agree with canDelete=false: {res!r}"
+    assert "1 light" in str(res)
+
+    merged = await _ok("rhino_layer_merge", {"source": source, "target": target})
+    assert merged["objectsMoved"] == 1
+    assert merged["sourceDeleted"] is True
+    assert source not in await _layer_paths()
+
+
+async def test_deleted_objects_in_undo_are_reported_but_do_not_hold_a_layer(fresh_document, tag):
+    emptied = f"{tag}_emptied"
+    await _setup(f'point(layer("{emptied}"), 0, deleted=True)')
+
+    deps = await _ok("rhino_layer_dependencies", {"name": emptied})
+
+    assert deps["directObjects"] == 0
+    assert deps["deletedObjectsInUndo"] == 1
+    assert deps["canDelete"] is True
+    assert deps["blockers"] == []
+
+    await _ok("rhino_layer_delete", {"name": emptied})
+    assert emptied not in await _layer_paths()
+
+
+async def test_merge_moves_hidden_objects_and_deletes_the_source_layer(fresh_document, tag):
+    source, target = f"{tag}_layer 01", f"{tag}_detail tag"
+    hidden_id = (
+        await _setup(
+            f'source = layer("{source}"); layer("{target}")\n'
+            "point(source, 0)\n"
+            "print(point(source, 1, hidden=True))"
+        )
+    ).strip()
+
+    merged = await _ok("rhino_layer_merge", {"source": source, "target": target})
+
+    assert merged["objectsMoved"] == 2
+    assert merged["hiddenObjectsMoved"] == 1
+    assert merged["sourceDeleted"] is True
+    assert source not in await _layer_paths()
+
+    after = await _ok("rhino_layer_dependencies", {"name": target})
+    assert after["directObjects"] == 2
+    # The hidden object moved with the rest and is still hidden.
+    assert after["hiddenObjectIds"] == [hidden_id]
