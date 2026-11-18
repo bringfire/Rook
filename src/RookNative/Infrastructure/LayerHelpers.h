@@ -43,6 +43,10 @@ std::string JoinLayerPath(const std::string& parentPath, const std::string& name
 /// modified, not the path strings.
 int FindLayerIndexByFullPath(CRhinoDoc* pDoc, const std::string& fullPath);
 
+/// Indices of a layer and every non-deleted layer nested below it (children,
+/// grandchildren, ...). The first element is always layerIndex itself.
+std::vector<int> CollectLayerWithDescendants(CRhinoDoc* pDoc, int layerIndex);
+
 /// Check if a layer exists by full path (not deleted).
 bool LayerExistsByFullPath(CRhinoDoc* pDoc, const std::string& fullPath);
 

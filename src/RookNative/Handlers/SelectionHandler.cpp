@@ -31,6 +31,9 @@
 #include "Threading/MainThreadDispatcher.h"
 #include "RookServer.h"
 
+#include <algorithm>
+#include <vector>
+
 namespace Rook {
 namespace Handlers {
 
@@ -222,6 +225,25 @@ void HandleSelect(const httplib::Request& req, httplib::Response& res)
         }
     }
 
+    // `includeSublayers` is an opt-in modifier of the `layer` predicate. The
+    // default (false / absent) keeps Rhino's SelLayer meaning: only objects
+    // directly on the named layer. Reject a malformed or orphaned flag rather
+    // than silently selecting something other than what the caller meant.
+    if (body.contains("includeSublayers"))
+    {
+        if (!body["includeSublayers"].is_boolean())
+        {
+            invalidInput("'includeSublayers' must be a boolean");
+            return;
+        }
+        if (body["includeSublayers"].get<bool>() &&
+            !(body.contains("layer") && body["layer"].is_string()))
+        {
+            invalidInput("'includeSublayers' requires 'layer'");
+            return;
+        }
+    }
+
     auto future = CMainThreadDispatcher::Instance().Dispatch(
         [docSn, body]() -> nlohmann::json
     {
@@ -230,6 +252,7 @@ void HandleSelect(const httplib::Request& req, httplib::Response& res)
 
         int selectedCount = 0;
         int deselectedCount = 0;
+        int layersMatched = 0;
 
         // Processing order matches C# SelectionHandler exactly.
 
@@ -292,12 +315,25 @@ void HandleSelect(const httplib::Request& req, httplib::Response& res)
             std::string layerName = body["layer"].get<std::string>();
             const int layerIdx = Rook::Infrastructure::ResolveLayerRef(
                 pDoc, layerName, "layer").index;
+
+            // Default: the named layer only (objects on its sub-layers are NOT
+            // selected, matching Rhino's SelLayer). `includeSublayers: true`
+            // widens the match to every layer nested below it.
+            const bool includeSublayers = body.value("includeSublayers", false);
+            std::vector<int> layerIndices;
+            if (includeSublayers)
+                layerIndices = Rook::Infrastructure::CollectLayerWithDescendants(pDoc, layerIdx);
+            else
+                layerIndices.push_back(layerIdx);
+            layersMatched = static_cast<int>(layerIndices.size());
+
             CRhinoObjectIterator it(*pDoc,
                 CRhinoObjectIterator::normal_or_locked_objects,
                 CRhinoObjectIterator::active_objects);
             for (const CRhinoObject* obj = it.First(); obj; obj = it.Next())
             {
-                if (obj->Attributes().m_layer_index == layerIdx)
+                if (std::find(layerIndices.begin(), layerIndices.end(),
+                              obj->Attributes().m_layer_index) != layerIndices.end())
                 {
                     const_cast<CRhinoObject*>(obj)->Select(true);
                     ++selectedCount;
@@ -497,6 +533,10 @@ void HandleSelect(const httplib::Request& req, httplib::Response& res)
         data["selectedCount"] = selectedCount;
         if (deselectedCount > 0)
             data["deselectedCount"] = deselectedCount;
+        // Reported only for an includeSublayers request: how many layers (the
+        // named one plus its descendants) the layer predicate covered.
+        if (body.value("includeSublayers", false))
+            data["layersMatched"] = layersMatched;
         return data;
     });
 

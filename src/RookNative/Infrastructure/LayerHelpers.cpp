@@ -6,6 +6,7 @@
 #include "Infrastructure/LayerHelpers.h"
 #include "Infrastructure/JsonHelpers.h"
 
+#include <algorithm>
 #include <cctype>
 #include <stdexcept>
 
@@ -64,6 +65,32 @@ int FindLayerIndexByFullPath(CRhinoDoc* pDoc, const std::string& fullPath)
 bool LayerExistsByFullPath(CRhinoDoc* pDoc, const std::string& fullPath)
 {
     return FindLayerIndexByFullPath(pDoc, fullPath) >= 0;
+}
+
+std::vector<int> CollectLayerWithDescendants(CRhinoDoc* pDoc, int layerIndex)
+{
+    std::vector<int> result;
+    result.push_back(layerIndex);
+
+    const int layerCount = pDoc->m_layer_table.LayerCount();
+    // Breadth-first over parent ids. `result` doubles as the work queue, so a
+    // layer is visited once and a malformed parent cycle cannot loop forever.
+    for (size_t next = 0; next < result.size(); ++next)
+    {
+        const ON_UUID parentId = pDoc->m_layer_table[result[next]].Id();
+        for (int i = 0; i < layerCount; ++i)
+        {
+            const CRhinoLayer& layer = pDoc->m_layer_table[i];
+            if (layer.IsDeleted())
+                continue;
+            if (ON_UuidCompare(layer.ParentLayerId(), parentId) != 0)
+                continue;
+            if (std::find(result.begin(), result.end(), i) == result.end())
+                result.push_back(i);
+        }
+    }
+
+    return result;
 }
 
 void ValidateNewLayerName(const std::string& name)

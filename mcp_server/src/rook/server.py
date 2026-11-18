@@ -4010,7 +4010,11 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
                 "Bounding-box predicates: nested `bbox: {min:[x,y,z], "
                 "max:[x,y,z]}` is the router-advertised shape; legacy flat "
                 "`bboxMin`/`bboxMax` are accepted for backwards compatibility. "
-                "Flat takes precedence when both are present."
+                "Flat takes precedence when both are present. "
+                "Layer predicate: `layer` matches only objects directly on that "
+                "layer, so a parent layer whose objects all sit on sub-layers "
+                "selects 0 objects. Pass `includeSublayers: true` to also select "
+                "objects on every layer nested below it."
             ),
             inputSchema={
                 "type": "object",
@@ -4020,7 +4024,14 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
                         "items": {"type": "string"},
                         "description": "List of object GUIDs to select."
                     },
-                    "layer": {"type": "string", "description": "Select all objects on this layer."},
+                    "layer": {
+                        "type": "string",
+                        "description": "Select all objects directly on this layer (sub-layers excluded unless includeSublayers is true).",
+                    },
+                    "includeSublayers": {
+                        "type": "boolean",
+                        "description": "Opt-in, default false. With `layer`, also select objects on all layers nested below it. Requires `layer`.",
+                    },
                     "name": {
                         "type": "string",
                         "description": "Exact-match name predicate (case-insensitive). Mutually exclusive with namePattern — both in one request → invalid_input.",

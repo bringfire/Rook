@@ -248,3 +248,38 @@ async def test_merge_moves_hidden_objects_and_deletes_the_source_layer(fresh_doc
     assert after["directObjects"] == 2
     # The hidden object moved with the rest and is still hidden.
     assert after["hiddenObjectIds"] == [hidden_id]
+
+
+# --- rhino_select: sub-layers are opt-in --------------------------------------
+
+
+async def test_select_parent_layer_includes_sub_layers_only_when_asked(fresh_document, tag):
+    parent = f"{tag}_shakes"
+    await _setup(
+        f'layer("{parent}")\n'
+        f'point(layer("{parent}::0"), 0); point(layer("{parent}::0"), 1)\n'
+        f'point(layer("{parent}::head::trim"), 2)\n'
+        f'point(layer("{tag}_other"), 3)'
+    )
+
+    default = await _ok("rhino_select", {"layer": parent})
+    assert default["selectedCount"] == 0
+
+    widened = await _ok("rhino_select", {"layer": parent, "includeSublayers": True})
+    assert widened["selectedCount"] == 3
+    # the parent, ::0, ::head, ::head::trim
+    assert widened["layersMatched"] == 4
+
+    explicit_off = await _ok(
+        "rhino_select", {"layer": f"{parent}::0", "includeSublayers": False}
+    )
+    assert explicit_off["selectedCount"] == 2
+
+    await _ok("rhino_select", {"none": True})
+
+
+async def test_select_include_sublayers_without_a_layer_is_rejected(fresh_document):
+    res = await _tool("rhino_select", {"includeSublayers": True, "clear": False})
+
+    assert _is_error(res), f"includeSublayers without layer should fail: {res!r}"
+    assert "requires 'layer'" in str(res)

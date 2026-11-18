@@ -183,3 +183,40 @@ async def test_layer_tool_descriptions_state_the_holder_rules(monkeypatch):
         assert field in dependencies, field
     assert "no purge option" in tools["rhino_layer_delete"].description
     assert "hiddenObjectsMoved" in tools["rhino_layer_merge"].description
+
+
+# --- rhino_select: sub-layers are opt-in --------------------------------------
+#
+# `layer` selects objects directly on that layer (Rhino's SelLayer meaning).
+# `includeSublayers: true` widens it to every layer nested below.
+
+
+def test_select_layer_predicate_defaults_to_the_named_layer_only():
+    body = _extract_function(_read(SELECTION), "void HandleSelect")
+
+    assert 'const bool includeSublayers = body.value("includeSublayers", false);' in body
+    assert "layerIndices.push_back(layerIdx);" in body
+    assert "CollectLayerWithDescendants(pDoc, layerIdx)" in body
+    assert "'includeSublayers' must be a boolean" in body
+    assert "'includeSublayers' requires 'layer'" in body
+
+
+def test_descendant_collection_walks_parent_ids_and_skips_deleted_layers():
+    body = _extract_function(
+        _read(LAYER_HELPERS), "std::vector<int> CollectLayerWithDescendants"
+    )
+
+    assert "result.push_back(layerIndex);" in body
+    assert "ParentLayerId()" in body
+    assert "IsDeleted()" in body
+
+
+@pytest.mark.asyncio
+async def test_rhino_select_schema_advertises_the_sublayer_opt_in(monkeypatch):
+    tool = (await _public_tools(monkeypatch))["rhino_select"]
+    prop = tool.inputSchema["properties"]["includeSublayers"]
+
+    assert prop["type"] == "boolean"
+    assert "default false" in prop["description"].lower()
+    assert "includeSublayers" in tool.description
+    assert "selects 0 objects" in tool.description
