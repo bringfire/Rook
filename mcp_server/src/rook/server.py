@@ -3972,7 +3972,7 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
                 "Get information about the current Rhino document including name, units, object count, "
                 "and a summary of objects. objectCount is every undeleted object in the model, including "
                 "hidden objects, objects on turned-off layers and lights; unlistedObjectCount is how many "
-                "of those rhino_objects leaves out unless includeHidden is true. Geometry inside block "
+                "of those rhino_objects leaves out unless includeUnlisted is true. Geometry inside block "
                 "definitions and worksession reference objects are not counted."
             ),
             inputSchema={"type": "object", "properties": {}, "required": []}
@@ -3985,7 +3985,7 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
                 "lights and, when the layer is turned off, all of its objects, so it matches "
                 "rhino_layer_dependencies.directObjects and does not drop to 0 when a layer is turned "
                 "off. unlistedObjectCount is how many of those rhino_objects leaves out unless "
-                "includeHidden is true. Geometry inside block definitions and worksession reference "
+                "includeUnlisted is true. Geometry inside block definitions and worksession reference "
                 "objects are not counted, so objectCount 0 does not by itself mean the layer can be "
                 "deleted: rhino_layer_dependencies reports block-definition use and canDelete."
             ),
@@ -3998,11 +3998,15 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
                 "and locked objects on layers that are turned on; hidden objects, objects on a "
                 "turned-off layer and lights are left out and counted in unlistedCount, so "
                 "totalCount 0 with unlistedCount > 0 means the matches exist but are not listed. "
-                "Pass `includeHidden: true` to list them too. In that listing `visible` is false for "
-                "a hidden object and for an object on a turned-off layer (it does not say which of the "
-                "two), and a light has type Light and can be visible; `visible` does not say whether "
-                "an object is in the default listing. Geometry inside block definitions and worksession "
-                "reference objects are never listed."
+                "unlistedByReason splits that count into hidden, layerOff and light. "
+                "Pass `includeUnlisted: true` to list them too. "
+                "Each object says what state it is in: `mode` is the object's own mode (normal, "
+                "locked or hidden), `layerVisible` is false when its layer is turned off, and "
+                "`layerLocked` is true when its layer is locked; `visible` is false when either the "
+                "object is hidden or its layer is off. Read these before acting: a hidden or "
+                "off-layer object cannot be selected, rhino_delete refuses mode hidden unless its "
+                "includeHidden is passed, and refuses mode locked or layerLocked always. "
+                "Geometry inside block definitions and worksession reference objects are never listed."
             ),
             inputSchema={
                 "type": "object",
@@ -4016,15 +4020,17 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
                             "InstanceReference, TextDot, Hatch, SubD, Extrusion, ClipPlane, Detail. "
                             "Any other value is rejected with invalid_input (it does not "
                             "fall back to returning every object). Light matches only with "
-                            "includeHidden true."
+                            "includeUnlisted true."
                         ),
                     },
-                    "includeHidden": {
+                    "includeUnlisted": {
                         "type": "boolean",
                         "description": (
-                            "Opt-in, default false. Also list hidden objects, objects on "
-                            "turned-off layers and lights, i.e. every undeleted object in the "
-                            "model (not block-definition geometry or worksession reference objects)."
+                            "Opt-in, default false. Also list what unlistedCount counts: hidden "
+                            "objects, objects on turned-off layers and lights, i.e. every "
+                            "undeleted object in the model (not block-definition geometry or "
+                            "worksession reference objects). This route has no includeHidden; "
+                            "sending it is rejected."
                         ),
                     },
                     "name": {"type": "string", "description": "Filter by name (partial match)"},
@@ -4036,7 +4042,10 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
         ),
         Tool(
             name="rhino_selection",
-            description="Get currently selected objects in Rhino.",
+            description=(
+                "Get currently selected objects in Rhino. Each object carries the same state fields "
+                "as in rhino_objects: mode, layerVisible and layerLocked."
+            ),
             inputSchema={"type": "object", "properties": {}, "required": []}
         ),
         Tool(
@@ -4437,9 +4446,10 @@ Optional for all: "name", "layer", "color" (as [r,g,b], {"r":255,"g":0,"b":0}, o
             description=(
                 "Delete objects by their IDs. Ids that were not deleted are returned in failedIds, "
                 "with the cause per id in failureReasons: not_found, hidden, locked or not_deletable. "
-                "A hidden object (one hidden with Hide, not merely on a turned-off layer) is refused "
-                "unless `includeHidden: true` is passed. Locked objects and objects on a locked layer "
-                "are never deleted."
+                "A hidden object (mode hidden in rhino_objects: one hidden with Hide, not merely on a "
+                "turned-off layer) is refused unless `includeHidden: true` is passed. Locked objects "
+                "(mode locked) and objects on a locked layer (layerLocked true) are never deleted. "
+                "An object on a turned-off layer is deleted like any other."
             ),
             inputSchema={
                 "type": "object",
@@ -4452,8 +4462,9 @@ Optional for all: "name", "layer", "color" (as [r,g,b], {"r":255,"g":0,"b":0}, o
                     "includeHidden": {
                         "type": "boolean",
                         "description": (
-                            "Opt-in, default false. Also delete ids that are hidden. "
-                            "Does not override a lock."
+                            "Opt-in, default false. Also delete ids whose mode is hidden. "
+                            "Does not override a lock. (rhino_objects has a different, wider "
+                            "flag, includeUnlisted.)"
                         ),
                     },
                 },

@@ -62,7 +62,7 @@ void HandleDocument(const httplib::Request& req, httplib::Response& res)
 
         // Object count: every undeleted object, including hidden objects,
         // lights and objects on turned-off layers. unlistedObjectCount is the
-        // part of it that GET /objects leaves out unless includeHidden is
+        // part of it that GET /objects leaves out unless includeUnlisted is
         // passed.
         {
             const ObjectCounts counts = CountObjects(pDoc);

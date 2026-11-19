@@ -8,10 +8,16 @@
 //                           returns). Hidden objects, objects on a turned-off
 //                           layer and lights are left out, and counted in
 //                           unlistedCount so the omission is visible.
-//   includeHidden: true   — every undeleted object: the above plus hidden
+//   includeUnlisted: true — every undeleted object: the above plus hidden
 //                           objects, objects on turned-off layers and lights.
 //                           This is the set rhino_layer_dependencies counts
 //                           as directObjects.
+//
+// The flag is named after the response field that calls for it
+// (unlistedCount), not "includeHidden": lights are not hidden, and on
+// POST /delete includeHidden means hidden mode only. One name, one meaning.
+// A request that sends includeHidden here is rejected with a pointer to the
+// right name instead of being answered with the default listing.
 
 #include "stdafx.h"
 #include "Handlers/ObjectsHandler.h"
@@ -24,13 +30,18 @@
 #include "RookServer.h"
 
 #include <algorithm>
+#include <unordered_set>
 
 namespace Rook {
 namespace Handlers {
 
 struct ObjectsResult {
     int totalCount = 0;
-    int unlistedCount = 0;   // matches left out because includeHidden was not set
+    int unlistedCount = 0;   // matches left out because includeUnlisted was not set
+    // ... and why, so the caller knows what would bring each one into view.
+    int unlistedHidden = 0;    // object in hidden mode
+    int unlistedLayerOff = 0;  // normal or locked object on a turned-off layer
+    int unlistedLights = 0;    // a light
     int offset = 0;
     int limit = 100;
     std::vector<ObjectSnapshot> objects;
@@ -438,8 +449,9 @@ void HandleObjects(const httplib::Request& req, httplib::Response& res)
     int limit = 100;
     int offset = 0;
     unsigned int docSn = 0;
-    bool includeHidden = false;
-    bool includeHiddenValid = true;
+    bool includeUnlisted = false;
+    bool includeUnlistedValid = true;
+    bool sentIncludeHidden = req.has_param("includeHidden");
 
     // httplib provides parsed query params in req.params
     if (req.has_param("layer"))  layerFilter = req.get_param_value("layer");
@@ -461,13 +473,13 @@ void HandleObjects(const httplib::Request& req, httplib::Response& res)
         catch (...) {}
     }
     // A query-string boolean arrives as text ("true", "True", "1", ...).
-    if (req.has_param("includeHidden"))
+    if (req.has_param("includeUnlisted"))
     {
-        const std::string raw = req.get_param_value("includeHidden");
+        const std::string raw = req.get_param_value("includeUnlisted");
         if (IEquals(raw, "true") || raw == "1")
-            includeHidden = true;
+            includeUnlisted = true;
         else if (!(IEquals(raw, "false") || raw == "0"))
-            includeHiddenValid = false;
+            includeUnlistedValid = false;
     }
 
     // Also check JSON body (the C# server converts GET params to body)
@@ -483,13 +495,15 @@ void HandleObjects(const httplib::Request& req, httplib::Response& res)
             if (body.contains("offset")) offset = body.value("offset", 0);
             if (body.contains("documentSerialNumber"))
                 docSn = body.value("documentSerialNumber", 0u);
-            if (body.contains("includeHidden"))
+            if (body.contains("includeUnlisted"))
             {
-                if (body["includeHidden"].is_boolean())
-                    includeHidden = body["includeHidden"].get<bool>();
+                if (body["includeUnlisted"].is_boolean())
+                    includeUnlisted = body["includeUnlisted"].get<bool>();
                 else
-                    includeHiddenValid = false;
+                    includeUnlistedValid = false;
             }
+            if (body.contains("includeHidden"))
+                sentIncludeHidden = true;
         }
     }
 
@@ -498,11 +512,25 @@ void HandleObjects(const httplib::Request& req, httplib::Response& res)
 
     // A malformed opt-in is rejected, not read as false: the caller asked for
     // the wider set and must not get the narrower one without being told.
-    if (!includeHiddenValid)
+    if (!includeUnlistedValid)
     {
         nlohmann::json err = {
             {"errorCode", "invalid_input"},
-            {"errorMessage", "'includeHidden' must be a boolean"},
+            {"errorMessage", "'includeUnlisted' must be a boolean"},
+        };
+        CRookServer::SendErrorData(res, err);
+        return;
+    }
+
+    // Same reasoning for the name a caller is most likely to guess, since
+    // rhino_delete has an includeHidden: say which name this route takes.
+    if (sentIncludeHidden)
+    {
+        nlohmann::json err = {
+            {"errorCode", "invalid_input"},
+            {"errorMessage", "'includeHidden' is not a parameter of this route. "
+                "Pass includeUnlisted: true to also list hidden objects, objects on "
+                "turned-off layers and lights."},
         };
         CRookServer::SendErrorData(res, err);
         return;
@@ -530,7 +558,7 @@ void HandleObjects(const httplib::Request& req, httplib::Response& res)
 
     // Capture by value into the dispatch lambda
     auto future = CMainThreadDispatcher::Instance().Dispatch(
-        [layerFilter, typeFilter, nameFilter, limit, offset, docSn, includeHidden]() -> ObjectsResult
+        [layerFilter, typeFilter, nameFilter, limit, offset, docSn, includeUnlisted]() -> ObjectsResult
     {
         // Resolve document
         CRhinoDoc* pDoc = nullptr;
@@ -600,7 +628,7 @@ void HandleObjects(const httplib::Request& req, httplib::Response& res)
         };
 
         // Every undeleted object that matches: normal, locked and hidden, on
-        // layers that are on or off, plus lights. With includeHidden these are
+        // layers that are on or off, plus lights. With includeUnlisted these are
         // the objects listed; without it they are only counted.
         std::vector<const CRhinoObject*> allMatches;
         {
@@ -617,13 +645,13 @@ void HandleObjects(const httplib::Request& req, httplib::Response& res)
 
         // Collect matching object pointers (just pointers — cheap)
         std::vector<const CRhinoObject*> matches;
-        if (includeHidden)
+        if (includeUnlisted)
         {
             matches = std::move(allMatches);
         }
         else
         {
-            // The default listing: the same iterator as before includeHidden
+            // The default listing: the same iterator as before includeUnlisted
             // existed, so an existing caller sees the same objects in the
             // same order.
             CRhinoObjectIterator it(*pDoc,
@@ -635,6 +663,22 @@ void HandleObjects(const httplib::Request& req, httplib::Response& res)
                     matches.push_back(obj);
             }
             result.unlistedCount = static_cast<int>(allMatches.size() - matches.size());
+
+            // Why each one was left out. The three reasons call for different
+            // actions (show the object, turn its layer on, or nothing at all
+            // for a light), so a bare count would leave the caller guessing.
+            const std::unordered_set<const CRhinoObject*> listed(matches.begin(), matches.end());
+            for (const CRhinoObject* obj : allMatches)
+            {
+                if (listed.count(obj) != 0)
+                    continue;
+                if (obj->ObjectType() == ON::light_object)
+                    ++result.unlistedLights;
+                else if (obj->Attributes().Mode() == ON::hidden_object)
+                    ++result.unlistedHidden;
+                else
+                    ++result.unlistedLayerOff;
+            }
         }
 
         result.totalCount = static_cast<int>(matches.size());
@@ -664,17 +708,35 @@ void HandleObjects(const httplib::Request& req, httplib::Response& res)
         data["offset"] = result.offset;
         data["limit"] = result.limit;
         data["count"] = static_cast<int>(result.objects.size());
-        data["includeHidden"] = includeHidden;
+        data["includeUnlisted"] = includeUnlisted;
         // Matches that exist but are not in totalCount. Always 0 with
-        // includeHidden. Without it, a non-zero value is the only sign that
+        // includeUnlisted. Without it, a non-zero value is the only sign that
         // "0 objects" does not mean "nothing there".
         data["unlistedCount"] = result.unlistedCount;
+        // Always present, so the response has one shape; all zero when
+        // nothing was left out.
+        data["unlistedByReason"] = {
+            {"hidden", result.unlistedHidden},
+            {"layerOff", result.unlistedLayerOff},
+            {"light", result.unlistedLights},
+        };
         if (result.unlistedCount > 0)
         {
+            std::string reasons;
+            auto addReason = [&reasons](int count, const char* what) {
+                if (count == 0) return;
+                if (!reasons.empty()) reasons += ", ";
+                reasons += std::to_string(count) + " " + what;
+            };
+            addReason(result.unlistedHidden, "hidden");
+            addReason(result.unlistedLayerOff, "on a turned-off layer");
+            addReason(result.unlistedLights, result.unlistedLights == 1 ? "light" : "lights");
+
             data["unlistedHint"] = std::to_string(result.unlistedCount) +
                 (result.unlistedCount == 1 ? " more matching object is" : " more matching objects are") +
-                " hidden, on a turned-off layer, or a light. "
-                "Pass includeHidden: true to list them.";
+                " not listed (" + reasons + "). "
+                "Pass includeUnlisted: true to list them; each object's mode, "
+                "layerVisible and type then say which kind it is.";
         }
         data["objects"] = std::move(objectsArray);
 

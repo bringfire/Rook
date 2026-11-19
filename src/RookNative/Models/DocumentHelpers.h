@@ -142,7 +142,7 @@ inline std::string ObjectTypeToString(ON::object_type type)
 //
 // Every name ObjectTypeToString can print for a document object is here, so a
 // type read from a listing can be passed back as a filter. "Light" matches
-// only when the query includes lights (GET /objects with includeHidden); a
+// only when the query includes lights (GET /objects with includeUnlisted); a
 // default query reports the lights it left out in unlistedCount.
 struct ObjectTypeFilterEntry
 {
@@ -219,7 +219,7 @@ inline unsigned int ParseObjectTypeFilter(const std::string& typeStr)
 //   listed — what the default CRhinoObjectIterator returns
 //            (normal_or_locked_objects, lights excluded): normal and locked
 //            objects on layers that are turned on. GET /objects lists this set
-//            unless includeHidden is passed.
+//            unless includeUnlisted is passed.
 //   all    — every undeleted object: the listed set plus objects in hidden
 //            mode, objects on a turned-off layer (Rhino's iterator treats
 //            those as hidden) and lights. This is the set that holds a layer
@@ -331,6 +331,39 @@ inline int FindLayerIndex(CRhinoDoc* pDoc, const std::string& name)
     return -1;
 }
 
+// --- Object state ---
+
+// An object's own mode. It says nothing about the object's layer: an object
+// on a turned-off or locked layer keeps mode normal.
+inline const char* ObjectModeToString(ON::object_mode mode)
+{
+    switch (mode)
+    {
+    case ON::locked_object: return "locked";
+    case ON::hidden_object: return "hidden";
+    default:                return "normal";
+    }
+}
+
+// Record why an object is or is not visible and what it will accept: its own
+// mode plus its layer's visibility and lock. `visible` (IsVisible) folds the
+// first two into one bit and leaves the lock out, so a caller cannot tell a
+// hidden object from one on a turned-off layer, nor predict that a delete or
+// a selection will be refused. With these three fields it can, without trying.
+// MUST only be called on the main thread.
+inline void CaptureObjectState(const CRhinoObject* obj, CRhinoDoc* pDoc, ObjectSnapshot& snap)
+{
+    snap.mode = ObjectModeToString(obj->Attributes().Mode());
+
+    const int layerIdx = obj->Attributes().m_layer_index;
+    if (layerIdx >= 0 && layerIdx < pDoc->m_layer_table.LayerCount())
+    {
+        const CRhinoLayer& layer = pDoc->m_layer_table[layerIdx];
+        snap.layerVisible = layer.IsVisible();
+        snap.layerLocked = layer.IsLocked();
+    }
+}
+
 // --- Object snapshot capture ---
 
 // Capture an ObjectSnapshot from a CRhinoObject on the main thread.
@@ -356,6 +389,7 @@ inline ObjectSnapshot CaptureObjectSnapshot(const CRhinoObject* obj, CRhinoDoc* 
 
     snap.name = WideToUtf8(obj->Attributes().m_name);
     snap.visible = obj->IsVisible();
+    CaptureObjectState(obj, pDoc, snap);
 
     ON_BoundingBox bbox = obj->BoundingBox();
     if (bbox.IsValid())

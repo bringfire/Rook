@@ -26,6 +26,7 @@ OBJECTS = NATIVE / "Handlers" / "ObjectsHandler.cpp"
 GEOMETRY_OPS = NATIVE / "Handlers" / "GeometryOpsHandler.cpp"
 LAYER_HELPERS = NATIVE / "Infrastructure" / "LayerHelpers.cpp"
 DOCUMENT_HELPERS = NATIVE / "Models" / "DocumentHelpers.h"
+CREATE = NATIVE / "Handlers" / "CreateHandler.cpp"
 SERIALIZER = NATIVE / "Serialization" / "RhinoSerializer.cpp"
 
 
@@ -257,7 +258,7 @@ def test_type_filter_parser_and_accepted_list_share_one_table():
     # "Unknown" is what the serializer prints for types it has no name for;
     # it is not a type that can be filtered on.
     assert "Unknown" not in names
-    # Lights are listed with includeHidden, so "Light" can be filtered on.
+    # Lights are listed with includeUnlisted, so "Light" can be filtered on.
     assert "Light" in names
 
 
@@ -370,11 +371,11 @@ def test_objects_listing_keeps_its_default_and_counts_what_it_leaves_out():
     body = _extract_function(_read(OBJECTS), "void HandleObjects")
 
     # Opt-in, default false.
-    assert "bool includeHidden = false;" in body
-    # The wide pass always runs; it is the listing only with includeHidden.
+    assert "bool includeUnlisted = false;" in body
+    # The wide pass always runs; it is the listing only with includeUnlisted.
     wide = body[body.index("std::vector<const CRhinoObject*> allMatches;") :]
-    default = wide[wide.index("if (includeHidden)") :]
-    wide = wide[: wide.index("if (includeHidden)")]
+    default = wide[wide.index("if (includeUnlisted)") :]
+    wide = wide[: wide.index("if (includeUnlisted)")]
     assert _iterates_every_undeleted_object(wide)
     assert "matches = std::move(allMatches);" in default
     # Without it, the listing is still the default iterator...
@@ -383,21 +384,31 @@ def test_objects_listing_keeps_its_default_and_counts_what_it_leaves_out():
     assert "result.unlistedCount = static_cast<int>(allMatches.size() - matches.size());" in default
     assert 'data["unlistedCount"] = result.unlistedCount;' in body
     assert 'data["unlistedHint"]' in body
-    assert "includeHidden: true" in body
+    assert "includeUnlisted: true" in body
+    # ...with the reason for each, since each reason calls for a different
+    # action. Lights first: a hidden light is still reported as a light.
+    reasons = default[default.index("const std::unordered_set<const CRhinoObject*> listed") :]
+    light = reasons.index("obj->ObjectType() == ON::light_object")
+    hidden = reasons.index("obj->Attributes().Mode() == ON::hidden_object")
+    layer_off = reasons.index("++result.unlistedLayerOff;")
+    assert light < hidden < layer_off
+    assert 'data["unlistedByReason"]' in body
+    for key in ("hidden", "layerOff", "light"):
+        assert f'{{"{key}", result.unlisted' in body, key
     # Both passes apply one filter test, so the two counts are comparable.
     assert body.count("matchesFilters(obj)") == 2
     assert "it.SetObjectFilter(" not in body
 
 
-def test_objects_handler_rejects_a_malformed_include_hidden_before_querying():
+def test_objects_handler_rejects_a_malformed_include_unlisted_before_querying():
     body = _extract_function(_read(OBJECTS), "void HandleObjects")
-    reject = body.index("if (!includeHiddenValid)")
+    reject = body.index("if (!includeUnlistedValid)")
     dispatch = body.index("CMainThreadDispatcher::Instance().Dispatch")
 
     assert reject < dispatch
     rejection = body[reject:dispatch]
     assert '{"errorCode", "invalid_input"}' in rejection
-    assert "'includeHidden' must be a boolean" in rejection
+    assert "'includeUnlisted' must be a boolean" in rejection
     # The bridge sends GET arguments as query text, so "True"/"False" must parse.
     assert 'IEquals(raw, "true")' in body
     assert 'IEquals(raw, "false")' in body
@@ -408,16 +419,20 @@ async def test_object_tool_schemas_state_what_is_counted_and_listed(monkeypatch)
     tools = await _public_tools(monkeypatch)
 
     objects = tools["rhino_objects"]
-    prop = objects.inputSchema["properties"]["includeHidden"]
+    prop = objects.inputSchema["properties"]["includeUnlisted"]
     assert prop["type"] == "boolean"
     assert "default false" in prop["description"].lower()
     assert "unlistedCount" in objects.description
-    assert "includeHidden" in objects.description
+    assert "unlistedByReason" in objects.description
+    assert "includeUnlisted" in objects.description
+    # One name, one meaning: includeHidden belongs to rhino_delete only.
+    assert "includeHidden" not in objects.inputSchema["properties"]
 
-    # `visible` cannot reconstruct the default listing: a light is visible and
-    # still left out. The description must not promise that it can.
+    # `visible` cannot say why an object is not visible, nor what it will
+    # accept. The description names the fields that can.
     assert "tells them apart" not in objects.description
-    assert "does not say whether" in objects.description
+    for field in ("`mode`", "`layerVisible`", "`layerLocked`"):
+        assert field in objects.description, field
 
     for name in ("rhino_layers", "rhino_document"):
         description = tools[name].description
@@ -517,10 +532,10 @@ def test_select_rejects_an_unrecognized_type_before_touching_the_selection():
     # A present `type` that is not a string never reaches the predicate, so it
     # must be rejected here too, or the request clears the selection, skips the
     # type predicate and reports success.
-    non_string = body.index(
-        'if (body.contains("type") && !body["type"].is_null() && !body["type"].is_string())'
-    )
+    # That includes null: a caller that sends `type` meant to filter by it.
+    non_string = body.index('if (body.contains("type") && !body["type"].is_string())')
     assert non_string < reject
+    assert "is_null()" not in body[non_string:reject]
     assert "'type' must be a string" in body[non_string:reject]
     assert "return;" in body[non_string:reject]
 
@@ -628,3 +643,91 @@ def test_object_counts_iterate_active_model_objects_only():
         assert body.count("CRhinoObjectIterator::active_objects") == 2, signature
         assert "reference_objects" not in body, signature
         assert "idef_objects" not in body, signature
+
+
+# --- One name, one meaning -----------------------------------------------------
+#
+# rhino_delete's includeHidden means hidden mode only. The wider listing flag on
+# rhino_objects is includeUnlisted, named after the unlistedCount it answers. A
+# caller that guesses includeHidden on rhino_objects is told the right name
+# instead of getting the default listing back.
+
+
+def test_objects_handler_rejects_include_hidden_and_names_the_right_flag():
+    body = _extract_function(_read(OBJECTS), "void HandleObjects")
+    reject = body.index("if (sentIncludeHidden)")
+    dispatch = body.index("CMainThreadDispatcher::Instance().Dispatch")
+
+    assert reject < dispatch
+    rejection = body[reject:dispatch]
+    assert '{"errorCode", "invalid_input"}' in rejection
+    assert "includeUnlisted: true" in rejection
+    assert "return;" in rejection
+    # Seen in the query string and in a JSON body.
+    assert 'req.has_param("includeHidden")' in body
+    assert 'body.contains("includeHidden")' in body
+
+
+@pytest.mark.asyncio
+async def test_include_hidden_and_include_unlisted_each_belong_to_one_tool(monkeypatch):
+    tools = await _public_tools(monkeypatch)
+    objects = tools["rhino_objects"].inputSchema["properties"]
+    delete = tools["rhino_delete"].inputSchema["properties"]
+
+    assert "includeUnlisted" in objects and "includeHidden" not in objects
+    assert "includeHidden" in delete and "includeUnlisted" not in delete
+    # Each description points at the other flag, so neither is guessed.
+    assert "includeHidden" in objects["includeUnlisted"]["description"]
+    assert "includeUnlisted" in delete["includeHidden"]["description"]
+
+
+# --- Objects say what state they are in ----------------------------------------
+#
+# `visible` folds the object's mode and its layer's visibility into one bit and
+# leaves locks out. With mode, layerVisible and layerLocked a caller can tell
+# why an object is not listed and predict a refused delete or selection
+# without trying it.
+
+
+def test_object_snapshots_carry_mode_and_layer_state():
+    helpers = _read(DOCUMENT_HELPERS)
+
+    modes = _extract_function(helpers, "inline const char* ObjectModeToString")
+    assert 'case ON::locked_object: return "locked";' in modes
+    assert 'case ON::hidden_object: return "hidden";' in modes
+    assert 'return "normal";' in modes
+
+    state = _extract_function(helpers, "inline void CaptureObjectState")
+    # The object's own mode, not IsHidden()/IsVisible(), and the layer apart.
+    assert "snap.mode = ObjectModeToString(obj->Attributes().Mode());" in state
+    assert "snap.layerVisible = layer.IsVisible();" in state
+    assert "snap.layerLocked = layer.IsLocked();" in state
+
+    # Every path that builds an object snapshot records it.
+    capture = _extract_function(helpers, "inline ObjectSnapshot CaptureObjectSnapshot")
+    assert "CaptureObjectState(obj, pDoc, snap);" in capture
+    created = _extract_function(_read(CREATE), "static ObjectSnapshot CaptureCreatedObject")
+    assert "CaptureObjectState(obj, pDoc, snap);" in created
+
+    serialized = _extract_function(_read(SERIALIZER), "nlohmann::json SerializeObject")
+    for line in (
+        'j["mode"] = obj.mode;',
+        'j["layerVisible"] = obj.layerVisible;',
+        'j["layerLocked"] = obj.layerLocked;',
+    ):
+        assert line in serialized, line
+    # `visible` stays: existing callers read it.
+    assert 'j["visible"] = obj.visible;' in serialized
+
+
+@pytest.mark.asyncio
+async def test_delete_and_selection_descriptions_use_the_state_fields(monkeypatch):
+    tools = await _public_tools(monkeypatch)
+
+    delete = tools["rhino_delete"].description
+    assert "mode hidden" in delete
+    assert "mode locked" in delete
+    assert "layerLocked" in delete
+    selection = tools["rhino_selection"].description
+    for field in ("mode", "layerVisible", "layerLocked"):
+        assert field in selection, field

@@ -64,6 +64,14 @@ nlohmann::json SerializeObject(const ObjectSnapshot& obj)
     j["layer"] = obj.layer;
     j["name"] = obj.name.empty() ? nlohmann::json(nullptr) : nlohmann::json(obj.name);
     j["visible"] = obj.visible;
+    // The object's own mode and its layer's state. `visible` alone cannot say
+    // why an object is not visible, or whether it can be selected or deleted.
+    if (!obj.mode.empty())
+    {
+        j["mode"] = obj.mode;
+        j["layerVisible"] = obj.layerVisible;
+        j["layerLocked"] = obj.layerLocked;
+    }
     j["bbox"] = SerializeBBox(obj.bbox);
 
     if (obj.color.has_value())

@@ -56,7 +56,7 @@ void HandleLayers(const httplib::Request& req, httplib::Response& res)
         // undeleted object on the layer — hidden objects, lights and objects
         // on a turned-off layer included — so a layer that is turned off does
         // not read as empty. unlistedObjectCount is the part of it that
-        // GET /objects leaves out unless includeHidden is passed.
+        // GET /objects leaves out unless includeUnlisted is passed.
         const std::unordered_map<int, ObjectCounts> objectsPerLayer = CountObjectsByLayer(pDoc);
 
         for (int i = 0; i < layerCount; ++i)

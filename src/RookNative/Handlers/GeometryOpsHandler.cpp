@@ -168,7 +168,7 @@ void HandleDelete(const httplib::Request& req, httplib::Response& res)
                 (hiddenRefusedCount == 1 ? " object was" : " objects were") +
                 " not deleted because " +
                 (hiddenRefusedCount == 1 ? "it is" : "they are") +
-                " hidden. "
+                " hidden (mode \"hidden\" in rhino_objects). "
                 "Pass includeHidden: true to delete hidden objects by id.";
         }
 

@@ -13,9 +13,12 @@ Covers, against a real document:
     the sub-layers' objects with `includeSublayers: true`
   - `rhino_objects` rejects an unrecognized `type` and lists the accepted ones
   - `rhino_objects` leaves hidden objects, lights and objects on a turned-off
-    layer out by default, reports them in `unlistedCount`, and lists them with
-    `includeHidden: true`; `objectCount` in `rhino_layers` and `rhino_document`
-    counts them
+    layer out by default, reports them in `unlistedCount` with the reason for
+    each in `unlistedByReason`, and lists them with `includeUnlisted: true`;
+    `includeHidden` on this tool is rejected with the right name; `objectCount`
+    in `rhino_layers` and `rhino_document` counts them
+  - every listed object carries `mode`, `layerVisible` and `layerLocked`, and
+    those fields predict what `rhino_delete` will refuse
   - `rhino_layer_move_objects` moves hidden objects and lights, and everything
     on a turned-off layer
   - `rhino_select` and `rhino_select_by_type` reject an unrecognized `type`
@@ -123,10 +126,15 @@ def light(layer_index, x):
     attributes.LayerIndex = layer_index
     return doc.Lights[doc.Lights.Add(geometry, attributes)].Id
 
-def dot(layer_index, x):
+def dot(layer_index, x, name=None, hidden=False):
     attributes = Rhino.DocObjects.ObjectAttributes()
     attributes.LayerIndex = layer_index
-    return doc.Objects.AddTextDot("dot", Rhino.Geometry.Point3d(x, 0, 0), attributes)
+    if name:
+        attributes.Name = name
+    object_id = doc.Objects.AddTextDot("dot", Rhino.Geometry.Point3d(x, 0, 0), attributes)
+    if hidden:
+        doc.Objects.Hide(object_id, True)
+    return object_id
 
 def default_order(layer_index):
     # The ids Rhino's default object iterator returns for one layer, in order.
@@ -373,27 +381,37 @@ async def test_objects_lists_hidden_objects_and_lights_only_when_asked(fresh_doc
     mixed = f"{tag}_mixed"
     out = await _setup(
         f'index = layer("{mixed}")\n'
-        "point(index, 0)\n"
+        "print(point(index, 0))\n"
         "print(point(index, 1, hidden=True))\n"
         "print(light(index, 2))"
     )
-    hidden_id, light_id = (line.strip().lower() for line in out.split())
+    normal_id, hidden_id, light_id = (line.strip().lower() for line in out.split())
 
     default = await _ok("rhino_objects", {"layer": mixed})
     assert default["totalCount"] == 1
     assert default["unlistedCount"] == 2
-    assert "includeHidden" in default["unlistedHint"]
+    assert default["unlistedByReason"] == {"hidden": 1, "layerOff": 0, "light": 1}
+    assert "includeUnlisted" in default["unlistedHint"]
+    assert "1 hidden" in default["unlistedHint"]
+    assert "1 light" in default["unlistedHint"]
     assert hidden_id not in _ids(default["objects"])
 
-    everything = await _ok("rhino_objects", {"layer": mixed, "includeHidden": True})
+    everything = await _ok("rhino_objects", {"layer": mixed, "includeUnlisted": True})
     assert everything["totalCount"] == 3
     assert everything["unlistedCount"] == 0
+    assert everything["unlistedByReason"] == {"hidden": 0, "layerOff": 0, "light": 0}
     by_id = {obj["id"].lower(): obj for obj in everything["objects"]}
     assert by_id[hidden_id]["visible"] is False
     assert by_id[light_id]["type"] == "Light"
+    # Each object says why it is, or is not, in the default listing.
+    assert by_id[normal_id]["mode"] == "normal"
+    assert by_id[hidden_id]["mode"] == "hidden"
+    assert by_id[light_id]["mode"] == "normal"
+    assert all(obj["layerVisible"] is True for obj in everything["objects"])
+    assert all(obj["layerLocked"] is False for obj in everything["objects"])
 
     lights = await _ok(
-        "rhino_objects", {"layer": mixed, "type": "Light", "includeHidden": True}
+        "rhino_objects", {"layer": mixed, "type": "Light", "includeUnlisted": True}
     )
     assert _ids(lights["objects"]) == [light_id]
 
@@ -417,10 +435,15 @@ async def test_turned_off_layer_keeps_its_object_count(fresh_document, tag):
     default = await _ok("rhino_objects", {"layer": switched_off})
     assert default["totalCount"] == 0
     assert default["unlistedCount"] == 2
+    assert default["unlistedByReason"] == {"hidden": 0, "layerOff": 2, "light": 0}
+    assert "on a turned-off layer" in default["unlistedHint"]
 
-    everything = await _ok("rhino_objects", {"layer": switched_off, "includeHidden": True})
+    everything = await _ok("rhino_objects", {"layer": switched_off, "includeUnlisted": True})
     assert everything["totalCount"] == 2
     assert all(obj["visible"] is False for obj in everything["objects"])
+    # Not visible because of the layer, not because the objects are hidden.
+    assert all(obj["mode"] == "normal" for obj in everything["objects"])
+    assert all(obj["layerVisible"] is False for obj in everything["objects"])
 
 
 async def test_document_object_count_includes_hidden_objects_and_lights(fresh_document, tag):
@@ -468,7 +491,11 @@ async def test_unlisted_count_respects_the_name_and_type_filters(fresh_document,
         'point(index, 3, name="other", hidden=True)\n'
         "point(index, 4, hidden=True)\n"
         "light(index, 5)\n"
-        "dot(index, 6)"
+        "dot(index, 6)\n"
+        # Named like the points but not points: a type filter that was dropped
+        # whenever a name filter is present would count these.
+        'dot(index, 7, name="keep")\n'
+        'dot(index, 8, name="keep", hidden=True)'
     )
 
     # The page size must not change either count.
@@ -481,20 +508,33 @@ async def test_unlisted_count_respects_the_name_and_type_filters(fresh_document,
         assert res["unlistedCount"] == 1
         assert res["count"] == min(limit, 2)
 
+    by_name = await _ok("rhino_objects", {"layer": mixed, "name": "keep"})
+    assert by_name["totalCount"] == 3  # two points and one text dot
+    assert by_name["unlistedCount"] == 2  # the hidden point and the hidden text dot
+
     by_type = await _ok("rhino_objects", {"layer": mixed, "type": "Point"})
     assert by_type["totalCount"] == 2
     assert by_type["unlistedCount"] == 3
 
     unfiltered = await _ok("rhino_objects", {"layer": mixed})
-    assert unfiltered["totalCount"] == 3  # two points and the text dot
-    assert unfiltered["unlistedCount"] == 4  # three hidden points and the light
+    assert unfiltered["totalCount"] == 4  # two points and two text dots
+    assert unfiltered["unlistedCount"] == 5  # three hidden points, a hidden dot, the light
+    assert unfiltered["unlistedByReason"] == {"hidden": 4, "layerOff": 0, "light": 1}
 
 
-async def test_objects_rejects_a_malformed_include_hidden(fresh_document):
-    res = await _tool("rhino_objects", {"includeHidden": "yes", "limit": 1})
+async def test_objects_rejects_a_malformed_include_unlisted(fresh_document):
+    res = await _tool("rhino_objects", {"includeUnlisted": "yes", "limit": 1})
 
-    assert _is_error(res), f"a malformed includeHidden must not read as false: {res!r}"
-    assert "includeHidden" in str(res)
+    assert _is_error(res), f"a malformed includeUnlisted must not read as false: {res!r}"
+    assert "includeUnlisted" in str(res)
+
+
+async def test_objects_rejects_include_hidden_and_names_the_right_flag(fresh_document):
+    # rhino_delete has includeHidden, so it is the name a caller will guess.
+    res = await _tool("rhino_objects", {"includeHidden": True, "limit": 1})
+
+    assert _is_error(res), f"a guessed flag must not be answered with the default listing: {res!r}"
+    assert "includeUnlisted" in str(res)
 
 
 # --- rhino_layer_move_objects: "all objects" means all ------------------------
@@ -559,13 +599,14 @@ async def test_select_rejects_an_unrecognized_type_and_keeps_the_selection(fresh
     await _ok("rhino_select", {"none": True})
 
 
-async def test_select_rejects_a_type_that_is_not_a_string(fresh_document, tag):
+@pytest.mark.parametrize("bad_type", [123, None, ["Point"]])
+async def test_select_rejects_a_type_that_is_not_a_string(fresh_document, tag, bad_type):
     kept_id = (
         await _setup(f'index = layer("{tag}_sel_num")\nprint(point(index, 0)); point(index, 1)')
     ).strip().lower()
     await _ok("rhino_select", {"ids": [kept_id]})
 
-    res = await _tool("rhino_select", {"type": 123})
+    res = await _tool("rhino_select", {"type": bad_type})
 
     assert _is_error(res), f"a non-string type must not be ignored: {res!r}"
     assert "'type' must be a string" in str(res)
@@ -687,6 +728,12 @@ async def test_delete_reports_locked_for_a_locked_object_and_for_a_locked_layer(
     )
     locked_id, on_locked_layer_id = (line.strip().lower() for line in out.split())
     await _ok("rhino_layer_lock", {"name": locked_layer, "locked": True})
+
+    # The listing already says both will be refused, and for which reason.
+    listed_free = await _ok("rhino_objects", {"layer": free})
+    assert [(obj["mode"], obj["layerLocked"]) for obj in listed_free["objects"]] == [("locked", False)]
+    listed_locked = await _ok("rhino_objects", {"layer": locked_layer})
+    assert [(obj["mode"], obj["layerLocked"]) for obj in listed_locked["objects"]] == [("normal", True)]
 
     # includeHidden is about hidden objects only: it changes nothing here.
     for arguments in ({}, {"includeHidden": True}):
