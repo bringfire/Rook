@@ -19,10 +19,14 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 NATIVE = REPO_ROOT / "src" / "RookNative"
 LAYER_OPS = NATIVE / "Handlers" / "LayerOpsHandler.cpp"
+LAYERS = NATIVE / "Handlers" / "LayersHandler.cpp"
+DOCUMENT = NATIVE / "Handlers" / "DocumentHandler.cpp"
 SELECTION = NATIVE / "Handlers" / "SelectionHandler.cpp"
 OBJECTS = NATIVE / "Handlers" / "ObjectsHandler.cpp"
+GEOMETRY_OPS = NATIVE / "Handlers" / "GeometryOpsHandler.cpp"
 LAYER_HELPERS = NATIVE / "Infrastructure" / "LayerHelpers.cpp"
 DOCUMENT_HELPERS = NATIVE / "Models" / "DocumentHelpers.h"
+SERIALIZER = NATIVE / "Serialization" / "RhinoSerializer.cpp"
 
 
 def _read(path: Path) -> str:
@@ -248,13 +252,13 @@ def test_type_filter_parser_and_accepted_list_share_one_table():
     )
 
     names = _native_type_filter_names()
-    assert len(names) == 13
+    assert len(names) == 15
     assert {"Point", "Curve", "Brep", "Mesh", "Extrusion", "ClipPlane"} <= set(names)
     # "Unknown" is what the serializer prints for types it has no name for;
     # it is not a type that can be filtered on.
     assert "Unknown" not in names
-    # The objects query iterates without lights, so "Light" could never match.
-    assert "Light" not in names
+    # Lights are listed with includeHidden, so "Light" can be filtered on.
+    assert "Light" in names
 
 
 def test_objects_handler_rejects_an_unrecognized_type_before_querying():
@@ -279,3 +283,300 @@ async def test_rhino_objects_schema_lists_exactly_the_native_type_names(monkeypa
     listed = description.split("Accepted values:")[1].split(".")[0]
     assert [name.strip() for name in listed.split(",")] == _native_type_filter_names()
     assert "rejected" in description
+
+
+# --- Object counts and listings: hidden objects, off layers, lights -----------
+#
+# Rhino's default object iterator (normal_or_locked_objects, no lights) leaves
+# out hidden objects, lights and every object on a layer that is turned off.
+# Counts report every undeleted object; the rhino_objects listing keeps the
+# default set, says how many matches it left out, and lists them on request.
+
+
+def _iterates_every_undeleted_object(block: str) -> bool:
+    return (
+        "CRhinoObjectIterator::undeleted_objects" in block
+        and "it.IncludeLights(true);" in block
+    )
+
+
+@pytest.mark.parametrize(
+    "signature",
+    [
+        "inline ObjectCounts CountObjects",
+        "inline std::unordered_map<int, ObjectCounts> CountObjectsByLayer",
+    ],
+)
+def test_object_count_helpers_count_all_and_listed_separately(signature):
+    body = _extract_function(_read(DOCUMENT_HELPERS), signature)
+    all_pass, listed_pass = body.split("CRhinoObjectIterator::normal_or_locked_objects")
+
+    # `all`: undeleted objects plus lights. `listed`: the default iterator.
+    assert _iterates_every_undeleted_object(all_pass)
+    assert ".all" in all_pass
+    assert ".listed" in listed_pass
+    assert "IncludeLights" not in listed_pass
+
+    counts = _extract_function(_read(DOCUMENT_HELPERS), "struct ObjectCounts")
+    assert "int Unlisted() const { return all - listed; }" in counts
+
+
+def test_layers_handler_counts_every_object_on_a_layer():
+    body = _extract_function(_read(LAYERS), "void HandleLayers")
+
+    assert "CountObjectsByLayer(pDoc)" in body
+    # The defect: counting with the default iterator made a turned-off layer
+    # report objectCount 0.
+    assert "CRhinoObjectIterator" not in body
+    assert "snap.objectCount = countIt->second.all;" in body
+    assert "snap.unlistedObjectCount = countIt->second.Unlisted();" in body
+
+
+def test_single_layer_responses_use_the_same_count():
+    body = _extract_function(
+        _read(LAYER_OPS),
+        # The definition, not the forward declaration above it.
+        "static nlohmann::json SerializeLayerAtIndex(CRhinoDoc* pDoc, int layerIndex)\n{",
+    )
+
+    assert "CountObjects(pDoc, layerIndex)" in body
+    assert "CRhinoObjectIterator" not in body
+    assert "snap.objectCount = counts.all;" in body
+    assert "snap.unlistedObjectCount = counts.Unlisted();" in body
+
+
+def test_document_handler_counts_every_object():
+    body = _extract_function(_read(DOCUMENT), "void HandleDocument")
+
+    assert "CountObjects(pDoc)" in body
+    assert "CRhinoObjectIterator" not in body
+    assert "snap.objectCount = counts.all;" in body
+    assert "snap.unlistedObjectCount = counts.Unlisted();" in body
+
+
+def test_layer_and_document_responses_carry_the_unlisted_count():
+    source = _read(SERIALIZER)
+
+    layer = _extract_function(source, "nlohmann::json SerializeLayer")
+    assert 'j["objectCount"] = layer.objectCount;' in layer
+    assert 'j["unlistedObjectCount"] = layer.unlistedObjectCount;' in layer
+
+    document = _extract_function(source, "nlohmann::json SerializeDocument")
+    assert '{"objectCount", doc.objectCount}' in document
+    assert '{"unlistedObjectCount", doc.unlistedObjectCount}' in document
+
+
+def test_objects_listing_keeps_its_default_and_counts_what_it_leaves_out():
+    body = _extract_function(_read(OBJECTS), "void HandleObjects")
+
+    # Opt-in, default false.
+    assert "bool includeHidden = false;" in body
+    # The wide pass always runs; it is the listing only with includeHidden.
+    wide = body[body.index("std::vector<const CRhinoObject*> allMatches;") :]
+    default = wide[wide.index("if (includeHidden)") :]
+    wide = wide[: wide.index("if (includeHidden)")]
+    assert _iterates_every_undeleted_object(wide)
+    assert "matches = std::move(allMatches);" in default
+    # Without it, the listing is still the default iterator...
+    assert "CRhinoObjectIterator::normal_or_locked_objects" in default
+    # ...and the difference is reported, not dropped.
+    assert "result.unlistedCount = static_cast<int>(allMatches.size() - matches.size());" in default
+    assert 'data["unlistedCount"] = result.unlistedCount;' in body
+    assert 'data["unlistedHint"]' in body
+    assert "includeHidden: true" in body
+    # Both passes apply one filter test, so the two counts are comparable.
+    assert body.count("matchesFilters(obj)") == 2
+    assert "it.SetObjectFilter(" not in body
+
+
+def test_objects_handler_rejects_a_malformed_include_hidden_before_querying():
+    body = _extract_function(_read(OBJECTS), "void HandleObjects")
+    reject = body.index("if (!includeHiddenValid)")
+    dispatch = body.index("CMainThreadDispatcher::Instance().Dispatch")
+
+    assert reject < dispatch
+    rejection = body[reject:dispatch]
+    assert '{"errorCode", "invalid_input"}' in rejection
+    assert "'includeHidden' must be a boolean" in rejection
+    # The bridge sends GET arguments as query text, so "True"/"False" must parse.
+    assert 'IEquals(raw, "true")' in body
+    assert 'IEquals(raw, "false")' in body
+
+
+@pytest.mark.asyncio
+async def test_object_tool_schemas_state_what_is_counted_and_listed(monkeypatch):
+    tools = await _public_tools(monkeypatch)
+
+    objects = tools["rhino_objects"]
+    prop = objects.inputSchema["properties"]["includeHidden"]
+    assert prop["type"] == "boolean"
+    assert "default false" in prop["description"].lower()
+    assert "unlistedCount" in objects.description
+    assert "includeHidden" in objects.description
+
+    for name in ("rhino_layers", "rhino_document"):
+        description = tools[name].description
+        assert "unlistedObjectCount" in description, name
+        assert "turned-off" in description or "turned off" in description, name
+
+
+# --- rhino_layer_move_objects: "all objects" means all ------------------------
+
+
+def test_layer_move_objects_moves_hidden_objects_and_lights():
+    body = _extract_function(_read(LAYER_OPS), "void HandleLayerMoveObjects")
+
+    assert _iterates_every_undeleted_object(body)
+    assert "CRhinoObjectIterator::normal_or_locked_objects" not in body
+    assert "ON::hidden_object" in body
+    assert 'wr.data["hiddenObjectsMoved"] = hiddenMoved;' in body
+    # Unlike merge, the source layer is kept.
+    assert "DeleteLayer" not in body
+
+
+@pytest.mark.asyncio
+async def test_layer_move_objects_description_says_hidden_objects_move(monkeypatch):
+    description = (await _public_tools(monkeypatch))["rhino_layer_move_objects"].description
+
+    assert "hiddenObjectsMoved" in description
+    assert "lights" in description
+
+
+# --- rhino_select / rhino_select_by_type: an unrecognized type is an error ----
+#
+# MapSelectTypeFilter returns 0 for a name it does not know, and the type
+# predicate read 0 as "match all", so `type: "NoSuchType"` selected every
+# object in the document.
+
+
+def _native_select_type_names() -> list[str]:
+    table = _extract_function(
+        _read(SELECTION), "static const std::vector<SelectTypeEntry>& SelectTypeEntries"
+    )
+    return re.findall(r'\{"(\w+)",\s+ON::\w+\}', table)
+
+
+def test_select_type_parser_and_accepted_list_share_one_table():
+    source = _read(SELECTION)
+    mapper = _extract_function(source, "static unsigned int MapSelectTypeFilter")
+
+    assert "SelectTypeEntries()" in mapper
+    assert "return 0;" in mapper
+    assert "match all" not in mapper.split("{", 1)[1]
+
+    names = _native_select_type_names()
+    assert len(names) == len(set(names)) == 20
+    # The original aliases still work.
+    assert {"line", "circle", "arc", "polyline", "text", "block"} <= set(names)
+    # Selection iterates without lights, so "light" could only select nothing.
+    assert "light" not in names
+
+
+def test_select_accepts_every_type_name_rhino_objects_prints_except_light():
+    printed = {name.lower() for name in _native_type_filter_names()}
+
+    assert printed - set(_native_select_type_names()) == {"light"}
+
+
+def test_select_rejects_an_unrecognized_type_before_touching_the_selection():
+    body = _extract_function(_read(SELECTION), "void HandleSelect")
+    reject = body.index("if (MapSelectTypeFilter(typeStr) == 0)")
+    dispatch = body.index("CMainThreadDispatcher::Instance().Dispatch")
+
+    # Before the dispatch: `clear` runs inside it, so a rejected request must
+    # not have cleared the selection.
+    assert reject < dispatch
+    rejection = body[reject:dispatch]
+    assert '{"errorCode", "invalid_input"}' in rejection
+    assert "acceptedTypes" in rejection
+    assert "SelectTypeEntries()" in rejection
+    assert "CRookServer::SendErrorData(res, err);" in rejection
+    assert "return;" in rejection
+
+    predicate = body[body.index("// 5. type") : body.index("// 6. namePattern")]
+    # The defect: 0 treated as "matches everything".
+    assert "(typeFilter == 0) ||" not in predicate
+    assert "if (typeFilter == 0)" in predicate
+    assert "throw std::invalid_argument" in predicate
+
+
+@pytest.mark.asyncio
+async def test_select_by_type_schema_lists_exactly_the_native_type_names(monkeypatch):
+    tool = (await _public_tools(monkeypatch))["rhino_select_by_type"]
+    description = tool.inputSchema["properties"]["type"]["description"]
+
+    listed = description.split("Accepted values:")[1].split(".")[0]
+    assert [name.strip() for name in listed.split(",")] == _native_select_type_names()
+    assert "rejected" in description
+    assert "rejected" in tool.description
+
+
+# --- Detail views have a type name --------------------------------------------
+#
+# ObjectTypeToString had no case for ON::detail_object, so detail views were
+# listed as "Unknown" — a type that cannot be filtered on.
+
+
+def test_every_filterable_type_has_a_printed_name_and_the_reverse():
+    printer = _extract_function(
+        _read(DOCUMENT_HELPERS), "inline std::string ObjectTypeToString"
+    )
+    printed = dict(re.findall(r'case (ON::\w+):\s+return "(\w+)";', printer))
+    table = _extract_function(
+        _read(DOCUMENT_HELPERS),
+        "inline const std::vector<ObjectTypeFilterEntry>& ObjectTypeFilterEntries",
+    )
+    filterable = {name: constant for name, constant in re.findall(r'\{"(\w+)",\s+(ON::\w+)\}', table)}
+
+    assert printed["ON::detail_object"] == "Detail"
+    # A type name read from a listing can be passed back as a filter, with the
+    # same meaning, and nothing filterable prints as "Unknown".
+    assert {name: constant for constant, name in printed.items()} == filterable
+
+
+# --- rhino_delete: hidden objects are opt-in, and failures say why ------------
+#
+# CRhinoDoc::DeleteObject(objref, bQuiet, bIgnoreModes=false) refuses hidden
+# and locked objects. A hidden id came back in failedIds with no reason.
+# "Hidden" is the object's own mode: an object on a turned-off layer is in
+# normal mode and Rhino deletes it by id as it always did.
+
+
+def test_delete_refuses_hidden_objects_unless_asked_and_never_overrides_a_lock():
+    body = _extract_function(_read(GEOMETRY_OPS), "void HandleDelete")
+
+    assert "bool includeHidden = false;" in body
+    assert "'includeHidden' must be a boolean" in body
+    assert body.index("'includeHidden' must be a boolean") < body.index(
+        "CMainThreadDispatcher::Instance().Dispatch"
+    )
+
+    hidden = body[body.index("else if (obj->Attributes().Mode() == ON::hidden_object)") :]
+    hidden = hidden[: hidden.index("else if (pDoc->DeleteObject(CRhinoObjRef(obj), true))")]
+    # bIgnoreModes=true appears once, and only on the hidden path...
+    assert body.count("DeleteObject(CRhinoObjRef(obj), true, true)") == 1
+    assert "DeleteObject(CRhinoObjRef(obj), true, true)" in hidden
+    # ...after the opt-in check and the lock check.
+    refused = hidden.index("if (!includeHidden)")
+    locked = hidden.index("else if (onLockedLayer(obj))")
+    ignore_modes = hidden.index("DeleteObject(CRhinoObjRef(obj), true, true)")
+    assert refused < locked < ignore_modes
+    assert "m_layer_table[layerIdx].IsLocked()" in body
+
+    for reason in ("not_found", "hidden", "locked", "not_deletable"):
+        assert f'"{reason}"' in body, reason
+    assert 'wr.data["failureReasons"]' in body
+    assert 'wr.data["hiddenDeletedCount"] = hiddenDeletedCount;' in body
+    assert "includeHidden: true" in body
+
+
+@pytest.mark.asyncio
+async def test_rhino_delete_schema_advertises_the_hidden_opt_in(monkeypatch):
+    tool = (await _public_tools(monkeypatch))["rhino_delete"]
+    prop = tool.inputSchema["properties"]["includeHidden"]
+
+    assert prop["type"] == "boolean"
+    assert "default false" in prop["description"].lower()
+    assert "lock" in prop["description"]
+    assert "failureReasons" in tool.description
+    assert tool.inputSchema["required"] == ["ids"]

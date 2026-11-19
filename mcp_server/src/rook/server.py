@@ -3968,17 +3968,36 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
         ),
         Tool(
             name="rhino_document",
-            description="Get information about the current Rhino document including name, units, object count, and a summary of objects.",
+            description=(
+                "Get information about the current Rhino document including name, units, object count, "
+                "and a summary of objects. objectCount is every undeleted object, including hidden "
+                "objects, objects on turned-off layers and lights; unlistedObjectCount is how many of "
+                "those rhino_objects leaves out unless includeHidden is true."
+            ),
             inputSchema={"type": "object", "properties": {}, "required": []}
         ),
         Tool(
             name="rhino_layers",
-            description="Get all layers in the current document with their properties (color, visibility, etc).",
+            description=(
+                "Get all layers in the current document with their properties (color, visibility, etc). "
+                "Each layer's objectCount is every undeleted object on it, including hidden objects, "
+                "lights and, when the layer is turned off, all of its objects, so it matches "
+                "rhino_layer_dependencies.directObjects and does not drop to 0 when a layer is turned "
+                "off. unlistedObjectCount is how many of those rhino_objects leaves out unless "
+                "includeHidden is true."
+            ),
             inputSchema={"type": "object", "properties": {}, "required": []}
         ),
         Tool(
             name="rhino_objects",
-            description="Query objects in the document with optional filters.",
+            description=(
+                "Query objects in the document with optional filters. By default this lists normal "
+                "and locked objects on layers that are turned on; hidden objects, objects on a "
+                "turned-off layer and lights are left out and counted in unlistedCount, so "
+                "totalCount 0 with unlistedCount > 0 means the matches exist but are not listed. "
+                "Pass `includeHidden: true` to list them too (each object's `visible` field tells "
+                "them apart)."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -3987,10 +4006,18 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
                         "type": "string",
                         "description": (
                             "Filter by object type (case-insensitive). Accepted values: "
-                            "Point, PointSet, Curve, Surface, Brep, Mesh, Annotation, "
-                            "InstanceReference, TextDot, Hatch, SubD, Extrusion, ClipPlane. "
+                            "Point, PointSet, Curve, Surface, Brep, Mesh, Light, Annotation, "
+                            "InstanceReference, TextDot, Hatch, SubD, Extrusion, ClipPlane, Detail. "
                             "Any other value is rejected with invalid_input (it does not "
-                            "fall back to returning every object)."
+                            "fall back to returning every object). Light matches only with "
+                            "includeHidden true."
+                        ),
+                    },
+                    "includeHidden": {
+                        "type": "boolean",
+                        "description": (
+                            "Opt-in, default false. Also list hidden objects, objects on "
+                            "turned-off layers and lights, i.e. every undeleted object."
                         ),
                     },
                     "name": {"type": "string", "description": "Filter by name (partial match)"},
@@ -4400,7 +4427,13 @@ Optional for all: "name", "layer", "color" (as [r,g,b], {"r":255,"g":0,"b":0}, o
         # Geometry operations
         Tool(
             name="rhino_delete",
-            description="Delete objects by their IDs.",
+            description=(
+                "Delete objects by their IDs. Ids that were not deleted are returned in failedIds, "
+                "with the cause per id in failureReasons: not_found, hidden, locked or not_deletable. "
+                "A hidden object (one hidden with Hide, not merely on a turned-off layer) is refused "
+                "unless `includeHidden: true` is passed. Locked objects and objects on a locked layer "
+                "are never deleted."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -4408,7 +4441,14 @@ Optional for all: "name", "layer", "color" (as [r,g,b], {"r":255,"g":0,"b":0}, o
                         "type": "array",
                         "items": {"type": "string"},
                         "description": "List of object GUIDs to delete"
-                    }
+                    },
+                    "includeHidden": {
+                        "type": "boolean",
+                        "description": (
+                            "Opt-in, default false. Also delete ids that are hidden. "
+                            "Does not override a lock."
+                        ),
+                    },
                 },
                 "required": ["ids"]
             }
@@ -4667,7 +4707,12 @@ Examples:
         ),
         Tool(
             name="rhino_layer_move_objects",
-            description="Move all objects from one layer to another. Source layer is not deleted.",
+            description=(
+                "Move all objects from one layer to another. Source layer is not deleted. "
+                "All means every undeleted object, as in rhino_layer_merge: hidden objects are "
+                "moved too (they stay hidden) and are counted in hiddenObjectsMoved, lights are "
+                "moved, and a source layer that is turned off is moved in full."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -4719,11 +4764,26 @@ Examples:
         # Advanced selection
         Tool(
             name="rhino_select_by_type",
-            description="Select objects by their geometry type.",
+            description=(
+                "Select objects by their geometry type. An unrecognized type is rejected with "
+                "invalid_input and the accepted values; nothing is selected or cleared."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "type": {"type": "string", "description": "Object type: Point, Curve, Brep, Mesh, etc."},
+                    "type": {
+                        "type": "string",
+                        "description": (
+                            "Object type (case-insensitive). Accepted values: "
+                            "point, curve, line, circle, arc, polyline, surface, brep, mesh, "
+                            "extrusion, subd, annotation, text, hatch, block, pointset, "
+                            "instancereference, textdot, clipplane, detail. "
+                            "line, circle, arc and polyline all select curves; text selects "
+                            "annotations; block is instancereference. Any other value is "
+                            "rejected with invalid_input (it does not fall back to selecting "
+                            "every object)."
+                        ),
+                    },
                     "clear": {"type": "boolean", "description": "Clear existing selection first (default true)"}
                 },
                 "required": ["type"]

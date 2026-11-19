@@ -9,6 +9,7 @@
 #include "Threading/RequestContext.h"
 #include "Models/Snapshots.h"
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include <cmath>
 
@@ -130,6 +131,7 @@ inline std::string ObjectTypeToString(ON::object_type type)
     case ON::subd_object:          return "SubD";
     case ON::extrusion_object:     return "Extrusion";
     case ON::clipplane_object:     return "ClipPlane";
+    case ON::detail_object:        return "Detail";
     default:                       return "Unknown";
     }
 }
@@ -138,8 +140,10 @@ inline std::string ObjectTypeToString(ON::object_type type)
 // Single source for ParseObjectTypeFilter and for the "accepted values" list
 // in the error a caller gets for an unrecognized type, so the two cannot drift.
 //
-// "Light" is deliberately absent: GET /objects iterates without lights, so a
-// Light filter could never match and would read as "this document has none".
+// Every name ObjectTypeToString can print for a document object is here, so a
+// type read from a listing can be passed back as a filter. "Light" matches
+// only when the query includes lights (GET /objects with includeHidden); a
+// default query reports the lights it left out in unlistedCount.
 struct ObjectTypeFilterEntry
 {
     const char* name;
@@ -155,6 +159,7 @@ inline const std::vector<ObjectTypeFilterEntry>& ObjectTypeFilterEntries()
         {"Surface",           ON::surface_object},
         {"Brep",              ON::brep_object},
         {"Mesh",              ON::mesh_object},
+        {"Light",             ON::light_object},
         {"Annotation",        ON::annotation_object},
         {"InstanceReference", ON::instance_reference},
         {"TextDot",           ON::text_dot},
@@ -162,6 +167,7 @@ inline const std::vector<ObjectTypeFilterEntry>& ObjectTypeFilterEntries()
         {"SubD",              ON::subd_object},
         {"Extrusion",         ON::extrusion_object},
         {"ClipPlane",         ON::clipplane_object},
+        {"Detail",            ON::detail_object},
     };
     return entries;
 }
@@ -204,6 +210,82 @@ inline unsigned int ParseObjectTypeFilter(const std::string& typeStr)
     }
 
     return 0;
+}
+
+// --- Object counts ---
+
+// Two object sets are in use, and a count must say which one it is:
+//
+//   listed — what the default CRhinoObjectIterator returns
+//            (normal_or_locked_objects, lights excluded): normal and locked
+//            objects on layers that are turned on. GET /objects lists this set
+//            unless includeHidden is passed.
+//   all    — every undeleted object: the listed set plus objects in hidden
+//            mode, objects on a turned-off layer (Rhino's iterator treats
+//            those as hidden) and lights. This is the set that holds a layer
+//            (rhino_layer_dependencies.directObjects).
+//
+// objectCount in GET /layers and GET /document is `all`; unlistedObjectCount
+// is `all - listed`, so the two sets stay reconcilable from one response.
+// Objects in the deleted state (kept for undo) are in neither.
+struct ObjectCounts
+{
+    int all = 0;
+    int listed = 0;
+
+    int Unlisted() const { return all - listed; }
+};
+
+// Count the objects on one layer, or in the whole document when layerIndex
+// is negative. MUST only be called on the main thread.
+inline ObjectCounts CountObjects(CRhinoDoc* pDoc, int layerIndex = -1)
+{
+    ObjectCounts counts;
+    {
+        CRhinoObjectIterator it(*pDoc,
+            CRhinoObjectIterator::undeleted_objects,
+            CRhinoObjectIterator::active_objects);
+        it.IncludeLights(true);
+        for (const CRhinoObject* obj = it.First(); obj; obj = it.Next())
+        {
+            if (layerIndex < 0 || obj->Attributes().m_layer_index == layerIndex)
+                ++counts.all;
+        }
+    }
+    {
+        CRhinoObjectIterator it(*pDoc,
+            CRhinoObjectIterator::normal_or_locked_objects,
+            CRhinoObjectIterator::active_objects);
+        for (const CRhinoObject* obj = it.First(); obj; obj = it.Next())
+        {
+            if (layerIndex < 0 || obj->Attributes().m_layer_index == layerIndex)
+                ++counts.listed;
+        }
+    }
+    return counts;
+}
+
+// The same two counts for every layer in one pass each, keyed by layer index.
+// MUST only be called on the main thread.
+inline std::unordered_map<int, ObjectCounts> CountObjectsByLayer(CRhinoDoc* pDoc)
+{
+    std::unordered_map<int, ObjectCounts> perLayer;
+    {
+        CRhinoObjectIterator it(*pDoc,
+            CRhinoObjectIterator::undeleted_objects,
+            CRhinoObjectIterator::active_objects);
+        it.IncludeLights(true);
+        for (const CRhinoObject* obj = it.First(); obj; obj = it.Next())
+            ++perLayer[obj->Attributes().m_layer_index].all;
+    }
+    {
+        CRhinoObjectIterator it(*pDoc,
+            CRhinoObjectIterator::normal_or_locked_objects,
+            CRhinoObjectIterator::active_objects);
+        for (const CRhinoObject* obj = it.First(); obj; obj = it.Next())
+            ++perLayer[obj->Attributes().m_layer_index].listed;
+    }
+    return perLayer;
 }
 
 // --- Rounding ---

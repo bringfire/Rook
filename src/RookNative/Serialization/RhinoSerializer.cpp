@@ -303,6 +303,7 @@ nlohmann::json SerializeLayer(const LayerSnapshot& layer)
         ? nlohmann::json(nullptr)
         : nlohmann::json(layer.parentId);
     j["objectCount"] = layer.objectCount;
+    j["unlistedObjectCount"] = layer.unlistedObjectCount;
     return j;
 }
 
@@ -318,6 +319,7 @@ nlohmann::json SerializeDocument(const DocumentSnapshot& doc)
         {"tolerance", doc.tolerance},
         {"angleTolerance", doc.angleTolerance},
         {"objectCount", doc.objectCount},
+        {"unlistedObjectCount", doc.unlistedObjectCount},
         {"layerCount", doc.layerCount},
         {"activeLayer", doc.activeLayer},
         {"modified", doc.modified}

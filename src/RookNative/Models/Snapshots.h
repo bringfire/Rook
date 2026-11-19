@@ -197,7 +197,8 @@ struct LayerSnapshot {
     bool visible = true;
     bool locked = false;
     std::string parentId;      // Empty → serialized as null
-    int objectCount = 0;
+    int objectCount = 0;           // Every undeleted object on the layer (see ObjectCounts)
+    int unlistedObjectCount = 0;   // Subset GET /objects leaves out unless includeHidden
 
     // Extended properties (Phase 2)
     ColorSnapshot plotColor;
@@ -218,7 +219,8 @@ struct DocumentSnapshot {
     std::string units;         // "Millimeters", "Meters", etc.
     double tolerance = 0.01;
     double angleTolerance = 1.0;  // Degrees
-    int objectCount = 0;
+    int objectCount = 0;           // Every undeleted object (see ObjectCounts)
+    int unlistedObjectCount = 0;   // Subset GET /objects leaves out unless includeHidden
     int layerCount = 0;
     std::string activeLayer;
     bool modified = false;

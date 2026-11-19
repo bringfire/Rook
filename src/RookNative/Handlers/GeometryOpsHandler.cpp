@@ -43,37 +43,127 @@ void HandleDelete(const httplib::Request& req, httplib::Response& res)
         return;
     }
 
+    // `includeHidden` is an opt-in, default false. Without it an object in
+    // hidden mode is refused, as CRhinoDoc::DeleteObject refuses it, and the
+    // response says why. With it, a hidden object named by id is deleted. It
+    // never overrides a lock.
+    //
+    // "Hidden" here is the object's own mode (Hide/Show). An object in normal
+    // mode on a layer that is turned off is not hidden in that sense: Rhino
+    // deletes it by id without any opt-in, and so does this handler.
+    bool includeHidden = false;
+    if (body.contains("includeHidden"))
+    {
+        if (!body["includeHidden"].is_boolean())
+        {
+            nlohmann::json err = {
+                {"errorCode", "invalid_input"},
+                {"errorMessage", "'includeHidden' must be a boolean"},
+            };
+            CRookServer::SendErrorData(res, err);
+            return;
+        }
+        includeHidden = body["includeHidden"].get<bool>();
+    }
+
     auto future = CMainThreadDispatcher::Instance().Dispatch(
-        [docSn, ids = std::move(ids)]() -> WriteResult
+        [docSn, includeHidden, ids = std::move(ids)]() -> WriteResult
     {
         CRhinoDoc* pDoc = ResolveDoc(docSn);
         UndoScope undo(pDoc, L"Delete Objects");
 
         int deletedCount = 0;
+        int hiddenDeletedCount = 0;
+        int hiddenRefusedCount = 0;
         int requestedCount = static_cast<int>(ids.size());
         std::vector<std::string> failedIds;
+        nlohmann::json failureReasons = nlohmann::json::object();
+
+        // An object's own mode is normal, locked or hidden; a locked layer
+        // locks its objects without changing their mode.
+        auto onLockedLayer = [pDoc](const CRhinoObject* obj) -> bool
+        {
+            const int layerIdx = obj->Attributes().m_layer_index;
+            return layerIdx >= 0 && layerIdx < pDoc->m_layer_table.LayerCount() &&
+                pDoc->m_layer_table[layerIdx].IsLocked();
+        };
 
         for (const auto& uuid : ids)
         {
+            // Why this id was not deleted: "not_found", "hidden", "locked"
+            // or "not_deletable".
+            std::string reason;
+
             const CRhinoObject* obj = pDoc->LookupObject(uuid);
-            if (obj)
+            if (!obj || obj->IsDeleted())
             {
-                CRhinoObjRef objRef(obj);
-                if (pDoc->DeleteObject(objRef, true))
+                reason = "not_found";
+            }
+            else if (obj->Attributes().Mode() == ON::hidden_object)
+            {
+                // CRhinoDoc::DeleteObject refuses an object in hidden mode
+                // unless bIgnoreModes is true.
+                if (!includeHidden)
+                {
+                    reason = "hidden";
+                    ++hiddenRefusedCount;
+                }
+                else if (onLockedLayer(obj))
+                {
+                    // bIgnoreModes would also override the layer lock.
+                    // includeHidden is consent to delete a hidden object, not
+                    // a locked one.
+                    reason = "locked";
+                }
+                else if (pDoc->DeleteObject(CRhinoObjRef(obj), true, true))
                 {
                     ++deletedCount;
-                    continue;
+                    ++hiddenDeletedCount;
+                }
+                else
+                {
+                    reason = "not_deletable";
                 }
             }
-            failedIds.push_back(UuidToString(uuid));
+            else if (pDoc->DeleteObject(CRhinoObjRef(obj), true))
+            {
+                ++deletedCount;
+            }
+            else
+            {
+                const bool locked =
+                    obj->Attributes().Mode() == ON::locked_object || onLockedLayer(obj);
+                reason = locked ? "locked" : "not_deletable";
+            }
+
+            if (!reason.empty())
+            {
+                const std::string id = UuidToString(uuid);
+                failedIds.push_back(id);
+                failureReasons[id] = reason;
+            }
         }
 
         WriteResult wr;
         wr.success = (deletedCount > 0);
         wr.data["deletedCount"] = deletedCount;
         wr.data["requestedCount"] = requestedCount;
+        if (includeHidden)
+            wr.data["hiddenDeletedCount"] = hiddenDeletedCount;
         if (!failedIds.empty())
+        {
             wr.data["failedIds"] = failedIds;
+            wr.data["failureReasons"] = std::move(failureReasons);
+        }
+        if (hiddenRefusedCount > 0)
+        {
+            wr.data["hint"] = std::to_string(hiddenRefusedCount) +
+                (hiddenRefusedCount == 1 ? " object was" : " objects were") +
+                " not deleted because " +
+                (hiddenRefusedCount == 1 ? "it is" : "they are") +
+                " hidden. "
+                "Pass includeHidden: true to delete hidden objects by id.";
+        }
 
         if (deletedCount > 0)
             pDoc->Redraw();

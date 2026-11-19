@@ -1,9 +1,21 @@
 // ObjectsHandler.cpp
 //
 // GET /objects — paginated object listing with layer/type/name filters.
+//
+// Which objects are listed:
+//   default               — normal and locked objects on layers that are
+//                           turned on (what Rhino's default object iterator
+//                           returns). Hidden objects, objects on a turned-off
+//                           layer and lights are left out, and counted in
+//                           unlistedCount so the omission is visible.
+//   includeHidden: true   — every undeleted object: the above plus hidden
+//                           objects, objects on turned-off layers and lights.
+//                           This is the set rhino_layer_dependencies counts
+//                           as directObjects.
 
 #include "stdafx.h"
 #include "Handlers/ObjectsHandler.h"
+#include "Infrastructure/JsonHelpers.h"
 #include "Infrastructure/LayerHelpers.h"
 #include "Models/Snapshots.h"
 #include "Models/DocumentHelpers.h"
@@ -18,6 +30,7 @@ namespace Handlers {
 
 struct ObjectsResult {
     int totalCount = 0;
+    int unlistedCount = 0;   // matches left out because includeHidden was not set
     int offset = 0;
     int limit = 100;
     std::vector<ObjectSnapshot> objects;
@@ -425,6 +438,8 @@ void HandleObjects(const httplib::Request& req, httplib::Response& res)
     int limit = 100;
     int offset = 0;
     unsigned int docSn = 0;
+    bool includeHidden = false;
+    bool includeHiddenValid = true;
 
     // httplib provides parsed query params in req.params
     if (req.has_param("layer"))  layerFilter = req.get_param_value("layer");
@@ -445,6 +460,15 @@ void HandleObjects(const httplib::Request& req, httplib::Response& res)
         try { docSn = static_cast<unsigned int>(std::stoul(req.get_param_value("documentSerialNumber"))); }
         catch (...) {}
     }
+    // A query-string boolean arrives as text ("true", "True", "1", ...).
+    if (req.has_param("includeHidden"))
+    {
+        const std::string raw = req.get_param_value("includeHidden");
+        if (IEquals(raw, "true") || raw == "1")
+            includeHidden = true;
+        else if (!(IEquals(raw, "false") || raw == "0"))
+            includeHiddenValid = false;
+    }
 
     // Also check JSON body (the C# server converts GET params to body)
     if (!req.body.empty())
@@ -459,15 +483,34 @@ void HandleObjects(const httplib::Request& req, httplib::Response& res)
             if (body.contains("offset")) offset = body.value("offset", 0);
             if (body.contains("documentSerialNumber"))
                 docSn = body.value("documentSerialNumber", 0u);
+            if (body.contains("includeHidden"))
+            {
+                if (body["includeHidden"].is_boolean())
+                    includeHidden = body["includeHidden"].get<bool>();
+                else
+                    includeHiddenValid = false;
+            }
         }
     }
 
     limit = (std::max)(1, (std::min)(limit, 500));
     offset = (std::max)(offset, 0);
 
+    // A malformed opt-in is rejected, not read as false: the caller asked for
+    // the wider set and must not get the narrower one without being told.
+    if (!includeHiddenValid)
+    {
+        nlohmann::json err = {
+            {"errorCode", "invalid_input"},
+            {"errorMessage", "'includeHidden' must be a boolean"},
+        };
+        CRookServer::SendErrorData(res, err);
+        return;
+    }
+
     // Reject an unrecognized type filter. ParseObjectTypeFilter returns 0 for
     // it, and 0 means "no filter" to the iterator below, so an unknown type
-    // (e.g. "Unknown", "Detail", a typo) used to return every object in the
+    // (e.g. "Unknown", a typo) used to return every object in the
     // document as if it had matched.
     if (!typeFilter.empty() && ParseObjectTypeFilter(typeFilter) == 0)
     {
@@ -487,7 +530,7 @@ void HandleObjects(const httplib::Request& req, httplib::Response& res)
 
     // Capture by value into the dispatch lambda
     auto future = CMainThreadDispatcher::Instance().Dispatch(
-        [layerFilter, typeFilter, nameFilter, limit, offset, docSn]() -> ObjectsResult
+        [layerFilter, typeFilter, nameFilter, limit, offset, docSn, includeHidden]() -> ObjectsResult
     {
         // Resolve document
         CRhinoDoc* pDoc = nullptr;
@@ -513,13 +556,6 @@ void HandleObjects(const httplib::Request& req, httplib::Response& res)
                 pDoc, layerFilter, "layer").index;
         }
 
-        // Set up iterator with type filter
-        CRhinoObjectIterator it(*pDoc,
-            CRhinoObjectIterator::normal_or_locked_objects,
-            CRhinoObjectIterator::active_objects);
-        if (filterType != 0)
-            it.SetObjectFilter(filterType);
-
         // Pre-convert name filter to wide + uppercase (once, outside the loop)
         ON_wString upperNameFilter;
         if (!nameFilter.empty())
@@ -535,28 +571,70 @@ void HandleObjects(const httplib::Request& req, httplib::Response& res)
             upperNameFilter.MakeUpper();
         }
 
-        // Collect matching object pointers (just pointers — cheap)
-        std::vector<const CRhinoObject*> matches;
-        for (const CRhinoObject* obj = it.First(); obj; obj = it.Next())
+        // The layer, type and name filters. The type is tested here rather
+        // than with CRhinoObjectIterator::SetObjectFilter so that the listed
+        // pass and the counting pass below apply exactly the same test.
+        auto matchesFilters = [&](const CRhinoObject* obj) -> bool
         {
-            // Layer filter
             if (filterLayerIdx >= 0 && obj->Attributes().m_layer_index != filterLayerIdx)
-                continue;
+                return false;
+
+            if (filterType != 0 &&
+                (static_cast<unsigned int>(obj->ObjectType()) & filterType) == 0)
+                return false;
 
             // Name filter (case-insensitive substring)
             if (!nameFilter.empty())
             {
                 ON_wString objName = obj->Attributes().m_name;
                 if (objName.IsEmpty())
-                    continue;
+                    return false;
 
                 ON_wString upperName = objName;
                 upperName.MakeUpper();
                 if (upperName.Find(static_cast<const wchar_t*>(upperNameFilter)) < 0)
-                    continue;
+                    return false;
             }
 
-            matches.push_back(obj);
+            return true;
+        };
+
+        // Every undeleted object that matches: normal, locked and hidden, on
+        // layers that are on or off, plus lights. With includeHidden these are
+        // the objects listed; without it they are only counted.
+        std::vector<const CRhinoObject*> allMatches;
+        {
+            CRhinoObjectIterator it(*pDoc,
+                CRhinoObjectIterator::undeleted_objects,
+                CRhinoObjectIterator::active_objects);
+            it.IncludeLights(true);
+            for (const CRhinoObject* obj = it.First(); obj; obj = it.Next())
+            {
+                if (matchesFilters(obj))
+                    allMatches.push_back(obj);
+            }
+        }
+
+        // Collect matching object pointers (just pointers — cheap)
+        std::vector<const CRhinoObject*> matches;
+        if (includeHidden)
+        {
+            matches = std::move(allMatches);
+        }
+        else
+        {
+            // The default listing: the same iterator as before includeHidden
+            // existed, so an existing caller sees the same objects in the
+            // same order.
+            CRhinoObjectIterator it(*pDoc,
+                CRhinoObjectIterator::normal_or_locked_objects,
+                CRhinoObjectIterator::active_objects);
+            for (const CRhinoObject* obj = it.First(); obj; obj = it.Next())
+            {
+                if (matchesFilters(obj))
+                    matches.push_back(obj);
+            }
+            result.unlistedCount = static_cast<int>(allMatches.size() - matches.size());
         }
 
         result.totalCount = static_cast<int>(matches.size());
@@ -586,6 +664,18 @@ void HandleObjects(const httplib::Request& req, httplib::Response& res)
         data["offset"] = result.offset;
         data["limit"] = result.limit;
         data["count"] = static_cast<int>(result.objects.size());
+        data["includeHidden"] = includeHidden;
+        // Matches that exist but are not in totalCount. Always 0 with
+        // includeHidden. Without it, a non-zero value is the only sign that
+        // "0 objects" does not mean "nothing there".
+        data["unlistedCount"] = result.unlistedCount;
+        if (result.unlistedCount > 0)
+        {
+            data["unlistedHint"] = std::to_string(result.unlistedCount) +
+                (result.unlistedCount == 1 ? " more matching object is" : " more matching objects are") +
+                " hidden, on a turned-off layer, or a light. "
+                "Pass includeHidden: true to list them.";
+        }
         data["objects"] = std::move(objectsArray);
 
         CRookServer::SendSuccess(res, data);
