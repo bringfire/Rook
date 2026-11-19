@@ -27,6 +27,7 @@ GEOMETRY_OPS = NATIVE / "Handlers" / "GeometryOpsHandler.cpp"
 LAYER_HELPERS = NATIVE / "Infrastructure" / "LayerHelpers.cpp"
 DOCUMENT_HELPERS = NATIVE / "Models" / "DocumentHelpers.h"
 CREATE = NATIVE / "Handlers" / "CreateHandler.cpp"
+COMPANION_SERIALIZER = REPO_ROOT / "src" / "Rook" / "Serialization" / "RhinoSerializer.cs"
 SERIALIZER = NATIVE / "Serialization" / "RhinoSerializer.cpp"
 
 
@@ -703,7 +704,8 @@ def test_object_snapshots_carry_mode_and_layer_state():
     assert "snap.layerVisible = layer.IsVisible();" in state
     assert "snap.layerLocked = layer.IsLocked();" in state
 
-    # Every path that builds an object snapshot records it.
+    # Both native paths that build an object snapshot record it. (Routes that
+    # create through the C# companion serialize there: see the next test.)
     capture = _extract_function(helpers, "inline ObjectSnapshot CaptureObjectSnapshot")
     assert "CaptureObjectState(obj, pDoc, snap);" in capture
     created = _extract_function(_read(CREATE), "static ObjectSnapshot CaptureCreatedObject")
@@ -731,3 +733,30 @@ async def test_delete_and_selection_descriptions_use_the_state_fields(monkeypatc
     selection = tools["rhino_selection"].description
     for field in ("mode", "layerVisible", "layerLocked"):
         assert field in selection, field
+
+
+def test_companion_object_snapshots_carry_the_same_state_fields():
+    # Some create routes (pipe, loft, curve operations, annotations created by
+    # the companion) are answered by the C# companion, whose serializer builds
+    # the object dictionary itself and is passed through by the native plug-in
+    # unchanged. Without the fields there, a create response and a later
+    # listing of the same object would have different shapes.
+    source = _read(COMPANION_SERIALIZER)
+    serialize = _extract_function(
+        source, "public static Dictionary<string, object?> SerializeObject(RhinoObject obj)"
+    )
+    for line in (
+        '["mode"] = ObjectModeName(obj.Attributes.Mode),',
+        '["layerVisible"] = layerVisible,',
+        '["layerLocked"] = layerLocked,',
+        "layerVisible = layer.IsVisible;",
+        "layerLocked = layer.IsLocked;",
+    ):
+        assert line in serialize, line
+    assert '["visible"] = obj.Visible,' in serialize
+
+    # The same three mode names as the native ObjectModeToString.
+    modes = _extract_function(source, "private static string ObjectModeName(ObjectMode mode)")
+    assert 'case ObjectMode.Locked: return "locked";' in modes
+    assert 'case ObjectMode.Hidden: return "hidden";' in modes
+    assert 'default: return "normal";' in modes

@@ -522,6 +522,53 @@ async def test_unlisted_count_respects_the_name_and_type_filters(fresh_document,
     assert unfiltered["unlistedByReason"] == {"hidden": 4, "layerOff": 0, "light": 1}
 
 
+async def test_unlisted_reasons_when_more_than_one_applies(fresh_document, tag):
+    # On a turned-off layer: a normal object, a locked one and a hidden one.
+    # Each is counted once. Hidden mode wins over the layer being off, because
+    # turning the layer on would not bring that object back; a locked object
+    # is unlisted only because of the layer.
+    overlap = f"{tag}_overlap"
+    out = await _setup(
+        f'index = layer("{overlap}")\n'
+        "print(point(index, 0))\n"
+        "print(point(index, 1, locked=True))\n"
+        "print(point(index, 2, hidden=True))"
+    )
+    normal_id, locked_id, hidden_id = (line.strip().lower() for line in out.split())
+    await _ok("rhino_layer_visibility", {"name": overlap, "visible": False})
+
+    default = await _ok("rhino_objects", {"layer": overlap})
+    assert default["totalCount"] == 0
+    assert default["unlistedCount"] == 3
+    assert default["unlistedByReason"] == {"hidden": 1, "layerOff": 2, "light": 0}
+
+    everything = await _ok("rhino_objects", {"layer": overlap, "includeUnlisted": True})
+    by_id = {obj["id"].lower(): obj for obj in everything["objects"]}
+    assert {key: by_id[key]["mode"] for key in by_id} == {
+        normal_id: "normal",
+        locked_id: "locked",
+        hidden_id: "hidden",
+    }
+    assert all(obj["layerVisible"] is False for obj in everything["objects"])
+    assert all(obj["visible"] is False for obj in everything["objects"])
+
+
+async def test_a_created_object_carries_the_state_fields(fresh_document, tag):
+    target = f"{tag}_created"
+    await _ok("rhino_layer_create", {"name": target})
+
+    created = await _ok(
+        "rhino_create", {"type": "POINT", "point": [0, 0, 0], "layer": target}
+    )
+
+    # The create response has the same state fields a listing gives.
+    assert created["mode"] == "normal"
+    assert created["layerVisible"] is True
+    assert created["layerLocked"] is False
+    listed = await _ok("rhino_objects", {"layer": target})
+    assert [(obj["id"], obj["mode"]) for obj in listed["objects"]] == [(created["id"], "normal")]
+
+
 async def test_objects_rejects_a_malformed_include_unlisted(fresh_document):
     res = await _tool("rhino_objects", {"includeUnlisted": "yes", "limit": 1})
 
