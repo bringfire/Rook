@@ -227,7 +227,12 @@ inline unsigned int ParseObjectTypeFilter(const std::string& typeStr)
 //
 // objectCount in GET /layers and GET /document is `all`; unlistedObjectCount
 // is `all - listed`, so the two sets stay reconcilable from one response.
-// Objects in the deleted state (kept for undo) are in neither.
+// Objects in the deleted state (kept for undo) are in neither. Nor are the
+// two kinds no pass here iterates: geometry inside block definitions (the
+// instance references are counted, the definition's members are not) and
+// worksession reference objects (both passes use active_objects). A layer
+// used only by block-definition geometry therefore counts 0;
+// rhino_layer_dependencies reports that use separately, as blockReferences.
 struct ObjectCounts
 {
     int all = 0;

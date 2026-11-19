@@ -265,6 +265,16 @@ void HandleSelect(const httplib::Request& req, httplib::Response& res)
     // An unrecognized `type` is an error, checked here before the dispatch so
     // that nothing is cleared or selected. MapSelectTypeFilter returns 0 for
     // it, and the type predicate used to read 0 as "match all".
+    //
+    // A `type` that is present but not a string (a number, an array, ...) is
+    // rejected as well: the predicate below only runs for a string, so such a
+    // request used to clear the selection, skip the type predicate and report
+    // success. An explicit null is treated as absent.
+    if (body.contains("type") && !body["type"].is_null() && !body["type"].is_string())
+    {
+        invalidInput("'type' must be a string");
+        return;
+    }
     if (body.contains("type") && body["type"].is_string())
     {
         const std::string typeStr = body["type"].get<std::string>();

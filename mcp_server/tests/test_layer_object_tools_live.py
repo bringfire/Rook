@@ -23,8 +23,12 @@ Covers, against a real document:
     prints
   - detail views are listed as type `Detail`
   - `rhino_delete` refuses a hidden object with a reason, deletes it with
-    `includeHidden: true`, and never deletes a locked one; an object on a
+    `includeHidden: true`, and never deletes a locked one (locked itself, on
+    a locked layer, or on a layer locked through its parent); the delete is
+    one undo step that brings the object back still hidden; an object on a
     turned-off layer is not "hidden" and is deleted by id as before
+  - the default `rhino_objects` listing keeps Rhino's order through
+    pagination, and `unlistedCount` respects the name and type filters
 
 Run:
     pytest -m requires_rhino mcp_server/tests/test_layer_object_tools_live.py
@@ -97,12 +101,16 @@ def layer(path):
         parent = doc.Layers[found].Id
     return index
 
-def point(layer_index, x, hidden=False, deleted=False):
+def point(layer_index, x, hidden=False, deleted=False, name=None, locked=False):
     attributes = Rhino.DocObjects.ObjectAttributes()
     attributes.LayerIndex = layer_index
+    if name:
+        attributes.Name = name
     object_id = doc.Objects.AddPoint(Rhino.Geometry.Point3d(x, 0, 0), attributes)
     if hidden:
         doc.Objects.Hide(object_id, True)
+    if locked:
+        doc.Objects.Lock(object_id, True)
     if deleted:
         doc.Objects.Delete(object_id, True)
     return object_id
@@ -119,6 +127,21 @@ def dot(layer_index, x):
     attributes = Rhino.DocObjects.ObjectAttributes()
     attributes.LayerIndex = layer_index
     return doc.Objects.AddTextDot("dot", Rhino.Geometry.Point3d(x, 0, 0), attributes)
+
+def default_order(layer_index):
+    # The ids Rhino's default object iterator returns for one layer, in order.
+    settings = Rhino.DocObjects.ObjectEnumeratorSettings()
+    settings.NormalObjects = True
+    settings.LockedObjects = True
+    settings.HiddenObjects = False
+    settings.DeletedObjects = False
+    settings.IncludeLights = False
+    settings.LayerIndexFilter = layer_index
+    return [str(o.Id) for o in doc.Objects.GetObjectList(settings)]
+
+def mode(object_id):
+    found = doc.Objects.FindId(System.Guid(object_id))
+    return str(found.Attributes.Mode) if found is not None else "missing"
 
 def detail(page_name):
     page = doc.Views.AddPageView(page_name, 200.0, 100.0)
@@ -415,6 +438,58 @@ async def test_document_object_count_includes_hidden_objects_and_lights(fresh_do
     assert after["unlistedObjectCount"] - before["unlistedObjectCount"] == 2
 
 
+async def test_default_listing_keeps_rhino_order_through_pagination(fresh_document, tag):
+    ordered = f"{tag}_ordered"
+    out = await _setup(
+        f'index = layer("{ordered}")\n'
+        "for x in range(5): point(index, x)\n"
+        "point(index, 9, hidden=True)\n"
+        'print(" ".join(default_order(index)))'
+    )
+    expected = [object_id.lower() for object_id in out.split()]
+    assert len(expected) == 5
+
+    listed = await _ok("rhino_objects", {"layer": ordered})
+    assert _ids(listed["objects"]) == expected
+
+    page = await _ok("rhino_objects", {"layer": ordered, "limit": 2, "offset": 1})
+    assert _ids(page["objects"]) == expected[1:3]
+    assert page["totalCount"] == 5
+    assert page["unlistedCount"] == 1
+
+
+async def test_unlisted_count_respects_the_name_and_type_filters(fresh_document, tag):
+    mixed = f"{tag}_filtered"
+    await _setup(
+        f'index = layer("{mixed}")\n'
+        'point(index, 0, name="keep"); point(index, 1, name="keep")\n'
+        'point(index, 2, name="keep", hidden=True)\n'
+        # Hidden, but filtered out by name or by type: must not be counted.
+        'point(index, 3, name="other", hidden=True)\n'
+        "point(index, 4, hidden=True)\n"
+        "light(index, 5)\n"
+        "dot(index, 6)"
+    )
+
+    # The page size must not change either count.
+    for limit in (1, 100):
+        res = await _ok(
+            "rhino_objects",
+            {"layer": mixed, "name": "keep", "type": "Point", "limit": limit},
+        )
+        assert res["totalCount"] == 2
+        assert res["unlistedCount"] == 1
+        assert res["count"] == min(limit, 2)
+
+    by_type = await _ok("rhino_objects", {"layer": mixed, "type": "Point"})
+    assert by_type["totalCount"] == 2
+    assert by_type["unlistedCount"] == 3
+
+    unfiltered = await _ok("rhino_objects", {"layer": mixed})
+    assert unfiltered["totalCount"] == 3  # two points and the text dot
+    assert unfiltered["unlistedCount"] == 4  # three hidden points and the light
+
+
 async def test_objects_rejects_a_malformed_include_hidden(fresh_document):
     res = await _tool("rhino_objects", {"includeHidden": "yes", "limit": 1})
 
@@ -478,6 +553,22 @@ async def test_select_rejects_an_unrecognized_type_and_keeps_the_selection(fresh
     for accepted in ("brep", "curve", "instancereference"):
         assert accepted in str(res)
     # Rejected before anything ran: the earlier selection was not cleared.
+    selection = await _ok("rhino_selection", {})
+    assert _ids(selection["objects"]) == [kept_id]
+
+    await _ok("rhino_select", {"none": True})
+
+
+async def test_select_rejects_a_type_that_is_not_a_string(fresh_document, tag):
+    kept_id = (
+        await _setup(f'index = layer("{tag}_sel_num")\nprint(point(index, 0)); point(index, 1)')
+    ).strip().lower()
+    await _ok("rhino_select", {"ids": [kept_id]})
+
+    res = await _tool("rhino_select", {"type": 123})
+
+    assert _is_error(res), f"a non-string type must not be ignored: {res!r}"
+    assert "'type' must be a string" in str(res)
     selection = await _ok("rhino_selection", {})
     assert _ids(selection["objects"]) == [kept_id]
 
@@ -586,3 +677,63 @@ async def test_include_hidden_does_not_delete_a_hidden_object_on_a_locked_layer(
     assert _is_error(res), f"includeHidden must not override a lock: {res!r}"
     assert "locked" in str(res)
     assert (await _ok("rhino_layer_dependencies", {"name": held}))["directObjects"] == 1
+
+
+async def test_delete_reports_locked_for_a_locked_object_and_for_a_locked_layer(fresh_document, tag):
+    free, locked_layer = f"{tag}_free", f"{tag}_locked_layer"
+    out = await _setup(
+        f'print(point(layer("{free}"), 0, locked=True))\n'
+        f'print(point(layer("{locked_layer}"), 1))'
+    )
+    locked_id, on_locked_layer_id = (line.strip().lower() for line in out.split())
+    await _ok("rhino_layer_lock", {"name": locked_layer, "locked": True})
+
+    # includeHidden is about hidden objects only: it changes nothing here.
+    for arguments in ({}, {"includeHidden": True}):
+        res = await _tool(
+            "rhino_delete", {"ids": [locked_id, on_locked_layer_id], **arguments}
+        )
+        assert _is_error(res), f"locked objects must not be deleted ({arguments}): {res!r}"
+        reasons = {key.lower(): value for key, value in res["data"]["failureReasons"].items()}
+        assert reasons == {locked_id: "locked", on_locked_layer_id: "locked"}
+        assert "hint" not in res["data"]
+
+    assert (await _ok("rhino_layer_dependencies", {"name": free}))["directObjects"] == 1
+    assert (await _ok("rhino_layer_dependencies", {"name": locked_layer}))["directObjects"] == 1
+
+
+async def test_include_hidden_does_not_delete_through_a_lock_inherited_from_the_parent_layer(fresh_document, tag):
+    parent = f"{tag}_parent"
+    child = f"{parent}::child"
+    hidden_id = (
+        await _setup(f'print(point(layer("{child}"), 0, hidden=True))')
+    ).strip().lower()
+    # Lock the parent only; Rhino locks the child through it.
+    await _ok("rhino_layer_lock", {"name": parent, "locked": True})
+
+    res = await _tool("rhino_delete", {"ids": [hidden_id], "includeHidden": True})
+
+    assert _is_error(res), f"includeHidden must not override an inherited lock: {res!r}"
+    assert "locked" in str(res)
+    assert (await _ok("rhino_layer_dependencies", {"name": child}))["directObjects"] == 1
+
+
+async def test_include_hidden_delete_is_one_undo_step_and_restores_the_hidden_object(fresh_document, tag):
+    held = f"{tag}_undo"
+    hidden_id = (
+        await _setup(f'print(point(layer("{held}"), 0, hidden=True))')
+    ).strip().lower()
+
+    deleted = await _ok("rhino_delete", {"ids": [hidden_id], "includeHidden": True})
+    assert deleted["hiddenDeletedCount"] == 1
+    assert (await _ok("rhino_layer_dependencies", {"name": held}))["directObjects"] == 0
+
+    # The undo action answers with a plain string, so _ok (dict only) does not fit.
+    undone = await _tool("rhino_document_ops", {"action": "undo"})
+    assert not _is_error(undone), f"undo failed: {undone!r}"
+
+    # Back on its layer, and still hidden: undo restores the mode as well.
+    after = await _ok("rhino_layer_dependencies", {"name": held})
+    assert after["directObjects"] == 1
+    assert [hidden.lower() for hidden in after["hiddenObjectIds"]] == [hidden_id]
+    assert (await _setup(f'print(mode("{hidden_id}"))')).strip() == "Hidden"

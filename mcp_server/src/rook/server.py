@@ -3970,9 +3970,10 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
             name="rhino_document",
             description=(
                 "Get information about the current Rhino document including name, units, object count, "
-                "and a summary of objects. objectCount is every undeleted object, including hidden "
-                "objects, objects on turned-off layers and lights; unlistedObjectCount is how many of "
-                "those rhino_objects leaves out unless includeHidden is true."
+                "and a summary of objects. objectCount is every undeleted object in the model, including "
+                "hidden objects, objects on turned-off layers and lights; unlistedObjectCount is how many "
+                "of those rhino_objects leaves out unless includeHidden is true. Geometry inside block "
+                "definitions and worksession reference objects are not counted."
             ),
             inputSchema={"type": "object", "properties": {}, "required": []}
         ),
@@ -3984,7 +3985,9 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
                 "lights and, when the layer is turned off, all of its objects, so it matches "
                 "rhino_layer_dependencies.directObjects and does not drop to 0 when a layer is turned "
                 "off. unlistedObjectCount is how many of those rhino_objects leaves out unless "
-                "includeHidden is true."
+                "includeHidden is true. Geometry inside block definitions and worksession reference "
+                "objects are not counted, so objectCount 0 does not by itself mean the layer can be "
+                "deleted: rhino_layer_dependencies reports block-definition use and canDelete."
             ),
             inputSchema={"type": "object", "properties": {}, "required": []}
         ),
@@ -3995,8 +3998,11 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
                 "and locked objects on layers that are turned on; hidden objects, objects on a "
                 "turned-off layer and lights are left out and counted in unlistedCount, so "
                 "totalCount 0 with unlistedCount > 0 means the matches exist but are not listed. "
-                "Pass `includeHidden: true` to list them too (each object's `visible` field tells "
-                "them apart)."
+                "Pass `includeHidden: true` to list them too. In that listing `visible` is false for "
+                "a hidden object and for an object on a turned-off layer (it does not say which of the "
+                "two), and a light has type Light and can be visible; `visible` does not say whether "
+                "an object is in the default listing. Geometry inside block definitions and worksession "
+                "reference objects are never listed."
             ),
             inputSchema={
                 "type": "object",
@@ -4017,7 +4023,8 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
                         "type": "boolean",
                         "description": (
                             "Opt-in, default false. Also list hidden objects, objects on "
-                            "turned-off layers and lights, i.e. every undeleted object."
+                            "turned-off layers and lights, i.e. every undeleted object in the "
+                            "model (not block-definition geometry or worksession reference objects)."
                         ),
                     },
                     "name": {"type": "string", "description": "Filter by name (partial match)"},
@@ -4709,9 +4716,10 @@ Examples:
             name="rhino_layer_move_objects",
             description=(
                 "Move all objects from one layer to another. Source layer is not deleted. "
-                "All means every undeleted object, as in rhino_layer_merge: hidden objects are "
-                "moved too (they stay hidden) and are counted in hiddenObjectsMoved, lights are "
-                "moved, and a source layer that is turned off is moved in full."
+                "All means every undeleted object in the model, as in rhino_layer_merge: hidden "
+                "objects are moved too (they stay hidden) and are counted in hiddenObjectsMoved, lights "
+                "are moved, and a source layer that is turned off is moved in full. Geometry inside "
+                "block definitions is not moved (use rhino_block_set_layers)."
             ),
             inputSchema={
                 "type": "object",

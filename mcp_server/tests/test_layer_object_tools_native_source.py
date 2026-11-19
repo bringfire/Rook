@@ -414,10 +414,28 @@ async def test_object_tool_schemas_state_what_is_counted_and_listed(monkeypatch)
     assert "unlistedCount" in objects.description
     assert "includeHidden" in objects.description
 
+    # `visible` cannot reconstruct the default listing: a light is visible and
+    # still left out. The description must not promise that it can.
+    assert "tells them apart" not in objects.description
+    assert "does not say whether" in objects.description
+
     for name in ("rhino_layers", "rhino_document"):
         description = tools[name].description
         assert "unlistedObjectCount" in description, name
         assert "turned-off" in description or "turned off" in description, name
+
+    # None of the counts or listings covers block-definition geometry or
+    # worksession reference objects, and the descriptions say so.
+    scoped = [
+        objects.description,
+        prop["description"],
+        tools["rhino_layers"].description,
+        tools["rhino_document"].description,
+    ]
+    for text in scoped:
+        assert "block" in text, text
+        assert "reference objects" in text, text
+    assert "rhino_layer_dependencies" in tools["rhino_layers"].description
 
 
 # --- rhino_layer_move_objects: "all objects" means all ------------------------
@@ -442,6 +460,7 @@ async def test_layer_move_objects_description_says_hidden_objects_move(monkeypat
 
     assert "hiddenObjectsMoved" in description
     assert "lights" in description
+    assert "block definitions is not moved" in description
 
 
 # --- rhino_select / rhino_select_by_type: an unrecognized type is an error ----
@@ -494,6 +513,16 @@ def test_select_rejects_an_unrecognized_type_before_touching_the_selection():
     assert "SelectTypeEntries()" in rejection
     assert "CRookServer::SendErrorData(res, err);" in rejection
     assert "return;" in rejection
+
+    # A present `type` that is not a string never reaches the predicate, so it
+    # must be rejected here too, or the request clears the selection, skips the
+    # type predicate and reports success.
+    non_string = body.index(
+        'if (body.contains("type") && !body["type"].is_null() && !body["type"].is_string())'
+    )
+    assert non_string < reject
+    assert "'type' must be a string" in body[non_string:reject]
+    assert "return;" in body[non_string:reject]
 
     predicate = body[body.index("// 5. type") : body.index("// 6. namePattern")]
     # The defect: 0 treated as "matches everything".
@@ -583,3 +612,19 @@ async def test_rhino_delete_schema_advertises_the_hidden_opt_in(monkeypatch):
     assert "lock" in prop["description"]
     assert "failureReasons" in tool.description
     assert tool.inputSchema["required"] == ["ids"]
+
+
+def test_object_counts_iterate_active_model_objects_only():
+    # What "every undeleted object" leaves out: both passes use active_objects
+    # (no worksession reference objects) and neither state includes
+    # idef_objects (no block-definition geometry). The tool descriptions state
+    # these two exclusions; this pins the code they describe.
+    source = _read(DOCUMENT_HELPERS)
+    for signature in (
+        "inline ObjectCounts CountObjects",
+        "inline std::unordered_map<int, ObjectCounts> CountObjectsByLayer",
+    ):
+        body = _extract_function(source, signature)
+        assert body.count("CRhinoObjectIterator::active_objects") == 2, signature
+        assert "reference_objects" not in body, signature
+        assert "idef_objects" not in body, signature
