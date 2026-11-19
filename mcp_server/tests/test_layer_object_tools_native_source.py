@@ -430,6 +430,8 @@ def test_layer_move_objects_moves_hidden_objects_and_lights():
     assert "CRhinoObjectIterator::normal_or_locked_objects" not in body
     assert "ON::hidden_object" in body
     assert 'wr.data["hiddenObjectsMoved"] = hiddenMoved;' in body
+    # A refusal must not open a message box now that more objects are reached.
+    assert "ModifyObjectAttributes(CRhinoObjRef(obj), attrs, true)" in body
     # Unlike merge, the source layer is kept.
     assert "DeleteLayer" not in body
 
@@ -556,11 +558,12 @@ def test_delete_refuses_hidden_objects_unless_asked_and_never_overrides_a_lock()
     # bIgnoreModes=true appears once, and only on the hidden path...
     assert body.count("DeleteObject(CRhinoObjRef(obj), true, true)") == 1
     assert "DeleteObject(CRhinoObjRef(obj), true, true)" in hidden
-    # ...after the opt-in check and the lock check.
-    refused = hidden.index("if (!includeHidden)")
-    locked = hidden.index("else if (onLockedLayer(obj))")
+    # ...after the lock check, the reference-object check and the opt-in check.
+    locked = hidden.index("if (onLockedLayer(obj))")
+    reference = hidden.index("else if (obj->IsReference())")
+    refused = hidden.index("else if (!includeHidden)")
     ignore_modes = hidden.index("DeleteObject(CRhinoObjRef(obj), true, true)")
-    assert refused < locked < ignore_modes
+    assert locked < reference < refused < ignore_modes
     assert "m_layer_table[layerIdx].IsLocked()" in body
 
     for reason in ("not_found", "hidden", "locked", "not_deletable"):

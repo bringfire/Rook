@@ -102,18 +102,25 @@ void HandleDelete(const httplib::Request& req, httplib::Response& res)
             else if (obj->Attributes().Mode() == ON::hidden_object)
             {
                 // CRhinoDoc::DeleteObject refuses an object in hidden mode
-                // unless bIgnoreModes is true.
-                if (!includeHidden)
+                // unless bIgnoreModes is true. bIgnoreModes would also
+                // override a layer lock, and includeHidden is consent to
+                // delete a hidden object, not a locked or a reference one, so
+                // those are refused first. Checking them before the opt-in
+                // also keeps the "pass includeHidden" hint from being given
+                // for an object that includeHidden would not delete.
+                if (onLockedLayer(obj))
+                {
+                    reason = "locked";
+                }
+                else if (obj->IsReference())
+                {
+                    // Worksession reference objects cannot be modified.
+                    reason = "not_deletable";
+                }
+                else if (!includeHidden)
                 {
                     reason = "hidden";
                     ++hiddenRefusedCount;
-                }
-                else if (onLockedLayer(obj))
-                {
-                    // bIgnoreModes would also override the layer lock.
-                    // includeHidden is consent to delete a hidden object, not
-                    // a locked one.
-                    reason = "locked";
                 }
                 else if (pDoc->DeleteObject(CRhinoObjRef(obj), true, true))
                 {

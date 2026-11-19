@@ -1629,7 +1629,9 @@ void HandleLayerMoveObjects(const httplib::Request& req, httplib::Response& res)
                     const bool wasHidden = (obj->Attributes().Mode() == ON::hidden_object);
                     CRhinoObjectAttributes attrs = obj->Attributes();
                     attrs.m_layer_index = tgtRef.index;
-                    if (!pDoc->ModifyObjectAttributes(CRhinoObjRef(obj), attrs))
+                    // bQuiet = true: a refusal must come back as an error,
+                    // never as a message box that blocks Rhino's UI thread.
+                    if (!pDoc->ModifyObjectAttributes(CRhinoObjRef(obj), attrs, true))
                         throw std::runtime_error(
                             "Failed to move object '" + UuidToString(obj->Attributes().m_uuid) +
                             "' from '" + source + "' to '" + target +
