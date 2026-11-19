@@ -574,6 +574,13 @@ async def test_include_hidden_does_not_delete_a_hidden_object_on_a_locked_layer(
     ).strip().lower()
     await _ok("rhino_layer_lock", {"name": held, "locked": True})
 
+    # Without the opt-in the reason is already the lock, and there is no hint
+    # to pass includeHidden: it would not delete this object either.
+    res = await _tool("rhino_delete", {"ids": [hidden_id]})
+    assert _is_error(res)
+    assert "locked" in str(res)
+    assert "includeHidden" not in str(res)
+
     res = await _tool("rhino_delete", {"ids": [hidden_id], "includeHidden": True})
 
     assert _is_error(res), f"includeHidden must not override a lock: {res!r}"
