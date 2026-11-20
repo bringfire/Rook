@@ -232,8 +232,9 @@ namespace Rook.Tests.Handlers
                 Assert.Contains("will not be committed", open.GetProperty("message").GetString());
                 Assert.Equal("file-document-v1:abc", open.GetProperty("document").GetProperty("documentKey").GetString());
 
-                // The host thread finishes the rollback; the same id now reads final.
+                // The host thread finishes the rollback and leaves; the same id now reads final.
                 receipt.Settle(BimTransactionStatus.RolledBack);
+                receipt.EndObservation();
                 var settled = ToJsonElement(new BimHandler().Dispatch(
                     "{\"op\":\"transaction_receipt\",\"transactionId\":\"" + receipt.Id + "\"}").Data);
 
@@ -241,6 +242,8 @@ namespace Rook.Tests.Handlers
                 Assert.True(settled.GetProperty("final").GetBoolean());
                 Assert.False(settled.GetProperty("documentChanged").GetBoolean());
                 Assert.Contains("the Revit document is unchanged", settled.GetProperty("message").GetString());
+                // A lookup has no details block, so it must not send the reader to one.
+                Assert.DoesNotContain("details.", settled.GetProperty("message").GetString());
             }
             finally
             {
@@ -253,7 +256,8 @@ namespace Rook.Tests.Handlers
         {
             var receipt = BimTransactionReceiptStore.Create("Rename level");
             receipt.MarkOpen();
-            receipt.Settle(BimTransactionStatus.Committed);
+            receipt.Settle(BimTransactionStatus.Committed, true);
+            receipt.EndObservation();
 
             var response = new BimHandler().Dispatch(
                 "{\"op\":\"transaction_receipt\",\"transactionId\":\"" + receipt.Id + "\"}");
@@ -264,6 +268,41 @@ namespace Rook.Tests.Handlers
             Assert.True(data.GetProperty("final").GetBoolean());
             Assert.True(data.GetProperty("documentChanged").GetBoolean());
             Assert.Equal(JsonValueKind.Null, data.GetProperty("errorCode").ValueKind);
+        }
+
+        [Fact]
+        public void Dispatch_TransactionReceipt_ACommitThatChangedNothingReadsUnchangedNotChanged()
+        {
+            // code = "pass": committed, nothing changed. The lookup must give
+            // the same answer the write call gave.
+            var receipt = BimTransactionReceiptStore.Create("No-op");
+            receipt.MarkOpen();
+            receipt.Settle(BimTransactionStatus.Committed, false);
+            receipt.EndObservation();
+
+            var data = ToJsonElement(new BimHandler().Dispatch(
+                "{\"op\":\"transaction_receipt\",\"transactionId\":\"" + receipt.Id + "\"}").Data);
+
+            Assert.Equal("committed", data.GetProperty("transaction").GetProperty("status").GetString());
+            Assert.False(data.GetProperty("documentChanged").GetBoolean());
+        }
+
+        [Fact]
+        public void Dispatch_TransactionReceipt_AWriteStillInTheQueueReadsQueuedNotFailed()
+        {
+            var receipt = BimTransactionReceiptStore.Create("Waiting behind a dialog");
+
+            var response = new BimHandler().Dispatch(
+                "{\"op\":\"transaction_receipt\",\"transactionId\":\"" + receipt.Id + "\"}");
+            var data = ToJsonElement(response.Data);
+
+            Assert.True(response.Success);
+            Assert.Equal("queued", data.GetProperty("transaction").GetProperty("status").GetString());
+            Assert.False(data.GetProperty("final").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, data.GetProperty("errorCode").ValueKind);
+            Assert.Equal(JsonValueKind.Null, data.GetProperty("documentChanged").ValueKind);
+            Assert.Contains("it may still run", data.GetProperty("message").GetString());
+            Assert.Contains("do not submit it again", data.GetProperty("message").GetString());
         }
 
         [Fact]

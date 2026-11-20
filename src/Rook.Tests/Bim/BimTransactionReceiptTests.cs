@@ -24,15 +24,50 @@ namespace Rook.Tests.Bim
         // ---- the receipt: one writer, confirmed states are final ------------
 
         [Fact]
-        public void NewReceipt_IsNotStartedWithNoCauseAndNotFinal()
+        public void NewReceipt_IsQueuedWithNoCauseAndNotFinal()
         {
             var snapshot = NewReceipt().Snapshot();
 
             Assert.Equal(BimTransactionStatus.NotStarted, snapshot.Status);
             Assert.Equal(BimErrorCode.None, snapshot.Cause);
             Assert.False(snapshot.CommitProhibited);
-            Assert.False(snapshot.IsTerminal);
+            Assert.True(snapshot.IsQueued);
+            Assert.False(snapshot.IsFinal);
             Assert.StartsWith("tx-", snapshot.Id);
+        }
+
+        [Fact]
+        public void AQueuedWrite_IsNotReportedAsAFailureOrAsSafeToRepeat()
+        {
+            // A dialog in Revit holds the request in the queue. It can still
+            // run when the dialog closes.
+            var snapshot = NewReceipt().Snapshot();
+
+            Assert.Equal("queued", BimTransactionReport.WireStatus(snapshot));
+            Assert.True(BimTransactionReport.IsInProgress(snapshot));
+            Assert.Equal(BimErrorCode.None, BimTransactionReport.LookupCode(snapshot));
+            Assert.Null(BimTransactionReport.DocumentChanged(snapshot));
+            var message = BimTransactionReport.Message(snapshot, withDetails: false);
+            Assert.Contains("is queued", message);
+            Assert.Contains("it may still run", message);
+            Assert.Contains("do not submit it again", message);
+            Assert.DoesNotContain("is unchanged", message);
+            Assert.DoesNotContain("call again", message);
+        }
+
+        [Fact]
+        public void ARefusedWrite_IsNotStartedNotQueued()
+        {
+            var receipt = NewReceipt();
+            receipt.Refuse(BimErrorCode.RevitNotIdle, "Revit did not become idle within 10 s.");
+            receipt.EndObservation();
+            var snapshot = receipt.Snapshot();
+
+            Assert.False(snapshot.IsQueued);
+            Assert.True(snapshot.IsFinal);
+            Assert.Equal("not_started", BimTransactionReport.WireStatus(snapshot));
+            Assert.Equal(BimErrorCode.RevitNotIdle, BimTransactionReport.LookupCode(snapshot));
+            Assert.False(BimTransactionReport.DocumentChanged(snapshot));
         }
 
         [Fact]
@@ -48,7 +83,7 @@ namespace Rook.Tests.Bim
             Assert.Equal(BimErrorCode.DocumentMismatch, snapshot.Cause);
             Assert.Equal("wrong document", snapshot.Message);
             Assert.True(snapshot.CommitProhibited);
-            Assert.True(snapshot.IsTerminal);
+            Assert.False(snapshot.IsQueued);
         }
 
         [Fact]
@@ -69,7 +104,6 @@ namespace Rook.Tests.Bim
             Assert.Equal(BimTransactionStatus.Committed, snapshot.Status);
             Assert.Equal(BimErrorCode.None, snapshot.Cause);
             Assert.False(snapshot.CommitProhibited);
-            Assert.True(snapshot.IsTerminal);
         }
 
         [Fact]
@@ -94,11 +128,94 @@ namespace Rook.Tests.Bim
             var receipt = NewReceipt();
             receipt.MarkOpen();
             receipt.Settle(BimTransactionStatus.Unresolved);
-            Assert.False(receipt.Snapshot().IsTerminal);
+            Assert.False(receipt.Snapshot().IsFinal);
 
             receipt.Settle(BimTransactionStatus.RolledBack);
 
             Assert.Equal(BimTransactionStatus.RolledBack, receipt.Snapshot().Status);
+        }
+
+        [Fact]
+        public void Final_MeansNothingIsWatchingAnyMoreWhateverTheStatus()
+        {
+            var receipt = NewReceipt();
+            receipt.MarkOpen();
+            receipt.Settle(BimTransactionStatus.Unresolved);
+            Assert.False(receipt.Snapshot().IsFinal);
+
+            // The executor leaves. Revit never confirmed the end and nobody
+            // will: the receipt must say so instead of inviting more polling.
+            receipt.EndObservation();
+            var snapshot = receipt.Snapshot();
+            var message = BimTransactionReport.Message(snapshot, withDetails: false);
+
+            Assert.True(snapshot.IsFinal);
+            Assert.Equal("unresolved", BimTransactionReport.WireStatus(snapshot));
+            Assert.Equal(BimErrorCode.TransactionOutcomeUnknown, BimTransactionReport.LookupCode(snapshot));
+            Assert.Contains("this receipt will not change", message);
+            Assert.Contains("Read the model back", message);
+            Assert.DoesNotContain("Call rookbim_transaction_receipt", message);
+        }
+
+        [Fact]
+        public void AnOpenTransactionWithinItsBudget_ReadsAsInProgressInALookup()
+        {
+            var receipt = NewReceipt();
+            receipt.MarkOpen();
+            var snapshot = receipt.Snapshot();
+
+            Assert.True(BimTransactionReport.IsInProgress(snapshot));
+            // The write call that stops waiting here must say "unknown"...
+            Assert.Equal(BimErrorCode.TransactionOutcomeUnknown, BimTransactionReport.EffectiveCode(snapshot));
+            // ...but someone asking later is told "not yet", not an error.
+            Assert.Equal(BimErrorCode.None, BimTransactionReport.LookupCode(snapshot));
+            Assert.Contains(
+                "it has returned and Revit is committing or rolling back",
+                BimTransactionReport.Message(snapshot, withDetails: false));
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void ACommit_KeepsWhetherItChangedAnythingForEveryLaterReader(bool changed)
+        {
+            var receipt = NewReceipt();
+            receipt.MarkOpen();
+            receipt.Settle(BimTransactionStatus.Committed, changed);
+            receipt.EndObservation();
+            var snapshot = receipt.Snapshot();
+
+            // The write call's answer and a lookup read the same record.
+            var fromWrite = Json(BimTransactionReport.Build(snapshot).Data).GetProperty("documentChanged").GetBoolean();
+            var fromLookup = Json(BimTransactionReport.Describe(snapshot)).GetProperty("documentChanged").GetBoolean();
+
+            Assert.Equal(changed, fromWrite);
+            Assert.Equal(changed, fromLookup);
+        }
+
+        [Fact]
+        public void ACommitWithNoChangeEvidence_DoesNotClaimEitherWay()
+        {
+            var receipt = NewReceipt();
+            receipt.MarkOpen();
+            receipt.Settle(BimTransactionStatus.Committed);
+
+            Assert.Null(BimTransactionReport.DocumentChanged(receipt.Snapshot()));
+        }
+
+        [Fact]
+        public void ALookupMessage_DoesNotPointAtDetailsALookupDoesNotCarry()
+        {
+            var receipt = NewReceipt();
+            receipt.MarkOpen();
+            receipt.ProhibitCommit(BimErrorCode.TransactionScriptFailed, "The script raised ValueError: x.");
+            receipt.Settle(BimTransactionStatus.RolledBack);
+            var snapshot = receipt.Snapshot();
+
+            Assert.Contains("see details.traceback", BimTransactionReport.Message(snapshot));
+            var lookup = BimTransactionReport.Message(snapshot, withDetails: false);
+            Assert.DoesNotContain("details.", lookup);
+            Assert.Contains("Fix the script and call again.", lookup);
         }
 
         [Fact]
@@ -251,12 +368,11 @@ namespace Rook.Tests.Bim
             var receipt = NewReceipt();
             receipt.SetDocument(new BimDocumentIdentity { Title = "Tower.rvt", DocumentKey = "file-document-v1:abc" });
             receipt.MarkOpen();
-            receipt.Settle(BimTransactionStatus.Committed);
+            receipt.Settle(BimTransactionStatus.Committed, true);
 
             var response = BimTransactionReport.Build(
                 receipt.Snapshot(),
-                new Dictionary<string, object?> { ["output"] = "renamed\n", ["transaction"] = "must not replace the receipt" },
-                committedChange: true);
+                new Dictionary<string, object?> { ["output"] = "renamed\n", ["transaction"] = "must not replace the receipt" });
             var data = Json(response.Data);
 
             Assert.True(response.Success);
@@ -266,18 +382,6 @@ namespace Rook.Tests.Bim
             Assert.True(data.GetProperty("documentChanged").GetBoolean());
             Assert.Equal("renamed\n", data.GetProperty("output").GetString());
             Assert.Equal("file-document-v1:abc", data.GetProperty("document").GetProperty("DocumentKey").GetString());
-        }
-
-        [Fact]
-        public void Report_CommittedWithNoChangesSaysSo()
-        {
-            var receipt = NewReceipt();
-            receipt.MarkOpen();
-            receipt.Settle(BimTransactionStatus.Committed);
-
-            var data = Json(BimTransactionReport.Build(receipt.Snapshot(), null, committedChange: false).Data);
-
-            Assert.False(data.GetProperty("documentChanged").GetBoolean());
         }
 
         [Fact]
@@ -297,8 +401,7 @@ namespace Rook.Tests.Bim
                     ["elements"] = huge,
                     ["result"] = "kept: small",
                     ["output"] = "kept too",
-                },
-                committedChange: true);
+                });
             var data = Json(response.Data);
             var size = JsonSerializer.SerializeToUtf8Bytes(response.Data).Length;
 
@@ -323,8 +426,7 @@ namespace Rook.Tests.Bim
 
             var response = BimTransactionReport.Build(
                 receipt.Snapshot(),
-                new Dictionary<string, object?> { ["result"] = loop, ["output"] = "kept" },
-                committedChange: true);
+                new Dictionary<string, object?> { ["result"] = loop, ["output"] = "kept" });
             var data = Json(response.Data);
 
             Assert.True(response.Success);
@@ -339,11 +441,19 @@ namespace Rook.Tests.Bim
         [Fact]
         public void Report_WireStatusNamesAreTheDocumentedVocabulary()
         {
-            Assert.Equal("not_started", BimTransactionReport.WireStatus(BimTransactionStatus.NotStarted));
-            Assert.Equal("open", BimTransactionReport.WireStatus(BimTransactionStatus.Open));
-            Assert.Equal("committed", BimTransactionReport.WireStatus(BimTransactionStatus.Committed));
-            Assert.Equal("rolled_back", BimTransactionReport.WireStatus(BimTransactionStatus.RolledBack));
-            Assert.Equal("unresolved", BimTransactionReport.WireStatus(BimTransactionStatus.Unresolved));
+            string StatusAfter(Action<BimTransactionReceipt> arrange)
+            {
+                var receipt = NewReceipt();
+                arrange(receipt);
+                return BimTransactionReport.WireStatus(receipt.Snapshot());
+            }
+
+            Assert.Equal("queued", StatusAfter(receipt => { }));
+            Assert.Equal("not_started", StatusAfter(receipt => receipt.Refuse(BimErrorCode.NoActiveDocument, "x")));
+            Assert.Equal("open", StatusAfter(receipt => receipt.MarkOpen()));
+            Assert.Equal("committed", StatusAfter(receipt => receipt.Settle(BimTransactionStatus.Committed)));
+            Assert.Equal("rolled_back", StatusAfter(receipt => receipt.Settle(BimTransactionStatus.RolledBack)));
+            Assert.Equal("unresolved", StatusAfter(receipt => receipt.Settle(BimTransactionStatus.Unresolved)));
         }
     }
 }

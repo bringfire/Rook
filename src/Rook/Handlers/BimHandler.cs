@@ -342,24 +342,15 @@ namespace Rook.Handlers
 
         private static Dictionary<string, object?> DescribeReceipt(BimTransactionReceiptSnapshot snapshot)
         {
-            var code = BimTransactionReport.EffectiveCode(snapshot);
-            return new Dictionary<string, object?>
-            {
-                ["transaction"] = new Dictionary<string, object?>
-                {
-                    ["id"] = snapshot.Id,
-                    ["name"] = snapshot.Name,
-                    ["status"] = BimTransactionReport.WireStatus(snapshot.Status),
-                    ["commitProhibited"] = snapshot.CommitProhibited,
-                },
-                // true once the status can no longer change.
-                ["final"] = snapshot.IsTerminal,
-                ["documentChanged"] = BimTransactionReport.DocumentChanged(snapshot, null),
-                ["document"] = snapshot.Document,
-                ["errorCode"] = code == BimErrorCode.None ? null : MapErrorCode(code),
-                ["message"] = BimTransactionReport.Message(snapshot),
-                ["updatedUtc"] = snapshot.UpdatedUtc.ToString("o", System.Globalization.CultureInfo.InvariantCulture),
-            };
+            // The same receipt fields the write call returned, from the same
+            // function, so a lookup can never disagree with it.
+            var description = BimTransactionReport.Describe(snapshot);
+            var code = BimTransactionReport.LookupCode(snapshot);
+            description["errorCode"] = code == BimErrorCode.None ? null : MapErrorCode(code);
+            description["message"] = BimTransactionReport.Message(snapshot, withDetails: false);
+            description["updatedUtc"] =
+                snapshot.UpdatedUtc.ToString("o", System.Globalization.CultureInfo.InvariantCulture);
+            return description;
         }
 
         private ApiResponse DispatchRunTransaction(

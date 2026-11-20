@@ -68,6 +68,41 @@ namespace RookBim.Revit
                 throw new ArgumentNullException(nameof(call));
             }
 
+            IDictionary<string, object?>? details = null;
+            try
+            {
+                details = Execute(uiDocument, document, evidence, request, call);
+            }
+            catch (Exception ex)
+            {
+                // Execute handles its own failures; this is the last line of
+                // defence, so that even an unexpected one is on the receipt.
+                call.Receipt.ProhibitCommit(
+                    BimErrorCode.InternalError,
+                    $"RookBIM failed while running the transaction: {ex.GetType().Name}: {ex.Message}.");
+            }
+            finally
+            {
+                // The executor is done with this transaction. From here the
+                // receipt cannot change, whatever its status.
+                call.Receipt.EndObservation();
+            }
+
+            // The one answer, built after the last thing the host observed.
+            return BimTransactionReport.Build(call.Receipt.Snapshot(), details);
+        }
+
+        /// <summary>
+        /// Does the work and records every observation in the receipt. It
+        /// returns only optional details: it never says how the call ended.
+        /// </summary>
+        private IDictionary<string, object?>? Execute(
+            UIDocument uiDocument,
+            Document document,
+            RevitDocumentIdentityEvidence evidence,
+            BimRunTransactionRequest request,
+            BimTransactionCall call)
+        {
             var receipt = call.Receipt;
             var gate = call.Gate;
             var name = request.EffectiveName;
@@ -77,7 +112,7 @@ namespace RookBim.Revit
                 receipt.Refuse(
                     BimErrorCode.DocumentIdentityInvalid,
                     "Transaction document does not match the captured identity evidence.");
-                return BimTransactionReport.Build(receipt.Snapshot());
+                return null;
             }
 
             var activeDocument = RevitDocumentIdentityResolver.ProjectDocument(evidence);
@@ -96,9 +131,7 @@ namespace RookBim.Revit
                     $"with documentKey '{activeDocument.DocumentKey ?? "unavailable"}'. " +
                     "Ask the user to switch back to the intended document, or read the elements again in the " +
                     "active document and call again with its documentKey.");
-                return BimTransactionReport.Build(
-                    receipt.Snapshot(),
-                    new Dictionary<string, object?> { ["expectedDocumentKey"] = request.DocumentKey });
+                return new Dictionary<string, object?> { ["expectedDocumentKey"] = request.DocumentKey };
             }
 
             if (document.IsReadOnly)
@@ -106,7 +139,7 @@ namespace RookBim.Revit
                 receipt.Refuse(
                     BimErrorCode.DocumentNotModifiable,
                     "The active Revit document is read-only. Open an editable copy of the model in Revit, then retry.");
-                return BimTransactionReport.Build(receipt.Snapshot());
+                return null;
             }
 
             if (document.IsModifiable)
@@ -115,7 +148,7 @@ namespace RookBim.Revit
                     BimErrorCode.DocumentNotModifiable,
                     "Another transaction is already open in the active Revit document. An active command or edit " +
                     "mode in Revit is the likely cause: finish or cancel it in Revit, then retry.");
-                return BimTransactionReport.Build(receipt.Snapshot());
+                return null;
             }
 
             if (gate.CommitProhibited)
@@ -123,7 +156,7 @@ namespace RookBim.Revit
                 receipt.Refuse(
                     BimErrorCode.TransactionTimeout,
                     "The caller stopped waiting before the transaction was started.");
-                return BimTransactionReport.Build(receipt.Snapshot());
+                return null;
             }
 
             var changes = new ChangeCollector(document);
@@ -151,7 +184,7 @@ namespace RookBim.Revit
                         BimErrorCode.DocumentNotModifiable,
                         $"Revit refused to start the transaction: {ex.Message} " +
                         "Finish or cancel any active command in Revit, then retry.");
-                    return BimTransactionReport.Build(receipt.Snapshot());
+                    return null;
                 }
 
                 if (started != TransactionStatus.Started)
@@ -160,7 +193,7 @@ namespace RookBim.Revit
                         BimErrorCode.DocumentNotModifiable,
                         $"Revit did not start the transaction (status {started}). " +
                         "Finish or cancel any active command in Revit, then retry.");
-                    return BimTransactionReport.Build(receipt.Snapshot());
+                    return null;
                 }
 
                 receipt.MarkOpen();
@@ -182,7 +215,7 @@ namespace RookBim.Revit
                         BimErrorCode.TransactionTimeout,
                         "The caller stopped waiting before the script could start, so the script was not run.");
                     receipt.Settle(Settle(transaction));
-                    return BimTransactionReport.Build(receipt.Snapshot());
+                    return null;
                 }
 
                 script = RunScript(uiDocument, document, request);
@@ -195,7 +228,7 @@ namespace RookBim.Revit
                             ? "The script raised " + script.Error + "."
                             : "The script did not run to its end: " + script.Error);
                     receipt.Settle(Settle(transaction));
-                    return BimTransactionReport.Build(receipt.Snapshot(), Details(script, failures, gate));
+                    return Details(script, failures, gate);
                 }
 
                 if (!gate.TryBeginCommit())
@@ -210,7 +243,7 @@ namespace RookBim.Revit
                               $"({Seconds(gate.ScriptTimeout)}), so it was not committed."
                             : "The script finished after the caller stopped waiting, so it was not committed.");
                     receipt.Settle(Settle(transaction));
-                    return BimTransactionReport.Build(receipt.Snapshot(), Details(script, failures, gate));
+                    return Details(script, failures, gate);
                 }
 
                 var committed = transaction.Commit();
@@ -226,8 +259,11 @@ namespace RookBim.Revit
 
                 // Recorded the moment Revit answers, before anything that
                 // could fail or take time: from here on the receipt, not this
-                // method, is the answer to "was it committed?".
-                receipt.Settle(StatusOf(committed));
+                // method, is the answer to "was it committed?". Whether the
+                // commit changed anything is recorded with it.
+                receipt.Settle(
+                    StatusOf(committed),
+                    committed == TransactionStatus.Committed ? changes.Total > 0 : (bool?)null);
 
                 var details = Details(script, failures, gate);
                 if (committed == TransactionStatus.Committed)
@@ -235,10 +271,7 @@ namespace RookBim.Revit
                     AddCommittedDetails(details, changes, document, evidence);
                 }
 
-                return BimTransactionReport.Build(
-                    receipt.Snapshot(),
-                    details,
-                    committed == TransactionStatus.Committed ? changes.Total > 0 : (bool?)null);
+                return details;
             }
             catch (Exception ex)
             {
@@ -247,20 +280,18 @@ namespace RookBim.Revit
                     // The commit already happened and is on record; only the
                     // optional reporting failed.
                     var details = script == null
-                        ? new Dictionary<string, object?>()
+                        ? new Dictionary<string, object?>(StringComparer.Ordinal)
                         : Details(script, failures, gate);
                     details["elementsOmittedReason"] =
                         $"Reporting failed after the commit ({ex.GetType().Name}: {ex.Message}).";
-                    return BimTransactionReport.Build(receipt.Snapshot(), details);
+                    return details;
                 }
 
                 receipt.ProhibitCommit(
                     BimErrorCode.InternalError,
                     $"RookBIM failed while running the transaction: {ex.GetType().Name}: {ex.Message}.");
                 receipt.Settle(Settle(transaction));
-                return BimTransactionReport.Build(
-                    receipt.Snapshot(),
-                    script == null ? null : Details(script, failures, gate));
+                return script == null ? null : Details(script, failures, gate);
             }
             finally
             {
@@ -385,7 +416,7 @@ namespace RookBim.Revit
                 : "an unknown number of";
         }
 
-        private static Dictionary<string, object?> Details(
+        private static IDictionary<string, object?> Details(
             BimTransactionScriptResult script,
             CollectingFailuresPreprocessor failures,
             BimTransactionCommitGate gate)
@@ -414,7 +445,7 @@ namespace RookBim.Revit
 
         /// <summary>Optional detail, gathered after the commit is on record. It cannot fail the response.</summary>
         private static void AddCommittedDetails(
-            Dictionary<string, object?> details,
+            IDictionary<string, object?> details,
             ChangeCollector changes,
             Document document,
             RevitDocumentIdentityEvidence evidence)

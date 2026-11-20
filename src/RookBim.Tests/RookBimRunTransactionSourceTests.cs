@@ -26,6 +26,8 @@ namespace RookBim.Tests
             "internal sealed class RevitTransactionService";
         private const string RunSignature =
             "public BimApiResponse Run(UIDocument uiDocument, Document document, RevitDocumentIdentityEvidence evidence, BimRunTransactionRequest request, BimTransactionCall call)";
+        private const string ExecutorSignature =
+            "private IDictionary<string, object?>? Execute(UIDocument uiDocument, Document document, RevitDocumentIdentityEvidence evidence, BimRunTransactionRequest request, BimTransactionCall call)";
         private const string ExecuteSignature =
             "private BimApiResponse ExecuteInDocumentContext(BimDiagnosticContext diagnostics, string operation, Func<UIDocument, Document, RevitDocumentIdentityEvidence, BimApiResponse> work, TimeSpan? timeout = null, BimTransactionCall? transactionCall = null)";
         private const string TransactionServiceFile = "RevitTransactionService.cs";
@@ -137,7 +139,7 @@ namespace RookBim.Tests
         public void Executor_OpensExactlyOneNamedTransactionPerCall()
         {
             var service = Read("src/RookBim/Revit/RevitTransactionService.cs");
-            var run = ExtractExecutableMember(service, ServiceType, RunSignature);
+            var run = ExtractExecutableMember(service, ServiceType, ExecutorSignature);
 
             Assert.Equal(1, CountOccurrences(service, "new Transaction("));
             Assert.Contains("transaction = new Transaction(document, name);", run);
@@ -151,26 +153,40 @@ namespace RookBim.Tests
         }
 
         [Fact]
-        public void Executor_EveryWayOutIsReportedFromTheReceipt()
+        public void Executor_GivesOneAnswerBuiltFromTheReceiptAfterItsLastObservation()
         {
             var service = Read("src/RookBim/Revit/RevitTransactionService.cs");
-            var run = ExtractExecutableMember(service, ServiceType, RunSignature);
+            var wrapper = ExtractExecutableMember(service, ServiceType, RunSignature);
+            var execute = ExtractExecutableMember(service, ServiceType, ExecutorSignature);
 
-            // No path through Run composes its own answer about the document:
-            // each return is the single report builder reading the receipt.
-            var returns = Regex.Matches(run, @"(?<![A-Za-z0-9_])return\s").Count;
-            var reported = CountOccurrences(run, "return BimTransactionReport.Build(");
-            Assert.True(returns >= 10, "Run is expected to have many exits; found " + returns + ".");
-            Assert.Equal(returns, reported);
+            // The work records observations and returns optional details only.
+            // It cannot say how the call ended.
+            Assert.DoesNotContain("BimTransactionReport", execute);
+            Assert.DoesNotContain("BimApiResponse", execute);
+
+            // One answer for the whole service, built in the wrapper from the
+            // receipt, after the work (including its finally) is over and the
+            // receipt has been closed to further change.
+            Assert.Equal(1, CountOccurrences(service, "BimTransactionReport.Build("));
             Assert.DoesNotContain("BimApiResponse.Ok(", service);
             Assert.DoesNotContain("BimApiResponse.Fail(", service);
+            var work = wrapper.IndexOf("details = Execute(uiDocument, document, evidence, request, call);", StringComparison.Ordinal);
+            var unexpected = wrapper.IndexOf("catch (Exception ex)", StringComparison.Ordinal);
+            var close = wrapper.IndexOf("call.Receipt.EndObservation();", StringComparison.Ordinal);
+            var answer = wrapper.IndexOf(
+                "return BimTransactionReport.Build(call.Receipt.Snapshot(), details);",
+                StringComparison.Ordinal);
+            Assert.True(work >= 0 && work < unexpected && unexpected < close && close < answer);
+            // Even a failure Execute did not handle ends up on the receipt.
+            Assert.Contains("call.Receipt.ProhibitCommit(", wrapper.Substring(unexpected, close - unexpected));
+            Assert.Equal(1, CountOccurrences(wrapper, "return "));
         }
 
         [Fact]
         public void Executor_RefusesBeforeStartingAndRecordsWhy()
         {
             var service = Read("src/RookBim/Revit/RevitTransactionService.cs");
-            var run = ExtractExecutableMember(service, ServiceType, RunSignature);
+            var run = ExtractExecutableMember(service, ServiceType, ExecutorSignature);
 
             var setDocument = run.IndexOf("receipt.SetDocument(activeDocument);", StringComparison.Ordinal);
             var documentKey = run.IndexOf("request.HasDocumentKey", StringComparison.Ordinal);
@@ -200,7 +216,7 @@ namespace RookBim.Tests
         public void Executor_AStartThatRevitRefusesIsARefusalNotARollback()
         {
             var service = Read("src/RookBim/Revit/RevitTransactionService.cs");
-            var run = ExtractExecutableMember(service, ServiceType, RunSignature);
+            var run = ExtractExecutableMember(service, ServiceType, ExecutorSignature);
 
             var start = run.IndexOf("started = transaction.Start();", StringComparison.Ordinal);
             var startCatch = run.IndexOf(
@@ -219,7 +235,7 @@ namespace RookBim.Tests
         public void Executor_AppliesFailureHandlingAfterStartBecauseStartResetsIt()
         {
             var service = Read("src/RookBim/Revit/RevitTransactionService.cs");
-            var run = ExtractExecutableMember(service, ServiceType, RunSignature);
+            var run = ExtractExecutableMember(service, ServiceType, ExecutorSignature);
             var preprocess = ExtractExecutableMember(
                 service,
                 "private sealed class CollectingFailuresPreprocessor : IFailuresPreprocessor",
@@ -256,7 +272,7 @@ namespace RookBim.Tests
         public void Executor_AsksTheGateBeforeTheScriptAndBeforeTheCommit()
         {
             var service = Read("src/RookBim/Revit/RevitTransactionService.cs");
-            var run = ExtractExecutableMember(service, ServiceType, RunSignature);
+            var run = ExtractExecutableMember(service, ServiceType, ExecutorSignature);
 
             var enter = run.IndexOf("if (!gate.TryEnterScript())", StringComparison.Ordinal);
             var script = run.IndexOf("script = RunScript(uiDocument, document, request);", StringComparison.Ordinal);
@@ -280,11 +296,11 @@ namespace RookBim.Tests
         public void Executor_RecordsRevitsAnswerToTheCommitBeforeAnythingElse()
         {
             var service = Read("src/RookBim/Revit/RevitTransactionService.cs");
-            var run = ExtractExecutableMember(service, ServiceType, RunSignature);
+            var run = ExtractExecutableMember(service, ServiceType, ExecutorSignature);
 
             var commit = run.IndexOf("var committed = transaction.Commit();", StringComparison.Ordinal);
             var rolledBack = run.IndexOf("if (committed == TransactionStatus.RolledBack)", StringComparison.Ordinal);
-            var settle = run.IndexOf("receipt.Settle(StatusOf(committed));", StringComparison.Ordinal);
+            var settle = run.IndexOf("StatusOf(committed),", StringComparison.Ordinal);
             var details = run.IndexOf("var details = Details(script, failures, gate);", StringComparison.Ordinal);
             var optional = run.IndexOf("AddCommittedDetails(details, changes, document, evidence);", StringComparison.Ordinal);
 
@@ -292,7 +308,12 @@ namespace RookBim.Tests
             // The status is on record before any reporting is gathered, so
             // nothing that reporting does can change or lose it.
             Assert.True(settle < details && details < optional);
-            Assert.Equal(1, CountOccurrences(run, "receipt.Settle(StatusOf(committed));"));
+            Assert.Equal(1, CountOccurrences(run, "StatusOf(committed),"));
+            // Whether the commit changed anything is recorded with the commit,
+            // so a later lookup gives the same answer as this call.
+            Assert.Contains(
+                "committed == TransactionStatus.Committed ? changes.Total > 0 : (bool?)null);",
+                run);
 
             var statusOf = ExtractExecutableMember(
                 service,
@@ -329,7 +350,7 @@ namespace RookBim.Tests
         public void Executor_NeverLeavesItsTransactionOpenAndAlwaysRecordsWhereItEnded()
         {
             var service = Read("src/RookBim/Revit/RevitTransactionService.cs");
-            var run = ExtractExecutableMember(service, ServiceType, RunSignature);
+            var run = ExtractExecutableMember(service, ServiceType, ExecutorSignature);
 
             var catchIndex = run.LastIndexOf("catch (Exception ex)", StringComparison.Ordinal);
             var finallyIndex = run.LastIndexOf("finally", StringComparison.Ordinal);
@@ -494,7 +515,7 @@ namespace RookBim.Tests
             var add = ExtractExecutableMember(
                 service,
                 ServiceType,
-                "private static void AddCommittedDetails(Dictionary<string, object?> details, ChangeCollector changes, Document document, RevitDocumentIdentityEvidence evidence)");
+                "private static void AddCommittedDetails(IDictionary<string, object?> details, ChangeCollector changes, Document document, RevitDocumentIdentityEvidence evidence)");
             var describeLive = ExtractExecutableMember(
                 service,
                 "private sealed class ChangeCollector",
@@ -545,10 +566,17 @@ namespace RookBim.Tests
             var validate = run.IndexOf("request.Validate()", StringComparison.Ordinal);
             var begin = run.IndexOf("BimTransactionCall.Begin(", StringComparison.Ordinal);
             var execute = run.IndexOf("ExecuteInDocumentContext(", StringComparison.Ordinal);
+            var stillQueued = run.IndexOf("if (!response.Success && call.Receipt.Snapshot().IsQueued)", StringComparison.Ordinal);
             var record = run.IndexOf("call.Receipt.Refuse(response.ErrorCode", StringComparison.Ordinal);
+            var close = run.IndexOf("call.Receipt.EndObservation();", StringComparison.Ordinal);
+            var answer = run.IndexOf("return BimTransactionReport.Build(", StringComparison.Ordinal);
 
             Assert.True(validate >= 0 && validate < begin, "An invalid request must be refused before anything is created.");
-            Assert.True(begin < execute && execute < record);
+            Assert.True(begin < execute && execute < stillQueued);
+            // A refusal issued before the executor ran (no document, Revit not
+            // idle) is recorded, closed, and answered from the receipt, so the
+            // caller gets the transaction id like for every other outcome.
+            Assert.True(stillQueued < record && record < close && close < answer);
             Assert.Equal(1, CountOccurrences(run, "BimTransactionCall.Begin("));
             Assert.Contains("TimeSpan.FromSeconds(request.EffectiveTimeoutSeconds)", run);
             AssertSingleInvocationArguments(

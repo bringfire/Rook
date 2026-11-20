@@ -388,11 +388,17 @@ namespace RookBim.Revit
                 call);
 
             // A refusal issued before the executor ran (no active document,
-            // Revit not idle, host missing) is recorded too, so a later lookup
-            // of this call does not read as "still waiting".
-            if (!response.Success)
+            // Revit not idle, host missing) never reached the receipt. Record
+            // it, and answer from the receipt like every other outcome, so the
+            // caller gets the transaction id and a lookup does not read as
+            // "still queued".
+            if (!response.Success && call.Receipt.Snapshot().IsQueued)
             {
                 call.Receipt.Refuse(response.ErrorCode, response.Message ?? "The write was refused.");
+                call.Receipt.EndObservation();
+                return BimTransactionReport.Build(
+                    call.Receipt.Snapshot(),
+                    new Dictionary<string, object?> { ["dispatch"] = response.Data });
             }
 
             return response;

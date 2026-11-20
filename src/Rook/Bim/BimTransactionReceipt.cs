@@ -7,7 +7,7 @@ namespace Rook.Bim
     /// <summary>Where a host transaction is, as the host observed it.</summary>
     public enum BimTransactionStatus
     {
-        /// <summary>No transaction was started. The document is unchanged.</summary>
+        /// <summary>No transaction has been started (yet, or at all).</summary>
         NotStarted,
 
         /// <summary>A transaction is open and the edit is running or being finished.</summary>
@@ -34,6 +34,8 @@ namespace Rook.Bim
             BimErrorCode cause,
             string? message,
             BimDocumentIdentity? document,
+            bool? changeObserved,
+            bool observationEnded,
             DateTime updatedUtc)
         {
             Id = id;
@@ -43,6 +45,8 @@ namespace Rook.Bim
             Cause = cause;
             Message = message;
             Document = document;
+            ChangeObserved = changeObserved;
+            ObservationEnded = observationEnded;
             UpdatedUtc = updatedUtc;
         }
 
@@ -62,16 +66,34 @@ namespace Rook.Bim
 
         public BimDocumentIdentity? Document { get; }
 
+        /// <summary>
+        /// For a committed transaction: whether the host saw it change any
+        /// element. Null when the host has no evidence either way.
+        /// </summary>
+        public bool? ChangeObserved { get; }
+
+        /// <summary>
+        /// True once nothing is watching this transaction any more: the
+        /// executor has left it, or the work was refused and will never run.
+        /// From then on the receipt cannot change, whatever its status.
+        /// </summary>
+        public bool ObservationEnded { get; }
+
         public DateTime UpdatedUtc { get; }
 
-        public bool IsTerminal
+        /// <summary>The receipt will not change again. Says nothing about whether the outcome is known.</summary>
+        public bool IsFinal
         {
-            get
-            {
-                return Status == BimTransactionStatus.NotStarted && Cause != BimErrorCode.None ||
-                    Status == BimTransactionStatus.Committed ||
-                    Status == BimTransactionStatus.RolledBack;
-            }
+            get { return ObservationEnded; }
+        }
+
+        /// <summary>
+        /// Created and waiting for the host to pick it up. It has not failed
+        /// and it may still run.
+        /// </summary>
+        public bool IsQueued
+        {
+            get { return Status == BimTransactionStatus.NotStarted && Cause == BimErrorCode.None && !ObservationEnded; }
         }
     }
 
@@ -93,6 +115,8 @@ namespace Rook.Bim
         private BimErrorCode cause = BimErrorCode.None;
         private string? message;
         private BimDocumentIdentity? document;
+        private bool? changeObserved;
+        private bool observationEnded;
         private DateTime updatedUtc = DateTime.UtcNow;
 
         internal BimTransactionReceipt(string id, string name)
@@ -167,8 +191,12 @@ namespace Rook.Bim
             }
         }
 
-        /// <summary>The host observed how the transaction ended.</summary>
-        public void Settle(BimTransactionStatus observed)
+        /// <summary>
+        /// The host observed how the transaction ended. For a commit,
+        /// <paramref name="changed"/> is whether the host saw any element
+        /// change, or null if it has no evidence.
+        /// </summary>
+        public void Settle(BimTransactionStatus observed, bool? changed = null)
         {
             lock (sync)
             {
@@ -184,9 +212,26 @@ namespace Rook.Bim
                     commitProhibited = false;
                     cause = BimErrorCode.None;
                     message = null;
+                    changeObserved = changed;
                 }
 
                 updatedUtc = DateTime.UtcNow;
+            }
+        }
+
+        /// <summary>
+        /// Nothing is watching this transaction any more. Called by the
+        /// executor when it leaves, and when work is refused before it runs.
+        /// </summary>
+        public void EndObservation()
+        {
+            lock (sync)
+            {
+                if (!observationEnded)
+                {
+                    observationEnded = true;
+                    updatedUtc = DateTime.UtcNow;
+                }
             }
         }
 
@@ -195,7 +240,8 @@ namespace Rook.Bim
             lock (sync)
             {
                 return new BimTransactionReceiptSnapshot(
-                    Id, Name, status, commitProhibited, cause, message, document, updatedUtc);
+                    Id, Name, status, commitProhibited, cause, message, document,
+                    changeObserved, observationEnded, updatedUtc);
             }
         }
     }

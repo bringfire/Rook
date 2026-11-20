@@ -462,7 +462,14 @@ async def test_rookbim_run_transaction_description_states_contract_and_refusals(
     # One vocabulary for the outcome, with what each value lets the caller do.
     for status in ("committed", "rolled_back", "not_started", "open", "unresolved"):
         assert status in description
-    assert "`transaction` {id, name, status} and `documentChanged`" in description
+    assert "`transaction` {id, name, status}, `documentChanged` and" in description
+    # Which answers carry no transaction record, so the model does not look for one.
+    assert "invalid_request, and rookbim_unavailable" in description
+    # open does not mean "the script is running": Revit may already be committing.
+    assert "it has returned and Revit is committing or rolling back" in description
+    # When to stop asking and what to do instead.
+    assert "While `final` is false, call rookbim_transaction_receipt" in description
+    assert "Once `final` is true the record will not change" in description
     assert "on a refusal they are in data.details" in description
     assert "call rookbim_transaction_receipt with transaction.id" in description
     assert "one entry called `name` in Revit's undo list" in description
@@ -592,9 +599,16 @@ async def test_rookbim_transaction_receipt_description_says_when_and_what():
 
     assert "transaction.status open or unresolved" in description
     assert "works while Revit is busy" in description
-    for status in ("committed", "rolled_back", "not_started", "open", "unresolved"):
+    for status in ("queued", "committed", "rolled_back", "not_started", "open", "unresolved"):
         assert status in description
-    assert "final (true once the status can no longer change)" in description
+    # A queued write has not failed and may still run.
+    assert "it has not failed and may still run, so do not submit it again" in description
+    assert "errorCode (null while the write is simply still in progress)" in description
+    # final is about whether the record can still change, not whether the outcome is known.
+    assert "Ask again only while final is false" in description
+    assert "A final record that is unresolved will never resolve" in description
+    # A lost answer is not grounds to retry.
+    assert "that is not grounds to run the script again" in description
     # What it does not keep, and what to do then.
     assert "do not survive a restart of Revit" in description
     assert "transaction_receipt_not_found" in description
