@@ -25,6 +25,8 @@ namespace Rook.Tests.Handlers
             "clear_selection",
             "export_elements",
             "export_preset",
+            "run_transaction",
+            "transaction_receipt",
         };
 
         [Fact]
@@ -601,6 +603,8 @@ namespace Rook.Tests.Handlers
 
         private sealed class StatusRuntime : IRookBimRuntime
         {
+            public BimApiResponse RunTransaction(BimDiagnosticContext diagnostics, BimRunTransactionRequest request) => BimApiResponse.Ok(null);
+
             private readonly string errorCode;
             private readonly string message;
 
@@ -636,6 +640,8 @@ namespace Rook.Tests.Handlers
 
         private sealed class NoActiveDocumentRuntime : IRookBimRuntime
         {
+            public BimApiResponse RunTransaction(BimDiagnosticContext diagnostics, BimRunTransactionRequest request) => BimApiResponse.Ok(null);
+
             public BimStatusResponse Status(BimDiagnosticContext diagnostics)
             {
                 return new BimStatusResponse
@@ -669,6 +675,8 @@ namespace Rook.Tests.Handlers
 
         private sealed class DetailFailureRuntime : IRookBimRuntime
         {
+            public BimApiResponse RunTransaction(BimDiagnosticContext diagnostics, BimRunTransactionRequest request) => BimApiResponse.Ok(null);
+
             public BimStatusResponse Status(BimDiagnosticContext diagnostics)
             {
                 return new BimStatusResponse { Available = true, Runtime = "test" };
@@ -735,6 +743,8 @@ namespace Rook.Tests.Handlers
 
         private sealed class CategoryFailureRuntime : IRookBimRuntime
         {
+            public BimApiResponse RunTransaction(BimDiagnosticContext diagnostics, BimRunTransactionRequest request) => BimApiResponse.Ok(null);
+
             public BimStatusResponse Status(BimDiagnosticContext diagnostics)
             {
                 return new BimStatusResponse { Available = true, Runtime = "test" };
@@ -801,6 +811,8 @@ namespace Rook.Tests.Handlers
 
         private sealed class IdentityContractRuntime : IRookBimRuntime
         {
+            public BimApiResponse RunTransaction(BimDiagnosticContext diagnostics, BimRunTransactionRequest request) => BimApiResponse.Ok(null);
+
             private const string Key =
                 "file-document-v1:50250fd46d4c96e14f57ff283d6fd21965d8525a34d638e5070eaf60df13a0ac";
 
@@ -834,6 +846,8 @@ namespace Rook.Tests.Handlers
 
         private sealed class IdentityFailureRuntime : IRookBimRuntime
         {
+            public BimApiResponse RunTransaction(BimDiagnosticContext diagnostics, BimRunTransactionRequest request) => BimApiResponse.Ok(null);
+
             private readonly BimErrorCode code;
             private readonly int status;
 

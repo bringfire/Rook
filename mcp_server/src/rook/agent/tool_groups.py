@@ -276,6 +276,9 @@ TOOL_GROUPS: Dict[str, List[str]] = {
         "rookbim_clear_selection",
         "rookbim_export_elements",
         "rookbim_export_preset",
+        # The only member that writes the Revit model; never in rookbim_readonly.
+        "rookbim_run_transaction",
+        "rookbim_transaction_receipt",
         "rookbim_export_preset_to_rhino",
     ],
     "rookbim_readonly": [
@@ -285,6 +288,8 @@ TOOL_GROUPS: Dict[str, List[str]] = {
         "rookbim_query_elements",
         "rookbim_element_info",
         "rookbim_element_parameters",
+        # Reads how a write ended; it cannot write.
+        "rookbim_transaction_receipt",
     ],
 
     # --- Rhino Commands (direct) ---

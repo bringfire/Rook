@@ -555,6 +555,204 @@ def _rookbim_empty_input_schema() -> dict[str, Any]:
     }
 
 
+# Appended to every rookbim_* tool that cannot change the Revit model, so a
+# model reading any one description learns where writes go.
+_ROOKBIM_READS_ONLY = (
+    " Reads only: it never changes the Revit model. To change the model use "
+    "rookbim_run_transaction."
+)
+_ROOKBIM_SELECTS_ONLY = (
+    " Changes the Revit UI selection only: it never changes the Revit model. "
+    "To change the model use rookbim_run_transaction."
+)
+_ROOKBIM_EXPORTS_ONLY = (
+    " Never changes the Revit model. To change the model use "
+    "rookbim_run_transaction."
+)
+
+
+def _rookbim_run_transaction_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120,
+                "description": (
+                    "Transaction name. It becomes the single entry for this change in "
+                    "Revit's undo list, so name the change, e.g. 'Rename Level 2'."
+                ),
+            },
+            "code": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200000,
+                "description": (
+                    "Python 3 source to run inside the already-open transaction. "
+                    "Pre-bound names: doc, uidoc, uiapp, app, DB (Autodesk.Revit.DB), "
+                    "UI (Autodesk.Revit.UI). Assign a plain JSON value to `result` to "
+                    "return it. Do not create DB.Transaction or DB.TransactionGroup "
+                    "objects."
+                ),
+            },
+            "timeoutSeconds": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 90,
+                "default": 60,
+                "description": (
+                    "How long the script may run, counted from when it starts. A script "
+                    "that runs longer is never committed. This does not stop the script: "
+                    "it keeps Revit busy until it returns."
+                ),
+            },
+            "documentKey": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300,
+                "description": (
+                    "Recommended. The documentKey of the document you read, as returned "
+                    "by rookbim_active_document (document.documentKey) or in any element "
+                    "identity. If a different document is active when the transaction is "
+                    "about to start, the call is refused with document_mismatch and "
+                    "nothing changes. Leave it out (do not send an empty string) only "
+                    "when the document has no documentKey, as an unsaved document does; "
+                    "the script then runs on whichever document is active."
+                ),
+            },
+            "port": _rookbim_port_schema(),
+        },
+        "required": ["name", "code"],
+        "additionalProperties": False,
+    }
+
+
+def _rookbim_transaction_receipt_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "transactionId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "description": (
+                    "The transaction.id from a rookbim_run_transaction answer. Leave it "
+                    "out to list the most recent receipts, newest first."
+                ),
+            },
+            "port": _rookbim_port_schema(),
+        },
+        "required": [],
+        "additionalProperties": False,
+    }
+
+
+_ROOKBIM_RUN_TRANSACTION_DESCRIPTION = (
+    "Change the open Revit document. This is the only RookBIM tool that writes the "
+    "Revit model; every other rookbim_* tool only reads it or changes the UI "
+    "selection. Requires Rhino running inside Revit (Rhino.Inside.Revit); check "
+    "with rookbim_status.\n\n"
+    "Runs your Python 3 `code` on Revit's API thread inside one transaction called "
+    "`name` on the active document, waits for it, and answers in this same call. "
+    "The transaction is committed only if the script runs to its end; if the "
+    "script raises, or Revit rejects the commit, it is rolled back and the active "
+    "document is unchanged. On success the whole change is one entry called `name` "
+    "in Revit's undo list. This tool cannot undo; the user undoes it in Revit.\n\n"
+    "Every answer to a request that passed validation says what happened to the "
+    "transaction, in `transaction` {id, name, status}, `documentChanged` and "
+    "`final`. On success they are in data; on a refusal they are in data.details. "
+    "(invalid_request, and rookbim_unavailable when RookBIM is not loaded, are "
+    "refused before a transaction record exists and carry none.) status is one "
+    "of: committed (documentChanged true or false); rolled_back or not_started "
+    "(documentChanged false: nothing changed, safe to correct and call again); "
+    "open (Revit has not recorded the end: the script may still be running, or it "
+    "has returned and Revit is committing or rolling back); unresolved (Revit did "
+    "not confirm the end). For open and unresolved documentChanged is null: do "
+    "not run the script again. While `final` is false, call "
+    "rookbim_transaction_receipt with transaction.id to see how it ended. Once "
+    "`final` is true the record will not change: if it is still unresolved, read "
+    "the model back in that document before any further write.\n\n"
+    "Names already bound in the script: doc (the active Autodesk.Revit.DB.Document), "
+    "uidoc, uiapp, app, DB (the Autodesk.Revit.DB namespace), UI (Autodesk.Revit.UI). "
+    "Example: `lvl = doc.GetElement(DB.ElementId(311)); lvl.Name = 'Level 02'; "
+    "result = {'renamed': lvl.Id.Value}`. Lengths are Revit internal units (feet); "
+    "convert with DB.UnitUtils.ConvertToInternalUnits. print() text comes back as "
+    "`output`. Assign a plain JSON value (numbers, strings, lists, dicts with "
+    "string keys, nested at most 32 deep) to `result` to get it back; return "
+    "elements as ids. A `result` that is not plain JSON is not converted: it comes "
+    "back null with `resultOmittedReason`, and the script's changes still stand.\n\n"
+    "Element ids repeat across documents. Pass `documentKey` (from "
+    "rookbim_active_document) so the write is refused if the user has switched to "
+    "another document since you read it.\n\n"
+    "Limits of the guarantee. Only edits the script makes to `doc` while it runs "
+    "are inside the transaction. Do not edit another document, and do not schedule "
+    "work for later (events, idling callbacks, external events): those run outside "
+    "the transaction and are not rolled back. Do not start, commit or roll back "
+    "transactions (no DB.Transaction, no DB.TransactionGroup): one is already open "
+    "and starting another raises. DB.SubTransaction is allowed. Do not open dialogs "
+    "or ask for input. Rook cannot stop a running script: one that never returns "
+    "freezes Revit until the user ends it.\n\n"
+    "On success also returns changed, elements (added and modified: at most 100 "
+    "entries each, with counts and a truncated flag; use an entry as "
+    "rookbim_element_info {identity: entry.identity} or rookbim_select_elements "
+    "{identities: [entry.identity]}; an entry whose identity the read tools would "
+    "not accept has identity null with `elementId` and `identityOmittedReason`; "
+    "deleted: former element ids), warnings (Revit warnings, dismissed instead of "
+    "shown as dialogs), output, stderr and result. Anything left out for size is "
+    "named in `omitted` with the reason; the transaction status is never left "
+    "out.\n\n"
+    "Refusals, by data.errorCode. Nothing started (status not_started): "
+    "revit_not_idle (an open dialog or active command in Revit; ask the user to "
+    "close it, then retry), document_mismatch (the active document is not "
+    "`documentKey`), document_not_modifiable (read-only document or another "
+    "transaction already open), no_active_document, invalid_request. Rolled back "
+    "(status rolled_back): transaction_script_failed (the script raised; see "
+    "data.details.traceback), transaction_rolled_back (Revit refused the commit; "
+    "see data.details.failures), transaction_timeout (the script ran past "
+    "timeoutSeconds). Not finished when the call answered: transaction_timeout "
+    "with status open means the script is still running, will not be committed, "
+    "and is rolled back when it returns; transaction_outcome_unknown means Revit "
+    "had not confirmed the commit. For both, ask rookbim_transaction_receipt.\n\n"
+    "Not for reading the model (use rookbim_query_elements, rookbim_element_info, "
+    "rookbim_element_parameters) and not for Rhino geometry (use rhino_* tools). "
+    "Do not use rhino_execute to change Revit: it runs outside Revit's API "
+    "context, where starting a transaction fails."
+)
+
+_ROOKBIM_TRANSACTION_RECEIPT_DESCRIPTION = (
+    "Read how an earlier rookbim_run_transaction call ended. Use it when that "
+    "call answered with transaction.status open or unresolved, or when its answer "
+    "was lost."
+    + _ROOKBIM_READS_ONLY
+    + "\n\n"
+    "Answered from memory without waiting for Revit, so it works while Revit is "
+    "busy with the script or blocked by a dialog. Pass `transactionId` "
+    "(transaction.id from the run_transaction answer), or leave it out to list "
+    "the 10 most recent receipts, newest first.\n\n"
+    "Returns transaction {id, name, status, commitProhibited}, final, "
+    "documentChanged (true, false, or null while not confirmed), document, "
+    "errorCode (null while the write is simply still in progress) and message. "
+    "status: queued (Revit has not picked the write up yet, for example behind a "
+    "dialog; it has not failed and may still run, so do not submit it again); "
+    "open (Revit has not recorded the end: the script may still be running, or "
+    "Revit is committing or rolling back; with commitProhibited true it will be "
+    "rolled back); committed; rolled_back; not_started (refused; nothing ran); "
+    "unresolved (Revit did not confirm the end).\n\n"
+    "`final` is true once nothing is watching the transaction any more, so the "
+    "record cannot change. Ask again only while final is false. A final record "
+    "that is unresolved will never resolve: read the model back with "
+    "rookbim_query_elements or rookbim_element_parameters in that document before "
+    "any further write.\n\n"
+    "If the write's answer was lost you have no id: list recent receipts and "
+    "match by name, document and time. If more than one could be yours, that is "
+    "not grounds to run the script again; read the model back.\n\n"
+    "Receipts are kept for the last 64 write calls of this Revit session and do "
+    "not survive a restart of Revit. An unknown id is refused with "
+    "transaction_receipt_not_found; then read the model back instead."
+)
+
+
 def _rookbim_identity_schema() -> dict[str, Any]:
     return {
         "type": "object",
@@ -4135,7 +4333,12 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
         ),
         Tool(
             name="rhino_execute",
-            description="Execute a Python script in Rhino using rhinoscriptsyntax. Use 'import rhinoscriptsyntax as rs' for geometry operations.",
+            description=(
+                "Execute a Python script in Rhino using rhinoscriptsyntax. Use 'import rhinoscriptsyntax as rs' "
+                "for geometry operations. When Rhino runs inside Revit (Rhino.Inside.Revit), this script can "
+                "read the Revit API but cannot change the Revit model: it runs outside Revit's API context, "
+                "where starting a transaction fails. To change the Revit model use rookbim_run_transaction."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -13294,47 +13497,65 @@ Returns the full profile JSON including features, surfaces, and elements.""",
         # --- RookBIM (Revit bridge, Phase 1) ---
         Tool(
             name="rookbim_status",
-            description="Return health and availability for the RookBIM Revit bridge.",
+            description=(
+                "Return health and availability for the RookBIM Revit bridge."
+                + _ROOKBIM_READS_ONLY
+            ),
             inputSchema=_rookbim_empty_input_schema(),
         ),
         Tool(
             name="rookbim_active_document",
-            description="Return active Revit document identity and summary metadata from the RookBIM bridge.",
+            description=(
+                "Return active Revit document identity and summary metadata from the RookBIM bridge."
+                + _ROOKBIM_READS_ONLY
+            ),
             inputSchema=_rookbim_empty_input_schema(),
         ),
         Tool(
             name="rookbim_list_categories",
-            description="Return document-wide Revit categories available in the active document category table.",
+            description=(
+                "Return document-wide Revit categories available in the active document category table."
+                + _ROOKBIM_READS_ONLY
+            ),
             inputSchema=_rookbim_empty_input_schema(),
         ),
         Tool(
             name="rookbim_query_elements",
-            description="Query Revit elements in the active view or whole document by category and parameter filters.",
+            description=(
+                "Query Revit elements in the active view or whole document by category and parameter filters."
+                + _ROOKBIM_READS_ONLY
+            ),
             inputSchema=_rookbim_query_elements_schema(),
         ),
         Tool(
             name="rookbim_element_info",
-            description="Return core metadata for one Revit element identity envelope.",
+            description=(
+                "Return core metadata for one Revit element identity envelope."
+                + _ROOKBIM_READS_ONLY
+            ),
             inputSchema=_rookbim_identity_input_schema(),
         ),
         Tool(
             name="rookbim_element_parameters",
-            description="Return parameter values for one Revit element identity envelope.",
+            description=(
+                "Return parameter values for one Revit element identity envelope."
+                + _ROOKBIM_READS_ONLY
+            ),
             inputSchema=_rookbim_identity_input_schema(),
         ),
         Tool(
             name="rookbim_select_elements",
             description=(
-                "Select Revit elements by identity envelope. This mutates UI "
-                "selection only and does not write the Revit document."
+                "Select Revit elements by identity envelope."
+                + _ROOKBIM_SELECTS_ONLY
             ),
             inputSchema=_rookbim_select_elements_schema(),
         ),
         Tool(
             name="rookbim_clear_selection",
             description=(
-                "Clear the current Revit UI selection through the RookBIM "
-                "bridge. This does not write the Revit document."
+                "Clear the current Revit UI selection through the RookBIM bridge."
+                + _ROOKBIM_SELECTS_ONLY
             ),
             inputSchema=_rookbim_empty_input_schema(),
         ),
@@ -13344,6 +13565,7 @@ Returns the full profile JSON including features, surfaces, and elements.""",
                 "Export selected Revit elements to a Rhino-consumable .3dm + sidecar + validation "
                 "bundle (geometry + identity + semantic labels). Read-only on the Revit/Rhino "
                 "documents; writes files to disk. Provide exactly one of 'selector' or 'identities'."
+                + _ROOKBIM_EXPORTS_ONLY
             ),
             inputSchema=_rookbim_export_elements_schema(),
         ),
@@ -13354,6 +13576,7 @@ Returns the full profile JSON including features, surfaces, and elements.""",
                 "structural, rooms_and_spaces, calibration_fixture) to an organized Rhino bundle: "
                 "multi-category selection, RookBim:: layers, readable names, embedded metadata, a "
                 "summary + relationship index. Read-only on Revit/Rhino; writes files to disk."
+                + _ROOKBIM_EXPORTS_ONLY
             ),
             inputSchema=_rookbim_export_preset_schema(),
         ),
@@ -13363,9 +13586,20 @@ Returns the full profile JSON including features, surfaces, and elements.""",
                 "Demo workflow: export a RookBIM preset bundle, import the generated .3dm into "
                 "the current Rhino/Rhino.Inside document, project BIM sidecar facts for the "
                 "imported objects, and optionally return a scene-wide BIM relationship summary. "
-                "Mutates Rhino by importing geometry; does not modify Revit."
+                "Mutates Rhino by importing geometry."
+                + _ROOKBIM_EXPORTS_ONLY
             ),
             inputSchema=_rookbim_export_preset_to_rhino_schema(),
+        ),
+        Tool(
+            name="rookbim_run_transaction",
+            description=_ROOKBIM_RUN_TRANSACTION_DESCRIPTION,
+            inputSchema=_rookbim_run_transaction_schema(),
+        ),
+        Tool(
+            name="rookbim_transaction_receipt",
+            description=_ROOKBIM_TRANSACTION_RECEIPT_DESCRIPTION,
+            inputSchema=_rookbim_transaction_receipt_schema(),
         ),
 
         # ─── Vision Video (PR-V4) ───────────────────────────────────────
@@ -21218,6 +21452,16 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
         case "rookbim_export_preset":
             result = await call_rhino(
                 "/bim/export-preset", "POST", arguments, port=port
+            )
+
+        case "rookbim_run_transaction":
+            result = await call_rhino(
+                "/bim/run-transaction", "POST", arguments, port=port
+            )
+
+        case "rookbim_transaction_receipt":
+            result = await call_rhino(
+                "/bim/transaction-receipt", "POST", arguments, port=port
             )
 
         case "rookbim_export_preset_to_rhino":
