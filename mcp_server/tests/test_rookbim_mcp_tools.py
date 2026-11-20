@@ -504,3 +504,15 @@ async def test_rookbim_run_transaction_refusal_reaches_the_model_with_code_and_c
     assert "revit_not_idle" in text
     assert "open dialog or an active command in Revit" in text
     assert "not_rhino_inside" not in text
+
+
+@pytest.mark.asyncio
+async def test_rhino_execute_points_revit_writes_at_rookbim_run_transaction():
+    description = (await _tools_by_name())["rhino_execute"].description
+
+    # The route a model actually took to write Revit on 2026-11-20.
+    assert "Rhino.Inside.Revit" in description
+    assert "cannot change the Revit model" in description
+    assert "To change the Revit model use rookbim_run_transaction." in description
+    # The existing guidance for ordinary Rhino scripting is kept.
+    assert "import rhinoscriptsyntax as rs" in description

@@ -4232,7 +4232,12 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
         ),
         Tool(
             name="rhino_execute",
-            description="Execute a Python script in Rhino using rhinoscriptsyntax. Use 'import rhinoscriptsyntax as rs' for geometry operations.",
+            description=(
+                "Execute a Python script in Rhino using rhinoscriptsyntax. Use 'import rhinoscriptsyntax as rs' "
+                "for geometry operations. When Rhino runs inside Revit (Rhino.Inside.Revit), this script can "
+                "read the Revit API but cannot change the Revit model: it runs outside Revit's API context, "
+                "where starting a transaction fails. To change the Revit model use rookbim_run_transaction."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
