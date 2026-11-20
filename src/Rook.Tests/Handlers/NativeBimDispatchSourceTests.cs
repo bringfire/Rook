@@ -16,6 +16,7 @@ namespace Rook.Tests.Handlers
         [InlineData("Post", "/bim/select-elements", "HandleBimSelectElements", "select_elements")]
         [InlineData("Post", "/bim/clear-selection", "HandleBimClearSelection", "clear_selection")]
         [InlineData("Post", "/bim/export-elements", "HandleBimExportElements", "export_elements")]
+        [InlineData("Post", "/bim/run-transaction", "HandleBimRunTransaction", "run_transaction")]
         public void RookServer_RegistersBimRoutesWithCanonicalOps(
             string method,
             string route,

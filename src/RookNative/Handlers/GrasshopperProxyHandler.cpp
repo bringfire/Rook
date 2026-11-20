@@ -1635,6 +1635,16 @@ void HandleBimExportPreset(const httplib::Request& req, httplib::Response& res)
         ForwardBimDispatch(req, res, "POST /bim/export-preset", "export_preset", body);
 }
 
+// The one BIM route that writes the host document. Native stays an opaque
+// forwarder: validation, the transaction and the rollback rules live in the
+// managed RookBIM module.
+void HandleBimRunTransaction(const httplib::Request& req, httplib::Response& res)
+{
+    nlohmann::json body;
+    if (ParseBimPostBody(req, res, "run_transaction", body))
+        ForwardBimDispatch(req, res, "POST /bim/run-transaction", "run_transaction", body);
+}
+
 void HandleManagedUvPlanar(const httplib::Request& req, httplib::Response& res)
 {
     const auto registration = GetGhBridgeRegistrationSnapshot();

@@ -105,6 +105,7 @@ void HandleBimSelectElements(const httplib::Request& req, httplib::Response& res
 void HandleBimClearSelection(const httplib::Request& req, httplib::Response& res);
 void HandleBimExportElements(const httplib::Request& req, httplib::Response& res);
 void HandleBimExportPreset(const httplib::Request& req, httplib::Response& res);
+void HandleBimRunTransaction(const httplib::Request& req, httplib::Response& res);
 void HandleManagedUvPlanar(const httplib::Request& req, httplib::Response& res);
 void HandleManagedGameExportPrepare(const httplib::Request& req, httplib::Response& res);
 void ProxyManagedCompanionRequest(

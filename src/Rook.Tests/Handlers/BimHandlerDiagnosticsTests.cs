@@ -797,6 +797,8 @@ namespace Rook.Tests.Handlers
 
         private class RecordingRuntime : IRookBimRuntime
         {
+            public BimApiResponse RunTransaction(BimDiagnosticContext diagnostics, BimRunTransactionRequest request) => BimApiResponse.Ok(null);
+
             private readonly ConcurrentQueue<BimDiagnosticContext> contexts =
                 new ConcurrentQueue<BimDiagnosticContext>();
 

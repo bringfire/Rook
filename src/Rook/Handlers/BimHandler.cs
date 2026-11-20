@@ -51,6 +51,7 @@ namespace Rook.Handlers
             "clear_selection",
             "export_elements",
             "export_preset",
+            "run_transaction",
         };
 
         private static readonly HashSet<string> ExpectedBimOpSet =
@@ -237,6 +238,8 @@ namespace Rook.Handlers
                     "export_preset",
                     body,
                     request => runtime.ExportPreset(diagnostics, request)),
+                "run_transaction" => DispatchRunTransaction(
+                    runtime, diagnostics, control, body),
                 _ => Fail(
                     diagnostics,
                     control,
@@ -271,6 +274,35 @@ namespace Rook.Handlers
                 InvokeRuntime(
                     diagnostics,
                     () => runtime.QueryElements(diagnostics, request)));
+        }
+
+        private ApiResponse DispatchRunTransaction(
+            IRookBimRuntime runtime,
+            BimDiagnosticContext diagnostics,
+            DispatchControlState control,
+            string? body)
+        {
+            // Validate before the runtime is reached: a malformed write request
+            // must be refused without ever entering the Revit API context.
+            var request = DeserializeRequest<BimRunTransactionRequest>(diagnostics, body);
+            var validation = request.Validate();
+            if (!validation.Success)
+            {
+                return Fail(
+                    diagnostics,
+                    control,
+                    validation.ErrorCode,
+                    validation.Message ?? "run-transaction validation failed.",
+                    400);
+            }
+
+            return FromBimResponse(
+                diagnostics,
+                control,
+                "run_transaction",
+                InvokeRuntime(
+                    diagnostics,
+                    () => runtime.RunTransaction(diagnostics, request)));
         }
 
         private ApiResponse DispatchTypedRequest<T>(
@@ -674,6 +706,13 @@ namespace Rook.Handlers
                 BimErrorCode.ExportFailed => "export_failed",
                 BimErrorCode.UnknownPreset => "unknown_preset",
                 BimErrorCode.NoCategoriesResolved => "no_categories_resolved",
+                BimErrorCode.InvalidRequest => "invalid_request",
+                BimErrorCode.RevitNotIdle => "revit_not_idle",
+                BimErrorCode.RevitOperationTimeout => "revit_operation_timeout",
+                BimErrorCode.DocumentNotModifiable => "document_not_modifiable",
+                BimErrorCode.TransactionScriptFailed => "transaction_script_failed",
+                BimErrorCode.TransactionRolledBack => "transaction_rolled_back",
+                BimErrorCode.TransactionTimeout => "transaction_timeout",
                 BimErrorCode.InternalError => "internal_error",
                 BimErrorCode.None => "internal_error",
                 _ => "internal_error",
@@ -760,6 +799,15 @@ namespace Rook.Handlers
                     userActionRequired = true;
                     recommendedNextStep = "Inspect RookBIM module load diagnostics, then restart Rhino.";
                     break;
+                case "revit_not_idle":
+                    failureKind = "host_blocked";
+                    ownedBy = "rookbim";
+                    evidenceSource = "rookbim_revit_idle_queue";
+                    retryable = true;
+                    userActionRequired = true;
+                    recommendedNextStep =
+                        "Close the open dialog or finish the active command in Revit, then retry.";
+                    break;
                 case "no_active_document":
                     failureKind = "operation_unavailable";
                     ownedBy = "rookbim";
@@ -814,6 +862,7 @@ namespace Rook.Handlers
                 "clear_selection" => "POST /bim/clear-selection",
                 "export_elements" => "POST /bim/export-elements",
                 "export_preset" => "POST /bim/export-preset",
+                "run_transaction" => "POST /bim/run-transaction",
                 _ => "POST /bim",
             };
         }

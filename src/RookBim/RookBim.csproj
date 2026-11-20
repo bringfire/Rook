@@ -38,6 +38,12 @@
     </Reference>
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Python body of the run-transaction wrapper; RevitTransactionService prepends the per-call header. -->
+    <EmbeddedResource Include="Revit\Scripts\run_transaction_wrapper.py"
+                      LogicalName="RookBim.run_transaction_wrapper.py" />
+  </ItemGroup>
+
   <PropertyGroup>
     <RookRuntimeDir>../Rook/bin/$(Configuration)/$(TargetFramework)</RookRuntimeDir>
   </PropertyGroup>

@@ -31,7 +31,15 @@ namespace Rook.Bim
         ExportFailed,
         UnknownPreset,
         NoCategoriesResolved,
-        InternalError
+        InternalError,
+        // Appended after InternalError so existing numeric values do not shift.
+        InvalidRequest,
+        RevitNotIdle,
+        RevitOperationTimeout,
+        DocumentNotModifiable,
+        TransactionScriptFailed,
+        TransactionRolledBack,
+        TransactionTimeout
     }
 
     public enum BimDocumentGuidSource
@@ -764,6 +772,98 @@ namespace Rook.Bim
         private static BimValidationResult Fail(BimErrorCode code, string message)
         {
             return new BimValidationResult { Success = false, ErrorCode = code, Message = message };
+        }
+    }
+
+    /// <summary>
+    /// Request for <c>POST /bim/run-transaction</c>: run one Python script body
+    /// inside one named Revit transaction on Revit's API thread.
+    /// </summary>
+    public sealed class BimRunTransactionRequest
+    {
+        public const int DefaultTimeoutSeconds = 60;
+
+        public const int MinTimeoutSeconds = 1;
+
+        // Idle wait + script timeout + commit grace must stay below the
+        // 120 s HTTP read timeout every Rook client uses for /bim/* routes.
+        public const int MaxTimeoutSeconds = 90;
+
+        public const int MaxNameLength = 120;
+
+        public const int MaxCodeLength = 200000;
+
+        /// <summary>Transaction name; becomes the single entry in Revit's undo list.</summary>
+        public string? Name { get; set; }
+
+        /// <summary>Python 3 source executed inside the open transaction.</summary>
+        public string? Code { get; set; }
+
+        /// <summary>How long the script may run once Revit has started it.</summary>
+        public int? TimeoutSeconds { get; set; }
+
+        public int EffectiveTimeoutSeconds
+        {
+            get { return TimeoutSeconds ?? DefaultTimeoutSeconds; }
+        }
+
+        public string EffectiveName
+        {
+            get { return (Name ?? string.Empty).Trim(); }
+        }
+
+        public BimValidationResult Validate()
+        {
+            var name = EffectiveName;
+            if (name.Length == 0)
+            {
+                return Fail(
+                    "name is required: it is the transaction name shown in Revit's undo list " +
+                    "(for example \"Rename Level 2\").");
+            }
+
+            if (name.Length > MaxNameLength)
+            {
+                return Fail($"name must be at most {MaxNameLength} characters; got {name.Length}.");
+            }
+
+            foreach (var character in name)
+            {
+                if (char.IsControl(character))
+                {
+                    return Fail("name must be a single line without control characters.");
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(Code))
+            {
+                return Fail(
+                    "code is required: the Python 3 source to run inside the transaction.");
+            }
+
+            if (Code!.Length > MaxCodeLength)
+            {
+                return Fail($"code must be at most {MaxCodeLength} characters; got {Code.Length}.");
+            }
+
+            if (EffectiveTimeoutSeconds < MinTimeoutSeconds || EffectiveTimeoutSeconds > MaxTimeoutSeconds)
+            {
+                return Fail(
+                    $"timeoutSeconds must be between {MinTimeoutSeconds} and {MaxTimeoutSeconds}; " +
+                    $"got {EffectiveTimeoutSeconds}.");
+            }
+
+            return BimValidationResult.Ok;
+        }
+
+        private static BimValidationResult Fail(string message)
+        {
+            return new BimValidationResult
+            {
+                Success = false,
+                ErrorCode = BimErrorCode.InvalidRequest,
+                Message = message
+            };
         }
     }
 
