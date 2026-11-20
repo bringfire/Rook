@@ -31,31 +31,71 @@
 #include "Threading/MainThreadDispatcher.h"
 #include "RookServer.h"
 
+#include <algorithm>
+#include <vector>
+
 namespace Rook {
 namespace Handlers {
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
-// Map type string to ON::object_type for selection filtering.
-// Matches the C# SelectionHandler type mapping.
+// The `type` values POST /select accepts, with their ON::object_type bitmask.
+// Single source for MapSelectTypeFilter and for the "accepted values" list in
+// the error a caller gets for an unrecognized type, so the two cannot drift.
+//
+// The first block is the C# SelectionHandler mapping (several names are
+// aliases: line/circle/arc/polyline all select curves, text selects
+// annotations, block selects instance references). The second block adds the
+// type names GET /objects prints, so a type read from rhino_objects can be
+// passed to rhino_select. "Light" is deliberately absent: selection iterates
+// without lights, so it could only ever select nothing.
+struct SelectTypeEntry
+{
+    const char* name;
+    unsigned int type;
+};
+
+static const std::vector<SelectTypeEntry>& SelectTypeEntries()
+{
+    static const std::vector<SelectTypeEntry> entries = {
+        {"point",             ON::point_object},
+        {"curve",             ON::curve_object},
+        {"line",              ON::curve_object},
+        {"circle",            ON::curve_object},
+        {"arc",               ON::curve_object},
+        {"polyline",          ON::curve_object},
+        {"surface",           ON::surface_object},
+        {"brep",              ON::brep_object},
+        {"mesh",              ON::mesh_object},
+        {"extrusion",         ON::extrusion_object},
+        {"subd",              ON::subd_object},
+        {"annotation",        ON::annotation_object},
+        {"text",              ON::annotation_object},
+        {"hatch",             ON::hatch_object},
+        {"block",             ON::instance_reference},
+
+        {"pointset",          ON::pointset_object},
+        {"instancereference", ON::instance_reference},
+        {"textdot",           ON::text_dot},
+        {"clipplane",         ON::clipplane_object},
+        {"detail",            ON::detail_object},
+    };
+    return entries;
+}
+
+// Map a type string to its ON::object_type bitmask, case-insensitively.
+// Returns 0 for a name that is not in SelectTypeEntries. 0 is NOT "match
+// all": HandleSelect rejects it before anything is selected. It used to be
+// treated as match-all, so a misspelt or unsupported type selected every
+// object in the document.
 static unsigned int MapSelectTypeFilter(const std::string& typeStr)
 {
-    if (IEquals(typeStr, "point"))       return ON::point_object;
-    if (IEquals(typeStr, "curve"))       return ON::curve_object;
-    if (IEquals(typeStr, "line"))        return ON::curve_object;
-    if (IEquals(typeStr, "circle"))      return ON::curve_object;
-    if (IEquals(typeStr, "arc"))         return ON::curve_object;
-    if (IEquals(typeStr, "polyline"))    return ON::curve_object;
-    if (IEquals(typeStr, "surface"))     return ON::surface_object;
-    if (IEquals(typeStr, "brep"))        return ON::brep_object;
-    if (IEquals(typeStr, "mesh"))        return ON::mesh_object;
-    if (IEquals(typeStr, "extrusion"))   return ON::extrusion_object;
-    if (IEquals(typeStr, "subd"))        return ON::subd_object;
-    if (IEquals(typeStr, "annotation")) return ON::annotation_object;
-    if (IEquals(typeStr, "text"))        return ON::annotation_object;
-    if (IEquals(typeStr, "hatch"))       return ON::hatch_object;
-    if (IEquals(typeStr, "block"))       return ON::instance_reference;
-    return 0;  // 0 = match all
+    for (const auto& entry : SelectTypeEntries())
+    {
+        if (IEquals(typeStr, entry.name))
+            return entry.type;
+    }
+    return 0;
 }
 
 // Simple wildcard matching with * and ? support.
@@ -222,6 +262,65 @@ void HandleSelect(const httplib::Request& req, httplib::Response& res)
         }
     }
 
+    // An unrecognized `type` is an error, checked here before the dispatch so
+    // that nothing is cleared or selected. MapSelectTypeFilter returns 0 for
+    // it, and the type predicate used to read 0 as "match all".
+    //
+    // A `type` that is present but not a string (null, a number, an array,
+    // ...) is rejected as well: the predicate below only runs for a string, so
+    // such a request used to clear the selection, skip the type predicate and
+    // report success. That includes null: a caller that sends `type` meant to
+    // filter by it, and rhino_select_by_type requires it. Answering "0
+    // selected" would tell that caller its filter matched nothing.
+    if (body.contains("type") && !body["type"].is_string())
+    {
+        invalidInput("'type' must be a string");
+        return;
+    }
+    if (body.contains("type") && body["type"].is_string())
+    {
+        const std::string typeStr = body["type"].get<std::string>();
+        if (MapSelectTypeFilter(typeStr) == 0)
+        {
+            std::string names;
+            nlohmann::json accepted = nlohmann::json::array();
+            for (const auto& entry : SelectTypeEntries())
+            {
+                if (!names.empty()) names += ", ";
+                names += entry.name;
+                accepted.push_back(entry.name);
+            }
+
+            nlohmann::json err = {
+                {"errorCode", "invalid_input"},
+                {"errorMessage", "Unknown object type '" + typeStr +
+                    "'. Accepted values (case-insensitive): " + names},
+            };
+            err["acceptedTypes"] = std::move(accepted);
+            CRookServer::SendErrorData(res, err);
+            return;
+        }
+    }
+
+    // `includeSublayers` is an opt-in modifier of the `layer` predicate. The
+    // default (false / absent) keeps Rhino's SelLayer meaning: only objects
+    // directly on the named layer. Reject a malformed or orphaned flag rather
+    // than silently selecting something other than what the caller meant.
+    if (body.contains("includeSublayers"))
+    {
+        if (!body["includeSublayers"].is_boolean())
+        {
+            invalidInput("'includeSublayers' must be a boolean");
+            return;
+        }
+        if (body["includeSublayers"].get<bool>() &&
+            !(body.contains("layer") && body["layer"].is_string()))
+        {
+            invalidInput("'includeSublayers' requires 'layer'");
+            return;
+        }
+    }
+
     auto future = CMainThreadDispatcher::Instance().Dispatch(
         [docSn, body]() -> nlohmann::json
     {
@@ -230,6 +329,7 @@ void HandleSelect(const httplib::Request& req, httplib::Response& res)
 
         int selectedCount = 0;
         int deselectedCount = 0;
+        int layersMatched = 0;
 
         // Processing order matches C# SelectionHandler exactly.
 
@@ -292,12 +392,25 @@ void HandleSelect(const httplib::Request& req, httplib::Response& res)
             std::string layerName = body["layer"].get<std::string>();
             const int layerIdx = Rook::Infrastructure::ResolveLayerRef(
                 pDoc, layerName, "layer").index;
+
+            // Default: the named layer only (objects on its sub-layers are NOT
+            // selected, matching Rhino's SelLayer). `includeSublayers: true`
+            // widens the match to every layer nested below it.
+            const bool includeSublayers = body.value("includeSublayers", false);
+            std::vector<int> layerIndices;
+            if (includeSublayers)
+                layerIndices = Rook::Infrastructure::CollectLayerWithDescendants(pDoc, layerIdx);
+            else
+                layerIndices.push_back(layerIdx);
+            layersMatched = static_cast<int>(layerIndices.size());
+
             CRhinoObjectIterator it(*pDoc,
                 CRhinoObjectIterator::normal_or_locked_objects,
                 CRhinoObjectIterator::active_objects);
             for (const CRhinoObject* obj = it.First(); obj; obj = it.Next())
             {
-                if (obj->Attributes().m_layer_index == layerIdx)
+                if (std::find(layerIndices.begin(), layerIndices.end(),
+                              obj->Attributes().m_layer_index) != layerIndices.end())
                 {
                     const_cast<CRhinoObject*>(obj)->Select(true);
                     ++selectedCount;
@@ -309,15 +422,19 @@ void HandleSelect(const httplib::Request& req, httplib::Response& res)
         if (body.contains("type") && body["type"].is_string())
         {
             std::string typeStr = body["type"].get<std::string>();
-            unsigned int typeFilter = MapSelectTypeFilter(typeStr);
+            // Never 0 here: an unrecognized type was rejected before dispatch.
+            // The guard keeps a 0 from ever meaning "every object" again.
+            const unsigned int typeFilter = MapSelectTypeFilter(typeStr);
+            if (typeFilter == 0)
+                throw std::invalid_argument("Unknown object type '" + typeStr + "'");
 
             CRhinoObjectIterator it(*pDoc,
                 CRhinoObjectIterator::normal_or_locked_objects,
                 CRhinoObjectIterator::active_objects);
             for (const CRhinoObject* obj = it.First(); obj; obj = it.Next())
             {
-                bool matches = (typeFilter == 0) ||
-                    (static_cast<unsigned int>(obj->ObjectType()) & typeFilter);
+                const bool matches =
+                    (static_cast<unsigned int>(obj->ObjectType()) & typeFilter) != 0;
                 if (matches)
                 {
                     const_cast<CRhinoObject*>(obj)->Select(true);
@@ -497,6 +614,10 @@ void HandleSelect(const httplib::Request& req, httplib::Response& res)
         data["selectedCount"] = selectedCount;
         if (deselectedCount > 0)
             data["deselectedCount"] = deselectedCount;
+        // Reported only for an includeSublayers request: how many layers (the
+        // named one plus its descendants) the layer predicate covered.
+        if (body.value("includeSublayers", false))
+            data["layersMatched"] = layersMatched;
         return data;
     });
 

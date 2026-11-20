@@ -64,6 +64,14 @@ nlohmann::json SerializeObject(const ObjectSnapshot& obj)
     j["layer"] = obj.layer;
     j["name"] = obj.name.empty() ? nlohmann::json(nullptr) : nlohmann::json(obj.name);
     j["visible"] = obj.visible;
+    // The object's own mode and its layer's state. `visible` alone cannot say
+    // why an object is not visible, or whether it can be selected or deleted.
+    if (!obj.mode.empty())
+    {
+        j["mode"] = obj.mode;
+        j["layerVisible"] = obj.layerVisible;
+        j["layerLocked"] = obj.layerLocked;
+    }
     j["bbox"] = SerializeBBox(obj.bbox);
 
     if (obj.color.has_value())
@@ -264,6 +272,13 @@ nlohmann::json SerializeGeometryDetailed(const GeometrySnapshot& snap)
     j["layer"] = snap.layer;
     j["name"] = snap.name.empty() ? nlohmann::json(nullptr) : nlohmann::json(snap.name);
     j["visible"] = snap.visible;
+    // Same three state fields as the object summary above.
+    if (!snap.mode.empty())
+    {
+        j["mode"] = snap.mode;
+        j["layerVisible"] = snap.layerVisible;
+        j["layerLocked"] = snap.layerLocked;
+    }
     j["bbox"] = SerializeBBox(snap.bbox);
 
     if (snap.color.has_value())
@@ -303,6 +318,7 @@ nlohmann::json SerializeLayer(const LayerSnapshot& layer)
         ? nlohmann::json(nullptr)
         : nlohmann::json(layer.parentId);
     j["objectCount"] = layer.objectCount;
+    j["unlistedObjectCount"] = layer.unlistedObjectCount;
     return j;
 }
 
@@ -318,6 +334,7 @@ nlohmann::json SerializeDocument(const DocumentSnapshot& doc)
         {"tolerance", doc.tolerance},
         {"angleTolerance", doc.angleTolerance},
         {"objectCount", doc.objectCount},
+        {"unlistedObjectCount", doc.unlistedObjectCount},
         {"layerCount", doc.layerCount},
         {"activeLayer", doc.activeLayer},
         {"modified", doc.modified}

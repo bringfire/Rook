@@ -66,6 +66,7 @@ static ObjectSnapshot CaptureCreatedObject(const CRhinoObject* obj, CRhinoDoc* p
 
     snap.name = WideToUtf8(obj->Attributes().m_name);
     snap.visible = obj->IsVisible();
+    CaptureObjectState(obj, pDoc, snap);
 
     ON_BoundingBox bbox = obj->BoundingBox();
     if (bbox.IsValid())

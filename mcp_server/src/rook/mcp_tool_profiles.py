@@ -203,6 +203,7 @@ PUBLIC_READONLY_TOOL_NAMES = frozenset({
     "rookbim_list_categories",
     "rookbim_query_elements",
     "rookbim_status",
+    "rookbim_transaction_receipt",
     "scene_bim_facts",
     "scene_context",
     "scene_graph",

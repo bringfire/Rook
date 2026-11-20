@@ -9,6 +9,8 @@
 #include "Threading/RequestContext.h"
 #include "Models/Snapshots.h"
 #include <string>
+#include <unordered_map>
+#include <vector>
 #include <cmath>
 
 namespace Rook {
@@ -129,12 +131,63 @@ inline std::string ObjectTypeToString(ON::object_type type)
     case ON::subd_object:          return "SubD";
     case ON::extrusion_object:     return "Extrusion";
     case ON::clipplane_object:     return "ClipPlane";
+    case ON::detail_object:        return "Detail";
     default:                       return "Unknown";
     }
 }
 
+// The object type names accepted as a `type` filter, with their bitmask.
+// Single source for ParseObjectTypeFilter and for the "accepted values" list
+// in the error a caller gets for an unrecognized type, so the two cannot drift.
+//
+// Every name ObjectTypeToString can print for a document object is here, so a
+// type read from a listing can be passed back as a filter. "Light" matches
+// only when the query includes lights (GET /objects with includeUnlisted); a
+// default query reports the lights it left out in unlistedCount.
+struct ObjectTypeFilterEntry
+{
+    const char* name;
+    unsigned int type;
+};
+
+inline const std::vector<ObjectTypeFilterEntry>& ObjectTypeFilterEntries()
+{
+    static const std::vector<ObjectTypeFilterEntry> entries = {
+        {"Point",             ON::point_object},
+        {"PointSet",          ON::pointset_object},
+        {"Curve",             ON::curve_object},
+        {"Surface",           ON::surface_object},
+        {"Brep",              ON::brep_object},
+        {"Mesh",              ON::mesh_object},
+        {"Light",             ON::light_object},
+        {"Annotation",        ON::annotation_object},
+        {"InstanceReference", ON::instance_reference},
+        {"TextDot",           ON::text_dot},
+        {"Hatch",             ON::hatch_object},
+        {"SubD",              ON::subd_object},
+        {"Extrusion",         ON::extrusion_object},
+        {"ClipPlane",         ON::clipplane_object},
+        {"Detail",            ON::detail_object},
+    };
+    return entries;
+}
+
+// "Point, PointSet, Curve, ..." — for error messages.
+inline std::string ObjectTypeFilterNames()
+{
+    std::string names;
+    for (const auto& entry : ObjectTypeFilterEntries())
+    {
+        if (!names.empty()) names += ", ";
+        names += entry.name;
+    }
+    return names;
+}
+
 // Parse a type filter string (e.g. "Brep") to ON::object_type bitmask.
-// Returns 0 if unrecognized (meaning "no filter").
+// Returns 0 if typeStr is empty (no filter requested) OR unrecognized.
+// A caller that received a non-empty typeStr must treat 0 as an error:
+// 0 handed to an object iterator means "no filter", i.e. every object.
 // Case-insensitive.
 inline unsigned int ParseObjectTypeFilter(const std::string& typeStr)
 {
@@ -150,22 +203,94 @@ inline unsigned int ParseObjectTypeFilter(const std::string& typeStr)
         return true;
     };
 
-    if (iequals(typeStr, "Point"))             return ON::point_object;
-    if (iequals(typeStr, "PointSet"))          return ON::pointset_object;
-    if (iequals(typeStr, "Curve"))             return ON::curve_object;
-    if (iequals(typeStr, "Surface"))           return ON::surface_object;
-    if (iequals(typeStr, "Brep"))              return ON::brep_object;
-    if (iequals(typeStr, "Mesh"))              return ON::mesh_object;
-    if (iequals(typeStr, "Light"))             return ON::light_object;
-    if (iequals(typeStr, "Annotation"))        return ON::annotation_object;
-    if (iequals(typeStr, "InstanceReference")) return ON::instance_reference;
-    if (iequals(typeStr, "TextDot"))           return ON::text_dot;
-    if (iequals(typeStr, "Hatch"))             return ON::hatch_object;
-    if (iequals(typeStr, "SubD"))              return ON::subd_object;
-    if (iequals(typeStr, "Extrusion"))         return ON::extrusion_object;
-    if (iequals(typeStr, "ClipPlane"))         return ON::clipplane_object;
+    for (const auto& entry : ObjectTypeFilterEntries())
+    {
+        if (iequals(typeStr, entry.name))
+            return entry.type;
+    }
 
     return 0;
+}
+
+// --- Object counts ---
+
+// Two object sets are in use, and a count must say which one it is:
+//
+//   listed — what the default CRhinoObjectIterator returns
+//            (normal_or_locked_objects, lights excluded): normal and locked
+//            objects on layers that are turned on. GET /objects lists this set
+//            unless includeUnlisted is passed.
+//   all    — every undeleted object: the listed set plus objects in hidden
+//            mode, objects on a turned-off layer (Rhino's iterator treats
+//            those as hidden) and lights. This is the set that holds a layer
+//            (rhino_layer_dependencies.directObjects).
+//
+// objectCount in GET /layers and GET /document is `all`; unlistedObjectCount
+// is `all - listed`, so the two sets stay reconcilable from one response.
+// Objects in the deleted state (kept for undo) are in neither. Nor are the
+// two kinds no pass here iterates: geometry inside block definitions (the
+// instance references are counted, the definition's members are not) and
+// worksession reference objects (both passes use active_objects). A layer
+// used only by block-definition geometry therefore counts 0;
+// rhino_layer_dependencies reports that use separately, as blockReferences.
+struct ObjectCounts
+{
+    int all = 0;
+    int listed = 0;
+
+    int Unlisted() const { return all - listed; }
+};
+
+// Count the objects on one layer, or in the whole document when layerIndex
+// is negative. MUST only be called on the main thread.
+inline ObjectCounts CountObjects(CRhinoDoc* pDoc, int layerIndex = -1)
+{
+    ObjectCounts counts;
+    {
+        CRhinoObjectIterator it(*pDoc,
+            CRhinoObjectIterator::undeleted_objects,
+            CRhinoObjectIterator::active_objects);
+        it.IncludeLights(true);
+        for (const CRhinoObject* obj = it.First(); obj; obj = it.Next())
+        {
+            if (layerIndex < 0 || obj->Attributes().m_layer_index == layerIndex)
+                ++counts.all;
+        }
+    }
+    {
+        CRhinoObjectIterator it(*pDoc,
+            CRhinoObjectIterator::normal_or_locked_objects,
+            CRhinoObjectIterator::active_objects);
+        for (const CRhinoObject* obj = it.First(); obj; obj = it.Next())
+        {
+            if (layerIndex < 0 || obj->Attributes().m_layer_index == layerIndex)
+                ++counts.listed;
+        }
+    }
+    return counts;
+}
+
+// The same two counts for every layer in one pass each, keyed by layer index.
+// MUST only be called on the main thread.
+inline std::unordered_map<int, ObjectCounts> CountObjectsByLayer(CRhinoDoc* pDoc)
+{
+    std::unordered_map<int, ObjectCounts> perLayer;
+    {
+        CRhinoObjectIterator it(*pDoc,
+            CRhinoObjectIterator::undeleted_objects,
+            CRhinoObjectIterator::active_objects);
+        it.IncludeLights(true);
+        for (const CRhinoObject* obj = it.First(); obj; obj = it.Next())
+            ++perLayer[obj->Attributes().m_layer_index].all;
+    }
+    {
+        CRhinoObjectIterator it(*pDoc,
+            CRhinoObjectIterator::normal_or_locked_objects,
+            CRhinoObjectIterator::active_objects);
+        for (const CRhinoObject* obj = it.First(); obj; obj = it.Next())
+            ++perLayer[obj->Attributes().m_layer_index].listed;
+    }
+    return perLayer;
 }
 
 // --- Rounding ---
@@ -206,6 +331,62 @@ inline int FindLayerIndex(CRhinoDoc* pDoc, const std::string& name)
     return -1;
 }
 
+// --- Object state ---
+
+// An object's own mode. It says nothing about the object's layer: an object
+// on a turned-off or locked layer keeps mode normal. The members of a block
+// definition are in a fourth mode of their own: they are not model objects
+// and cannot be hidden, locked, selected or deleted one by one.
+inline const char* ObjectModeToString(ON::object_mode mode)
+{
+    switch (mode)
+    {
+    case ON::locked_object: return "locked";
+    case ON::hidden_object: return "hidden";
+    case ON::idef_object:   return "instanceDefinition";
+    default:                return "normal";
+    }
+}
+
+// Why an object is or is not visible and what it will accept: its own mode
+// plus its layer's visibility and lock. `visible` (IsVisible) folds the first
+// two into one bit and leaves the lock out, so a caller cannot tell a hidden
+// object from one on a turned-off layer, nor predict that a delete or a
+// selection will be refused. With these three fields it can, without trying.
+struct ObjectState
+{
+    std::string mode;          // "normal", "locked", "hidden" or "instanceDefinition"
+    bool layerVisible = true;  // false when the object's layer is turned off
+    bool layerLocked = false;  // true when the object's layer is locked
+};
+
+// The one place object state is read, so every record that reports it — the
+// object snapshot, the geometry detail, a block definition's member list —
+// reports the same thing. MUST only be called on the main thread.
+inline ObjectState ReadObjectState(const CRhinoObject* obj, CRhinoDoc* pDoc)
+{
+    ObjectState state;
+    state.mode = ObjectModeToString(obj->Attributes().Mode());
+
+    const int layerIdx = obj->Attributes().m_layer_index;
+    if (layerIdx >= 0 && layerIdx < pDoc->m_layer_table.LayerCount())
+    {
+        const CRhinoLayer& layer = pDoc->m_layer_table[layerIdx];
+        state.layerVisible = layer.IsVisible();
+        state.layerLocked = layer.IsLocked();
+    }
+    return state;
+}
+
+// MUST only be called on the main thread.
+inline void CaptureObjectState(const CRhinoObject* obj, CRhinoDoc* pDoc, ObjectSnapshot& snap)
+{
+    const ObjectState state = ReadObjectState(obj, pDoc);
+    snap.mode = state.mode;
+    snap.layerVisible = state.layerVisible;
+    snap.layerLocked = state.layerLocked;
+}
+
 // --- Object snapshot capture ---
 
 // Capture an ObjectSnapshot from a CRhinoObject on the main thread.
@@ -231,6 +412,7 @@ inline ObjectSnapshot CaptureObjectSnapshot(const CRhinoObject* obj, CRhinoDoc* 
 
     snap.name = WideToUtf8(obj->Attributes().m_name);
     snap.visible = obj->IsVisible();
+    CaptureObjectState(obj, pDoc, snap);
 
     ON_BoundingBox bbox = obj->BoundingBox();
     if (bbox.IsValid())

@@ -31,7 +31,17 @@ namespace Rook.Bim
         ExportFailed,
         UnknownPreset,
         NoCategoriesResolved,
-        InternalError
+        InternalError,
+        // Appended after InternalError so existing numeric values do not shift.
+        InvalidRequest,
+        RevitNotIdle,
+        RevitOperationTimeout,
+        DocumentNotModifiable,
+        TransactionScriptFailed,
+        TransactionRolledBack,
+        TransactionTimeout,
+        TransactionOutcomeUnknown,
+        TransactionReceiptNotFound
     }
 
     public enum BimDocumentGuidSource
@@ -765,6 +775,138 @@ namespace Rook.Bim
         {
             return new BimValidationResult { Success = false, ErrorCode = code, Message = message };
         }
+    }
+
+    /// <summary>
+    /// Request for <c>POST /bim/run-transaction</c>: run one Python script body
+    /// inside one named Revit transaction on Revit's API thread.
+    /// </summary>
+    public sealed class BimRunTransactionRequest
+    {
+        public const int DefaultTimeoutSeconds = 60;
+
+        public const int MinTimeoutSeconds = 1;
+
+        // Idle wait + script timeout + setup allowance + commit grace must stay
+        // below the 120 s HTTP read timeout every Rook client uses for /bim/*.
+        public const int MaxTimeoutSeconds = 90;
+
+        public const int MaxDocumentKeyLength = 300;
+
+        public const int MaxNameLength = 120;
+
+        public const int MaxCodeLength = 200000;
+
+        /// <summary>Transaction name; becomes the single entry in Revit's undo list.</summary>
+        public string? Name { get; set; }
+
+        /// <summary>Python 3 source executed inside the open transaction.</summary>
+        public string? Code { get; set; }
+
+        /// <summary>How long the script may run once Revit has started it.</summary>
+        public int? TimeoutSeconds { get; set; }
+
+        /// <summary>
+        /// Optional. The documentKey of the document the caller read (from
+        /// active-document or any element identity). When given, the write is
+        /// refused unless that document is still the active one.
+        /// </summary>
+        public string? DocumentKey { get; set; }
+
+        /// <summary>True when the caller asked for the document guard.</summary>
+        public bool HasDocumentKey
+        {
+            get { return DocumentKey != null; }
+        }
+
+        public int EffectiveTimeoutSeconds
+        {
+            get { return TimeoutSeconds ?? DefaultTimeoutSeconds; }
+        }
+
+        public string EffectiveName
+        {
+            get { return (Name ?? string.Empty).Trim(); }
+        }
+
+        public BimValidationResult Validate()
+        {
+            var name = EffectiveName;
+            if (name.Length == 0)
+            {
+                return Fail(
+                    "name is required: it is the transaction name shown in Revit's undo list " +
+                    "(for example \"Rename Level 2\").");
+            }
+
+            if (name.Length > MaxNameLength)
+            {
+                return Fail($"name must be at most {MaxNameLength} characters; got {name.Length}.");
+            }
+
+            foreach (var character in name)
+            {
+                if (char.IsControl(character))
+                {
+                    return Fail("name must be a single line without control characters.");
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(Code))
+            {
+                return Fail(
+                    "code is required: the Python 3 source to run inside the transaction.");
+            }
+
+            if (Code!.Length > MaxCodeLength)
+            {
+                return Fail($"code must be at most {MaxCodeLength} characters; got {Code.Length}.");
+            }
+
+            if (EffectiveTimeoutSeconds < MinTimeoutSeconds || EffectiveTimeoutSeconds > MaxTimeoutSeconds)
+            {
+                return Fail(
+                    $"timeoutSeconds must be between {MinTimeoutSeconds} and {MaxTimeoutSeconds}; " +
+                    $"got {EffectiveTimeoutSeconds}.");
+            }
+
+            if (DocumentKey != null && string.IsNullOrWhiteSpace(DocumentKey))
+            {
+                // A blank key must not quietly turn a guarded write into an
+                // unguarded one: only leaving the field out does that.
+                return Fail(
+                    "documentKey was given but is blank. Leave documentKey out to run on whichever document is " +
+                    "active, or pass the documentKey string exactly as rookbim_active_document returned it.");
+            }
+
+            if (DocumentKey != null && DocumentKey.Length > MaxDocumentKeyLength)
+            {
+                return Fail(
+                    $"documentKey must be at most {MaxDocumentKeyLength} characters; got {DocumentKey.Length}. " +
+                    "Pass the documentKey string exactly as rookbim_active_document returned it.");
+            }
+
+            return BimValidationResult.Ok;
+        }
+
+        private static BimValidationResult Fail(string message)
+        {
+            return new BimValidationResult
+            {
+                Success = false,
+                ErrorCode = BimErrorCode.InvalidRequest,
+                Message = message
+            };
+        }
+    }
+
+    /// <summary>Request for <c>POST /bim/transaction-receipt</c>.</summary>
+    public sealed class BimTransactionReceiptRequest
+    {
+        public const int MaxRecent = 10;
+
+        /// <summary>The transaction.id a run-transaction response carried. Omit to list recent receipts.</summary>
+        public string? TransactionId { get; set; }
     }
 
     public sealed class BimPresetDefinition

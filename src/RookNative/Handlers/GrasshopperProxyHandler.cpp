@@ -1486,7 +1486,8 @@ bool ParseBimPostBody(
     const httplib::Request& req,
     httplib::Response& res,
     const std::string& op,
-    nlohmann::json& body)
+    nlohmann::json& body,
+    const char* malformedBodyCode = "invalid_scope")
 {
     if (req.body.empty())
     {
@@ -1505,7 +1506,7 @@ bool ParseBimPostBody(
             res,
             op,
             400,
-            "invalid_scope",
+            malformedBodyCode,
             std::string("Invalid JSON body for /bim/") + op + ": " + ex.what());
         return false;
     }
@@ -1516,7 +1517,7 @@ bool ParseBimPostBody(
             res,
             op,
             400,
-            "invalid_scope",
+            malformedBodyCode,
             std::string("Invalid JSON body for /bim/") + op + ": expected an object.");
         return false;
     }
@@ -1633,6 +1634,27 @@ void HandleBimExportPreset(const httplib::Request& req, httplib::Response& res)
     nlohmann::json body;
     if (ParseBimPostBody(req, res, "export_preset", body))
         ForwardBimDispatch(req, res, "POST /bim/export-preset", "export_preset", body);
+}
+
+// The one BIM route that writes the host document. Native stays an opaque
+// forwarder: validation, the transaction and the rollback rules live in the
+// managed RookBIM module.
+void HandleBimRunTransaction(const httplib::Request& req, httplib::Response& res)
+{
+    // These routes have no scope argument: a malformed body is an invalid
+    // request, the same code the managed handler uses for their fields.
+    nlohmann::json body;
+    if (ParseBimPostBody(req, res, "run_transaction", body, "invalid_request"))
+        ForwardBimDispatch(req, res, "POST /bim/run-transaction", "run_transaction", body);
+}
+
+// Reads how an earlier run-transaction call ended. Answered by the managed
+// handler from memory, without entering Revit's API thread.
+void HandleBimTransactionReceipt(const httplib::Request& req, httplib::Response& res)
+{
+    nlohmann::json body;
+    if (ParseBimPostBody(req, res, "transaction_receipt", body, "invalid_request"))
+        ForwardBimDispatch(req, res, "POST /bim/transaction-receipt", "transaction_receipt", body);
 }
 
 void HandleManagedUvPlanar(const httplib::Request& req, httplib::Response& res)

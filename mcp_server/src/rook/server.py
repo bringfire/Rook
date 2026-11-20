@@ -555,6 +555,204 @@ def _rookbim_empty_input_schema() -> dict[str, Any]:
     }
 
 
+# Appended to every rookbim_* tool that cannot change the Revit model, so a
+# model reading any one description learns where writes go.
+_ROOKBIM_READS_ONLY = (
+    " Reads only: it never changes the Revit model. To change the model use "
+    "rookbim_run_transaction."
+)
+_ROOKBIM_SELECTS_ONLY = (
+    " Changes the Revit UI selection only: it never changes the Revit model. "
+    "To change the model use rookbim_run_transaction."
+)
+_ROOKBIM_EXPORTS_ONLY = (
+    " Never changes the Revit model. To change the model use "
+    "rookbim_run_transaction."
+)
+
+
+def _rookbim_run_transaction_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120,
+                "description": (
+                    "Transaction name. It becomes the single entry for this change in "
+                    "Revit's undo list, so name the change, e.g. 'Rename Level 2'."
+                ),
+            },
+            "code": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200000,
+                "description": (
+                    "Python 3 source to run inside the already-open transaction. "
+                    "Pre-bound names: doc, uidoc, uiapp, app, DB (Autodesk.Revit.DB), "
+                    "UI (Autodesk.Revit.UI). Assign a plain JSON value to `result` to "
+                    "return it. Do not create DB.Transaction or DB.TransactionGroup "
+                    "objects."
+                ),
+            },
+            "timeoutSeconds": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 90,
+                "default": 60,
+                "description": (
+                    "How long the script may run, counted from when it starts. A script "
+                    "that runs longer is never committed. This does not stop the script: "
+                    "it keeps Revit busy until it returns."
+                ),
+            },
+            "documentKey": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300,
+                "description": (
+                    "Recommended. The documentKey of the document you read, as returned "
+                    "by rookbim_active_document (document.documentKey) or in any element "
+                    "identity. If a different document is active when the transaction is "
+                    "about to start, the call is refused with document_mismatch and "
+                    "nothing changes. Leave it out (do not send an empty string) only "
+                    "when the document has no documentKey, as an unsaved document does; "
+                    "the script then runs on whichever document is active."
+                ),
+            },
+            "port": _rookbim_port_schema(),
+        },
+        "required": ["name", "code"],
+        "additionalProperties": False,
+    }
+
+
+def _rookbim_transaction_receipt_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "transactionId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "description": (
+                    "The transaction.id from a rookbim_run_transaction answer. Leave it "
+                    "out to list the most recent receipts, newest first."
+                ),
+            },
+            "port": _rookbim_port_schema(),
+        },
+        "required": [],
+        "additionalProperties": False,
+    }
+
+
+_ROOKBIM_RUN_TRANSACTION_DESCRIPTION = (
+    "Change the open Revit document. This is the only RookBIM tool that writes the "
+    "Revit model; every other rookbim_* tool only reads it or changes the UI "
+    "selection. Requires Rhino running inside Revit (Rhino.Inside.Revit); check "
+    "with rookbim_status.\n\n"
+    "Runs your Python 3 `code` on Revit's API thread inside one transaction called "
+    "`name` on the active document, waits for it, and answers in this same call. "
+    "The transaction is committed only if the script runs to its end; if the "
+    "script raises, or Revit rejects the commit, it is rolled back and the active "
+    "document is unchanged. On success the whole change is one entry called `name` "
+    "in Revit's undo list. This tool cannot undo; the user undoes it in Revit.\n\n"
+    "Every answer to a request that passed validation says what happened to the "
+    "transaction, in `transaction` {id, name, status}, `documentChanged` and "
+    "`final`. On success they are in data; on a refusal they are in data.details. "
+    "(invalid_request, and rookbim_unavailable when RookBIM is not loaded, are "
+    "refused before a transaction record exists and carry none.) status is one "
+    "of: committed (documentChanged true or false); rolled_back or not_started "
+    "(documentChanged false: nothing changed, safe to correct and call again); "
+    "open (Revit has not recorded the end: the script may still be running, or it "
+    "has returned and Revit is committing or rolling back); unresolved (Revit did "
+    "not confirm the end). For open and unresolved documentChanged is null: do "
+    "not run the script again. While `final` is false, call "
+    "rookbim_transaction_receipt with transaction.id to see how it ended. Once "
+    "`final` is true the record will not change: if it is still unresolved, read "
+    "the model back in that document before any further write.\n\n"
+    "Names already bound in the script: doc (the active Autodesk.Revit.DB.Document), "
+    "uidoc, uiapp, app, DB (the Autodesk.Revit.DB namespace), UI (Autodesk.Revit.UI). "
+    "Example: `lvl = doc.GetElement(DB.ElementId(311)); lvl.Name = 'Level 02'; "
+    "result = {'renamed': lvl.Id.Value}`. Lengths are Revit internal units (feet); "
+    "convert with DB.UnitUtils.ConvertToInternalUnits. print() text comes back as "
+    "`output`. Assign a plain JSON value (numbers, strings, lists, dicts with "
+    "string keys, nested at most 32 deep) to `result` to get it back; return "
+    "elements as ids. A `result` that is not plain JSON is not converted: it comes "
+    "back null with `resultOmittedReason`, and the script's changes still stand.\n\n"
+    "Element ids repeat across documents. Pass `documentKey` (from "
+    "rookbim_active_document) so the write is refused if the user has switched to "
+    "another document since you read it.\n\n"
+    "Limits of the guarantee. Only edits the script makes to `doc` while it runs "
+    "are inside the transaction. Do not edit another document, and do not schedule "
+    "work for later (events, idling callbacks, external events): those run outside "
+    "the transaction and are not rolled back. Do not start, commit or roll back "
+    "transactions (no DB.Transaction, no DB.TransactionGroup): one is already open "
+    "and starting another raises. DB.SubTransaction is allowed. Do not open dialogs "
+    "or ask for input. Rook cannot stop a running script: one that never returns "
+    "freezes Revit until the user ends it.\n\n"
+    "On success also returns changed, elements (added and modified: at most 100 "
+    "entries each, with counts and a truncated flag; use an entry as "
+    "rookbim_element_info {identity: entry.identity} or rookbim_select_elements "
+    "{identities: [entry.identity]}; an entry whose identity the read tools would "
+    "not accept has identity null with `elementId` and `identityOmittedReason`; "
+    "deleted: former element ids), warnings (Revit warnings, dismissed instead of "
+    "shown as dialogs), output, stderr and result. Anything left out for size is "
+    "named in `omitted` with the reason; the transaction status is never left "
+    "out.\n\n"
+    "Refusals, by data.errorCode. Nothing started (status not_started): "
+    "revit_not_idle (an open dialog or active command in Revit; ask the user to "
+    "close it, then retry), document_mismatch (the active document is not "
+    "`documentKey`), document_not_modifiable (read-only document or another "
+    "transaction already open), no_active_document, invalid_request. Rolled back "
+    "(status rolled_back): transaction_script_failed (the script raised; see "
+    "data.details.traceback), transaction_rolled_back (Revit refused the commit; "
+    "see data.details.failures), transaction_timeout (the script ran past "
+    "timeoutSeconds). Not finished when the call answered: transaction_timeout "
+    "with status open means the script is still running, will not be committed, "
+    "and is rolled back when it returns; transaction_outcome_unknown means Revit "
+    "had not confirmed the commit. For both, ask rookbim_transaction_receipt.\n\n"
+    "Not for reading the model (use rookbim_query_elements, rookbim_element_info, "
+    "rookbim_element_parameters) and not for Rhino geometry (use rhino_* tools). "
+    "Do not use rhino_execute to change Revit: it runs outside Revit's API "
+    "context, where starting a transaction fails."
+)
+
+_ROOKBIM_TRANSACTION_RECEIPT_DESCRIPTION = (
+    "Read how an earlier rookbim_run_transaction call ended. Use it when that "
+    "call answered with transaction.status open or unresolved, or when its answer "
+    "was lost."
+    + _ROOKBIM_READS_ONLY
+    + "\n\n"
+    "Answered from memory without waiting for Revit, so it works while Revit is "
+    "busy with the script or blocked by a dialog. Pass `transactionId` "
+    "(transaction.id from the run_transaction answer), or leave it out to list "
+    "the 10 most recent receipts, newest first.\n\n"
+    "Returns transaction {id, name, status, commitProhibited}, final, "
+    "documentChanged (true, false, or null while not confirmed), document, "
+    "errorCode (null while the write is simply still in progress) and message. "
+    "status: queued (Revit has not picked the write up yet, for example behind a "
+    "dialog; it has not failed and may still run, so do not submit it again); "
+    "open (Revit has not recorded the end: the script may still be running, or "
+    "Revit is committing or rolling back; with commitProhibited true it will be "
+    "rolled back); committed; rolled_back; not_started (refused; nothing ran); "
+    "unresolved (Revit did not confirm the end).\n\n"
+    "`final` is true once nothing is watching the transaction any more, so the "
+    "record cannot change. Ask again only while final is false. A final record "
+    "that is unresolved will never resolve: read the model back with "
+    "rookbim_query_elements or rookbim_element_parameters in that document before "
+    "any further write.\n\n"
+    "If the write's answer was lost you have no id: list recent receipts and "
+    "match by name, document and time. If more than one could be yours, that is "
+    "not grounds to run the script again; read the model back.\n\n"
+    "Receipts are kept for the last 64 write calls of this Revit session and do "
+    "not survive a restart of Revit. An unknown id is refused with "
+    "transaction_receipt_not_found; then read the model back instead."
+)
+
+
 def _rookbim_identity_schema() -> dict[str, Any]:
     return {
         "type": "object",
@@ -3968,22 +4166,72 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
         ),
         Tool(
             name="rhino_document",
-            description="Get information about the current Rhino document including name, units, object count, and a summary of objects.",
+            description=(
+                "Get information about the current Rhino document including name, units, object count, "
+                "and a summary of objects. objectCount is every undeleted object in the model, including "
+                "hidden objects, objects on turned-off layers and lights; unlistedObjectCount is how many "
+                "of those rhino_objects leaves out unless includeUnlisted is true. Geometry inside block "
+                "definitions and worksession reference objects are not counted."
+            ),
             inputSchema={"type": "object", "properties": {}, "required": []}
         ),
         Tool(
             name="rhino_layers",
-            description="Get all layers in the current document with their properties (color, visibility, etc).",
+            description=(
+                "Get all layers in the current document with their properties (color, visibility, etc). "
+                "Each layer's objectCount is every undeleted object on it, including hidden objects, "
+                "lights and, when the layer is turned off, all of its objects, so it matches "
+                "rhino_layer_dependencies.directObjects and does not drop to 0 when a layer is turned "
+                "off. unlistedObjectCount is how many of those rhino_objects leaves out unless "
+                "includeUnlisted is true. Geometry inside block definitions and worksession reference "
+                "objects are not counted, so objectCount 0 does not by itself mean the layer can be "
+                "deleted: rhino_layer_dependencies reports block-definition use and canDelete."
+            ),
             inputSchema={"type": "object", "properties": {}, "required": []}
         ),
         Tool(
             name="rhino_objects",
-            description="Query objects in the document with optional filters.",
+            description=(
+                "Query objects in the document with optional filters. By default this lists normal "
+                "and locked objects on layers that are turned on; hidden objects, objects on a "
+                "turned-off layer and lights are left out and counted in unlistedCount, so "
+                "totalCount 0 with unlistedCount > 0 means the matches exist but are not listed. "
+                "unlistedByReason splits that count into hidden, layerOff and light. "
+                "Pass `includeUnlisted: true` to list them too. "
+                "Each object says what state it is in: `mode` is the object's own mode (normal, "
+                "locked or hidden; rhino_geometry and rhino_block_objects_detailed report the same "
+                "fields), `layerVisible` is false when its layer is turned off, and "
+                "`layerLocked` is true when its layer is locked; `visible` is false when either the "
+                "object is hidden or its layer is off. Read these before acting: a hidden or "
+                "off-layer object cannot be selected, rhino_delete refuses mode hidden unless its "
+                "includeHidden is passed, and refuses mode locked or layerLocked always. "
+                "Geometry inside block definitions and worksession reference objects are never listed."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "layer": {"type": "string", "description": "Filter by layer path"},
-                    "type": {"type": "string", "description": "Filter by object type (Point, Curve, Brep, Mesh, etc)"},
+                    "type": {
+                        "type": "string",
+                        "description": (
+                            "Filter by object type (case-insensitive). Accepted values: "
+                            "Point, PointSet, Curve, Surface, Brep, Mesh, Light, Annotation, "
+                            "InstanceReference, TextDot, Hatch, SubD, Extrusion, ClipPlane, Detail. "
+                            "Any other value is rejected with invalid_input (it does not "
+                            "fall back to returning every object). Light matches only with "
+                            "includeUnlisted true."
+                        ),
+                    },
+                    "includeUnlisted": {
+                        "type": "boolean",
+                        "description": (
+                            "Opt-in, default false. Also list what unlistedCount counts: hidden "
+                            "objects, objects on turned-off layers and lights, i.e. every "
+                            "undeleted object in the model (not block-definition geometry or "
+                            "worksession reference objects). This route has no includeHidden; "
+                            "sending it is rejected."
+                        ),
+                    },
                     "name": {"type": "string", "description": "Filter by name (partial match)"},
                     "limit": {"type": "integer", "description": "Maximum objects to return (default 100, max 500)"},
                     "offset": {"type": "integer", "description": "Skip this many objects (for pagination)"}
@@ -3993,7 +4241,10 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
         ),
         Tool(
             name="rhino_selection",
-            description="Get currently selected objects in Rhino.",
+            description=(
+                "Get currently selected objects in Rhino. Each object carries the same state fields "
+                "as in rhino_objects: mode, layerVisible and layerLocked."
+            ),
             inputSchema={"type": "object", "properties": {}, "required": []}
         ),
         Tool(
@@ -4010,7 +4261,11 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
                 "Bounding-box predicates: nested `bbox: {min:[x,y,z], "
                 "max:[x,y,z]}` is the router-advertised shape; legacy flat "
                 "`bboxMin`/`bboxMax` are accepted for backwards compatibility. "
-                "Flat takes precedence when both are present."
+                "Flat takes precedence when both are present. "
+                "Layer predicate: `layer` matches only objects directly on that "
+                "layer, so a parent layer whose objects all sit on sub-layers "
+                "selects 0 objects. Pass `includeSublayers: true` to also select "
+                "objects on every layer nested below it."
             ),
             inputSchema={
                 "type": "object",
@@ -4020,7 +4275,14 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
                         "items": {"type": "string"},
                         "description": "List of object GUIDs to select."
                     },
-                    "layer": {"type": "string", "description": "Select all objects on this layer."},
+                    "layer": {
+                        "type": "string",
+                        "description": "Select all objects directly on this layer (sub-layers excluded unless includeSublayers is true).",
+                    },
+                    "includeSublayers": {
+                        "type": "boolean",
+                        "description": "Opt-in, default false. With `layer`, also select objects on all layers nested below it. Requires `layer`.",
+                    },
                     "name": {
                         "type": "string",
                         "description": "Exact-match name predicate (case-insensitive). Mutually exclusive with namePattern — both in one request → invalid_input.",
@@ -4056,7 +4318,11 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
         ),
         Tool(
             name="rhino_geometry",
-            description="Get detailed geometry information for a specific object by ID.",
+            description=(
+                "Get detailed geometry information for a specific object by ID. The result carries "
+                "the same state fields as rhino_objects: mode (normal, locked or hidden; "
+                "instanceDefinition for a block definition's member), layerVisible and layerLocked."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -4067,7 +4333,12 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
         ),
         Tool(
             name="rhino_execute",
-            description="Execute a Python script in Rhino using rhinoscriptsyntax. Use 'import rhinoscriptsyntax as rs' for geometry operations.",
+            description=(
+                "Execute a Python script in Rhino using rhinoscriptsyntax. Use 'import rhinoscriptsyntax as rs' "
+                "for geometry operations. When Rhino runs inside Revit (Rhino.Inside.Revit), this script can "
+                "read the Revit API but cannot change the Revit model: it runs outside Revit's API context, "
+                "where starting a transaction fails. To change the Revit model use rookbim_run_transaction."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -4380,7 +4651,14 @@ Optional for all: "name", "layer", "color" (as [r,g,b], {"r":255,"g":0,"b":0}, o
         # Geometry operations
         Tool(
             name="rhino_delete",
-            description="Delete objects by their IDs.",
+            description=(
+                "Delete objects by their IDs. Ids that were not deleted are returned in failedIds, "
+                "with the cause per id in failureReasons: not_found, hidden, locked or not_deletable. "
+                "A hidden object (mode hidden in rhino_objects: one hidden with Hide, not merely on a "
+                "turned-off layer) is refused unless `includeHidden: true` is passed. Locked objects "
+                "(mode locked) and objects on a locked layer (layerLocked true) are never deleted. "
+                "An object on a turned-off layer is deleted like any other."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -4388,7 +4666,15 @@ Optional for all: "name", "layer", "color" (as [r,g,b], {"r":255,"g":0,"b":0}, o
                         "type": "array",
                         "items": {"type": "string"},
                         "description": "List of object GUIDs to delete"
-                    }
+                    },
+                    "includeHidden": {
+                        "type": "boolean",
+                        "description": (
+                            "Opt-in, default false. Also delete ids whose mode is hidden. "
+                            "Does not override a lock. (rhino_objects has a different, wider "
+                            "flag, includeUnlisted.)"
+                        ),
+                    },
                 },
                 "required": ["ids"]
             }
@@ -4495,7 +4781,14 @@ Examples:
         ),
         Tool(
             name="rhino_layer_delete",
-            description="Delete an empty layer.",
+            description=(
+                "Delete an empty layer. Refused, with the reason, while anything holds "
+                "the layer: objects (hidden objects, lights and objects on a turned-off layer "
+                "count, although rhino_objects does not list them), child layers, block "
+                "definition geometry, or being the current layer. There is no purge "
+                "option: this tool never deletes objects. Use rhino_layer_dependencies "
+                "to see the holders first."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -4640,7 +4933,13 @@ Examples:
         ),
         Tool(
             name="rhino_layer_move_objects",
-            description="Move all objects from one layer to another. Source layer is not deleted.",
+            description=(
+                "Move all objects from one layer to another. Source layer is not deleted. "
+                "All means every undeleted object in the model, as in rhino_layer_merge: hidden "
+                "objects are moved too (they stay hidden) and are counted in hiddenObjectsMoved, lights "
+                "are moved, and a source layer that is turned off is moved in full. Geometry inside "
+                "block definitions is not moved (use rhino_block_set_layers)."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -4652,7 +4951,13 @@ Examples:
         ),
         Tool(
             name="rhino_layer_merge",
-            description="Move all objects from source to target layer, then delete the source layer. Source must have no child layers and must not be the current layer.",
+            description=(
+                "Move all objects from source to target layer, then delete the source layer. "
+                "Source must have no child layers and must not be the current layer. "
+                "Hidden objects on the source layer are moved too (they stay hidden) and are "
+                "counted in hiddenObjectsMoved, and lights are moved as well; otherwise they "
+                "would keep the source layer alive."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -4664,7 +4969,17 @@ Examples:
         ),
         Tool(
             name="rhino_layer_dependencies",
-            description="Analyze what holds a layer alive: direct objects, block definition references, child layers, and whether it is the current layer. Returns canDelete indicating if the layer can be safely deleted.",
+            description=(
+                "Analyze what holds a layer alive: direct objects, block definition references, "
+                "child layers, and whether it is the current layer. Returns canDelete indicating "
+                "if the layer can be safely deleted, and blockers listing each reason it cannot. "
+                "directObjects counts every undeleted object, including hidden objects, lights and "
+                "objects on a turned-off layer (rhino_objects lists none of these); hiddenObjects, "
+                "hiddenObjectTypes and hiddenObjectIds describe the hidden ones, lightObjects counts "
+                "the lights, and layerVisible says whether the layer is on. "
+                "deletedObjectsInUndo is informational: objects in the deleted state that Rhino "
+                "keeps for undo do not block a delete."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -4676,11 +4991,26 @@ Examples:
         # Advanced selection
         Tool(
             name="rhino_select_by_type",
-            description="Select objects by their geometry type.",
+            description=(
+                "Select objects by their geometry type. An unrecognized type is rejected with "
+                "invalid_input and the accepted values; nothing is selected or cleared."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "type": {"type": "string", "description": "Object type: Point, Curve, Brep, Mesh, etc."},
+                    "type": {
+                        "type": "string",
+                        "description": (
+                            "Object type (case-insensitive). Accepted values: "
+                            "point, curve, line, circle, arc, polyline, surface, brep, mesh, "
+                            "extrusion, subd, annotation, text, hatch, block, pointset, "
+                            "instancereference, textdot, clipplane, detail. "
+                            "line, circle, arc and polyline all select curves; text selects "
+                            "annotations; block is instancereference. Any other value is "
+                            "rejected with invalid_input (it does not fall back to selecting "
+                            "every object)."
+                        ),
+                    },
                     "clear": {"type": "boolean", "description": "Clear existing selection first (default true)"}
                 },
                 "required": ["type"]
@@ -6532,7 +6862,7 @@ Stored in document string table under 'RookBlock::{blockName}' section.""",
         ),
         Tool(
             name="rhino_block_objects_detailed",
-            description="Get full attribute details for all objects in a block definition. Returns name, layer, color, material, user strings, bounding box, and visibility per object. Optionally includes typed geometry detail (face counts, edge counts, curve lengths, etc.).",
+            description="Get full attribute details for all objects in a block definition. Returns name, layer, color, material, user strings, bounding box, and visibility per object. Each object also carries mode (always instanceDefinition here: a definition's members are not model objects and cannot be hidden, locked, selected or deleted one by one), layerVisible (false when the member's layer is turned off, in which case it is not drawn in the block's instances) and layerLocked. Optionally includes typed geometry detail (face counts, edge counts, curve lengths, etc.).",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -13167,47 +13497,65 @@ Returns the full profile JSON including features, surfaces, and elements.""",
         # --- RookBIM (Revit bridge, Phase 1) ---
         Tool(
             name="rookbim_status",
-            description="Return health and availability for the RookBIM Revit bridge.",
+            description=(
+                "Return health and availability for the RookBIM Revit bridge."
+                + _ROOKBIM_READS_ONLY
+            ),
             inputSchema=_rookbim_empty_input_schema(),
         ),
         Tool(
             name="rookbim_active_document",
-            description="Return active Revit document identity and summary metadata from the RookBIM bridge.",
+            description=(
+                "Return active Revit document identity and summary metadata from the RookBIM bridge."
+                + _ROOKBIM_READS_ONLY
+            ),
             inputSchema=_rookbim_empty_input_schema(),
         ),
         Tool(
             name="rookbim_list_categories",
-            description="Return document-wide Revit categories available in the active document category table.",
+            description=(
+                "Return document-wide Revit categories available in the active document category table."
+                + _ROOKBIM_READS_ONLY
+            ),
             inputSchema=_rookbim_empty_input_schema(),
         ),
         Tool(
             name="rookbim_query_elements",
-            description="Query Revit elements in the active view or whole document by category and parameter filters.",
+            description=(
+                "Query Revit elements in the active view or whole document by category and parameter filters."
+                + _ROOKBIM_READS_ONLY
+            ),
             inputSchema=_rookbim_query_elements_schema(),
         ),
         Tool(
             name="rookbim_element_info",
-            description="Return core metadata for one Revit element identity envelope.",
+            description=(
+                "Return core metadata for one Revit element identity envelope."
+                + _ROOKBIM_READS_ONLY
+            ),
             inputSchema=_rookbim_identity_input_schema(),
         ),
         Tool(
             name="rookbim_element_parameters",
-            description="Return parameter values for one Revit element identity envelope.",
+            description=(
+                "Return parameter values for one Revit element identity envelope."
+                + _ROOKBIM_READS_ONLY
+            ),
             inputSchema=_rookbim_identity_input_schema(),
         ),
         Tool(
             name="rookbim_select_elements",
             description=(
-                "Select Revit elements by identity envelope. This mutates UI "
-                "selection only and does not write the Revit document."
+                "Select Revit elements by identity envelope."
+                + _ROOKBIM_SELECTS_ONLY
             ),
             inputSchema=_rookbim_select_elements_schema(),
         ),
         Tool(
             name="rookbim_clear_selection",
             description=(
-                "Clear the current Revit UI selection through the RookBIM "
-                "bridge. This does not write the Revit document."
+                "Clear the current Revit UI selection through the RookBIM bridge."
+                + _ROOKBIM_SELECTS_ONLY
             ),
             inputSchema=_rookbim_empty_input_schema(),
         ),
@@ -13217,6 +13565,7 @@ Returns the full profile JSON including features, surfaces, and elements.""",
                 "Export selected Revit elements to a Rhino-consumable .3dm + sidecar + validation "
                 "bundle (geometry + identity + semantic labels). Read-only on the Revit/Rhino "
                 "documents; writes files to disk. Provide exactly one of 'selector' or 'identities'."
+                + _ROOKBIM_EXPORTS_ONLY
             ),
             inputSchema=_rookbim_export_elements_schema(),
         ),
@@ -13227,6 +13576,7 @@ Returns the full profile JSON including features, surfaces, and elements.""",
                 "structural, rooms_and_spaces, calibration_fixture) to an organized Rhino bundle: "
                 "multi-category selection, RookBim:: layers, readable names, embedded metadata, a "
                 "summary + relationship index. Read-only on Revit/Rhino; writes files to disk."
+                + _ROOKBIM_EXPORTS_ONLY
             ),
             inputSchema=_rookbim_export_preset_schema(),
         ),
@@ -13236,9 +13586,20 @@ Returns the full profile JSON including features, surfaces, and elements.""",
                 "Demo workflow: export a RookBIM preset bundle, import the generated .3dm into "
                 "the current Rhino/Rhino.Inside document, project BIM sidecar facts for the "
                 "imported objects, and optionally return a scene-wide BIM relationship summary. "
-                "Mutates Rhino by importing geometry; does not modify Revit."
+                "Mutates Rhino by importing geometry."
+                + _ROOKBIM_EXPORTS_ONLY
             ),
             inputSchema=_rookbim_export_preset_to_rhino_schema(),
+        ),
+        Tool(
+            name="rookbim_run_transaction",
+            description=_ROOKBIM_RUN_TRANSACTION_DESCRIPTION,
+            inputSchema=_rookbim_run_transaction_schema(),
+        ),
+        Tool(
+            name="rookbim_transaction_receipt",
+            description=_ROOKBIM_TRANSACTION_RECEIPT_DESCRIPTION,
+            inputSchema=_rookbim_transaction_receipt_schema(),
         ),
 
         # ─── Vision Video (PR-V4) ───────────────────────────────────────
@@ -21201,6 +21562,16 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
         case "rookbim_export_preset":
             result = await call_rhino(
                 "/bim/export-preset", "POST", arguments, port=port
+            )
+
+        case "rookbim_run_transaction":
+            result = await call_rhino(
+                "/bim/run-transaction", "POST", arguments, port=port
+            )
+
+        case "rookbim_transaction_receipt":
+            result = await call_rhino(
+                "/bim/transaction-receipt", "POST", arguments, port=port
             )
 
         case "rookbim_export_preset_to_rhino":
