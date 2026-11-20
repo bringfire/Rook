@@ -4001,7 +4001,8 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
                 "unlistedByReason splits that count into hidden, layerOff and light. "
                 "Pass `includeUnlisted: true` to list them too. "
                 "Each object says what state it is in: `mode` is the object's own mode (normal, "
-                "locked or hidden), `layerVisible` is false when its layer is turned off, and "
+                "locked or hidden; rhino_geometry and rhino_block_objects_detailed report the same "
+                "fields), `layerVisible` is false when its layer is turned off, and "
                 "`layerLocked` is true when its layer is locked; `visible` is false when either the "
                 "object is hidden or its layer is off. Read these before acting: a hidden or "
                 "off-layer object cannot be selected, rhino_delete refuses mode hidden unless its "
@@ -4119,7 +4120,11 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
         ),
         Tool(
             name="rhino_geometry",
-            description="Get detailed geometry information for a specific object by ID.",
+            description=(
+                "Get detailed geometry information for a specific object by ID. The result carries "
+                "the same state fields as rhino_objects: mode (normal, locked or hidden; "
+                "instanceDefinition for a block definition's member), layerVisible and layerLocked."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -6654,7 +6659,7 @@ Stored in document string table under 'RookBlock::{blockName}' section.""",
         ),
         Tool(
             name="rhino_block_objects_detailed",
-            description="Get full attribute details for all objects in a block definition. Returns name, layer, color, material, user strings, bounding box, and visibility per object. Optionally includes typed geometry detail (face counts, edge counts, curve lengths, etc.).",
+            description="Get full attribute details for all objects in a block definition. Returns name, layer, color, material, user strings, bounding box, and visibility per object. Each object also carries mode (always instanceDefinition here: a definition's members are not model objects and cannot be hidden, locked, selected or deleted one by one), layerVisible (false when the member's layer is turned off, in which case it is not drawn in the block's instances) and layerLocked. Optionally includes typed geometry detail (face counts, edge counts, curve lengths, etc.).",
             inputSchema={
                 "type": "object",
                 "properties": {

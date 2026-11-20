@@ -41,7 +41,7 @@ struct ObjectSnapshot {
     bool visible = true;
     // Why `visible` is what it is, and what the object will accept. Empty
     // mode = not captured (the three fields are then left out of the JSON).
-    std::string mode;          // The object's own mode: "normal", "locked" or "hidden"
+    std::string mode;          // The object's own mode: "normal", "locked", "hidden" (or "instanceDefinition")
     bool layerVisible = true;  // false when the object's layer is turned off
     bool layerLocked = false;  // true when the object's layer is locked
     BBoxSnapshot bbox;
@@ -182,6 +182,10 @@ struct GeometrySnapshot {
     std::string layer;
     std::string name;
     bool visible = true;
+    // Same three state fields as ObjectSnapshot (see ReadObjectState).
+    std::string mode;
+    bool layerVisible = true;
+    bool layerLocked = false;
     BBoxSnapshot bbox;
     std::optional<ColorSnapshot> color;
 

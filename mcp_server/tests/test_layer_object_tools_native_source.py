@@ -28,6 +28,9 @@ LAYER_HELPERS = NATIVE / "Infrastructure" / "LayerHelpers.cpp"
 DOCUMENT_HELPERS = NATIVE / "Models" / "DocumentHelpers.h"
 CREATE = NATIVE / "Handlers" / "CreateHandler.cpp"
 COMPANION_SERIALIZER = REPO_ROOT / "src" / "Rook" / "Serialization" / "RhinoSerializer.cs"
+COMPANION_BLOCKS = REPO_ROOT / "src" / "Rook" / "Handlers" / "BlocksHandler.cs"
+GEOMETRY = NATIVE / "Handlers" / "GeometryHandler.cpp"
+BLOCKS = NATIVE / "Handlers" / "BlocksHandler.cpp"
 SERIALIZER = NATIVE / "Serialization" / "RhinoSerializer.cpp"
 
 
@@ -698,11 +701,14 @@ def test_object_snapshots_carry_mode_and_layer_state():
     assert 'case ON::hidden_object: return "hidden";' in modes
     assert 'return "normal";' in modes
 
-    state = _extract_function(helpers, "inline void CaptureObjectState")
+    # One reader for every record that reports state.
+    read = _extract_function(helpers, "inline ObjectState ReadObjectState")
     # The object's own mode, not IsHidden()/IsVisible(), and the layer apart.
-    assert "snap.mode = ObjectModeToString(obj->Attributes().Mode());" in state
-    assert "snap.layerVisible = layer.IsVisible();" in state
-    assert "snap.layerLocked = layer.IsLocked();" in state
+    assert "state.mode = ObjectModeToString(obj->Attributes().Mode());" in read
+    assert "state.layerVisible = layer.IsVisible();" in read
+    assert "state.layerLocked = layer.IsLocked();" in read
+    state = _extract_function(helpers, "inline void CaptureObjectState")
+    assert "ReadObjectState(obj, pDoc)" in state
 
     # Both native paths that build an object snapshot record it. (Routes that
     # create through the C# companion serialize there: see the next test.)
@@ -755,8 +761,72 @@ def test_companion_object_snapshots_carry_the_same_state_fields():
         assert line in serialize, line
     assert '["visible"] = obj.Visible,' in serialize
 
-    # The same three mode names as the native ObjectModeToString.
-    modes = _extract_function(source, "private static string ObjectModeName(ObjectMode mode)")
+    # The same mode names as the native ObjectModeToString.
+    modes = _extract_function(source, "public static string ObjectModeName(ObjectMode mode)")
     assert 'case ObjectMode.Locked: return "locked";' in modes
     assert 'case ObjectMode.Hidden: return "hidden";' in modes
+    assert 'case ObjectMode.InstanceDefinitionObject: return "instanceDefinition";' in modes
     assert 'default: return "normal";' in modes
+
+
+# --- The same state on every record that describes an object -------------------
+#
+# rhino_geometry (one object in detail) and rhino_block_objects_detailed (a
+# block definition's members) describe objects too. Without the state fields a
+# caller reading either one would be back to `visible` alone.
+
+
+def test_geometry_detail_carries_the_state_fields():
+    capture = _extract_function(_read(GEOMETRY), "void HandleGeometry")
+    assert "ReadObjectState(obj, pDoc)" in capture
+    for line in (
+        "snap.mode = state.mode;",
+        "snap.layerVisible = state.layerVisible;",
+        "snap.layerLocked = state.layerLocked;",
+    ):
+        assert line in capture, line
+
+    serialized = _extract_function(
+        _read(SERIALIZER), "nlohmann::json SerializeGeometryDetailed"
+    )
+    for line in (
+        'j["mode"] = snap.mode;',
+        'j["layerVisible"] = snap.layerVisible;',
+        'j["layerLocked"] = snap.layerLocked;',
+    ):
+        assert line in serialized, line
+
+
+def test_block_member_records_carry_the_state_fields():
+    native = _extract_function(_read(BLOCKS), "void HandleBlockObjectsDetailed")
+    assert "ReadObjectState(obj, pDoc)" in native
+    for line in (
+        'info["mode"] = state.mode;',
+        'info["layerVisible"] = state.layerVisible;',
+        'info["layerLocked"] = state.layerLocked;',
+    ):
+        assert line in native, line
+
+    # A definition's members have a mode of their own; it must not read as
+    # "normal", which would suggest they can be hidden, locked or deleted.
+    modes = _extract_function(
+        _read(DOCUMENT_HELPERS), "inline const char* ObjectModeToString"
+    )
+    assert 'case ON::idef_object:   return "instanceDefinition";' in modes
+
+    companion = _extract_function(
+        _read(COMPANION_BLOCKS), "public ApiResponse GetBlockObjectsDetailed(string? blockName)"
+    )
+    assert '["mode"] = Rook.Serialization.RhinoSerializer.ObjectModeName(obj.Attributes.Mode),' in companion
+    assert '["layerVisible"] = doc.Layers[obj.Attributes.LayerIndex].IsVisible,' in companion
+    assert '["layerLocked"] = doc.Layers[obj.Attributes.LayerIndex].IsLocked' in companion
+
+
+@pytest.mark.asyncio
+async def test_geometry_and_block_descriptions_name_the_state_fields(monkeypatch):
+    tools = await _public_tools(monkeypatch)
+
+    for name in ("rhino_geometry", "rhino_block_objects_detailed"):
+        description = tools[name].description
+        for field in ("mode", "layerVisible", "layerLocked", "instanceDefinition"):
+            assert field in description, (name, field)

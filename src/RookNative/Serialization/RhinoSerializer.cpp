@@ -272,6 +272,13 @@ nlohmann::json SerializeGeometryDetailed(const GeometrySnapshot& snap)
     j["layer"] = snap.layer;
     j["name"] = snap.name.empty() ? nlohmann::json(nullptr) : nlohmann::json(snap.name);
     j["visible"] = snap.visible;
+    // Same three state fields as the object summary above.
+    if (!snap.mode.empty())
+    {
+        j["mode"] = snap.mode;
+        j["layerVisible"] = snap.layerVisible;
+        j["layerLocked"] = snap.layerLocked;
+    }
     j["bbox"] = SerializeBBox(snap.bbox);
 
     if (snap.color.has_value())

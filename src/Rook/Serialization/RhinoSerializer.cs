@@ -80,14 +80,15 @@ namespace Rook.Serialization
         /// <summary>
         /// The object's own mode as the native snapshot names it. It says nothing
         /// about the object's layer: an object on a turned-off or locked layer
-        /// keeps mode normal.
+        /// keeps mode normal. Members of a block definition have their own mode.
         /// </summary>
-        private static string ObjectModeName(ObjectMode mode)
+        public static string ObjectModeName(ObjectMode mode)
         {
             switch (mode)
             {
                 case ObjectMode.Locked: return "locked";
                 case ObjectMode.Hidden: return "hidden";
+                case ObjectMode.InstanceDefinitionObject: return "instanceDefinition";
                 default: return "normal";
             }
         }

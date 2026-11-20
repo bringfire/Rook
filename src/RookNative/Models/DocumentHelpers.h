@@ -334,34 +334,57 @@ inline int FindLayerIndex(CRhinoDoc* pDoc, const std::string& name)
 // --- Object state ---
 
 // An object's own mode. It says nothing about the object's layer: an object
-// on a turned-off or locked layer keeps mode normal.
+// on a turned-off or locked layer keeps mode normal. The members of a block
+// definition are in a fourth mode of their own: they are not model objects
+// and cannot be hidden, locked, selected or deleted one by one.
 inline const char* ObjectModeToString(ON::object_mode mode)
 {
     switch (mode)
     {
     case ON::locked_object: return "locked";
     case ON::hidden_object: return "hidden";
+    case ON::idef_object:   return "instanceDefinition";
     default:                return "normal";
     }
 }
 
-// Record why an object is or is not visible and what it will accept: its own
-// mode plus its layer's visibility and lock. `visible` (IsVisible) folds the
-// first two into one bit and leaves the lock out, so a caller cannot tell a
-// hidden object from one on a turned-off layer, nor predict that a delete or
-// a selection will be refused. With these three fields it can, without trying.
-// MUST only be called on the main thread.
-inline void CaptureObjectState(const CRhinoObject* obj, CRhinoDoc* pDoc, ObjectSnapshot& snap)
+// Why an object is or is not visible and what it will accept: its own mode
+// plus its layer's visibility and lock. `visible` (IsVisible) folds the first
+// two into one bit and leaves the lock out, so a caller cannot tell a hidden
+// object from one on a turned-off layer, nor predict that a delete or a
+// selection will be refused. With these three fields it can, without trying.
+struct ObjectState
 {
-    snap.mode = ObjectModeToString(obj->Attributes().Mode());
+    std::string mode;          // "normal", "locked", "hidden" or "instanceDefinition"
+    bool layerVisible = true;  // false when the object's layer is turned off
+    bool layerLocked = false;  // true when the object's layer is locked
+};
+
+// The one place object state is read, so every record that reports it — the
+// object snapshot, the geometry detail, a block definition's member list —
+// reports the same thing. MUST only be called on the main thread.
+inline ObjectState ReadObjectState(const CRhinoObject* obj, CRhinoDoc* pDoc)
+{
+    ObjectState state;
+    state.mode = ObjectModeToString(obj->Attributes().Mode());
 
     const int layerIdx = obj->Attributes().m_layer_index;
     if (layerIdx >= 0 && layerIdx < pDoc->m_layer_table.LayerCount())
     {
         const CRhinoLayer& layer = pDoc->m_layer_table[layerIdx];
-        snap.layerVisible = layer.IsVisible();
-        snap.layerLocked = layer.IsLocked();
+        state.layerVisible = layer.IsVisible();
+        state.layerLocked = layer.IsLocked();
     }
+    return state;
+}
+
+// MUST only be called on the main thread.
+inline void CaptureObjectState(const CRhinoObject* obj, CRhinoDoc* pDoc, ObjectSnapshot& snap)
+{
+    const ObjectState state = ReadObjectState(obj, pDoc);
+    snap.mode = state.mode;
+    snap.layerVisible = state.layerVisible;
+    snap.layerLocked = state.layerLocked;
 }
 
 // --- Object snapshot capture ---

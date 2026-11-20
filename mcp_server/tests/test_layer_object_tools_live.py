@@ -18,7 +18,8 @@ Covers, against a real document:
     `includeHidden` on this tool is rejected with the right name; `objectCount`
     in `rhino_layers` and `rhino_document` counts them
   - every listed object carries `mode`, `layerVisible` and `layerLocked`, and
-    those fields predict what `rhino_delete` will refuse
+    those fields predict what `rhino_delete` will refuse; `rhino_geometry` and
+    `rhino_block_objects_detailed` report the same three fields
   - `rhino_layer_move_objects` moves hidden objects and lights, and everything
     on a turned-off layer
   - `rhino_select` and `rhino_select_by_type` reject an unrecognized `type`
@@ -150,6 +151,19 @@ def default_order(layer_index):
 def mode(object_id):
     found = doc.Objects.FindId(System.Guid(object_id))
     return str(found.Attributes.Mode) if found is not None else "missing"
+
+def block(name, layer_index):
+    # A block definition with one point on the given layer. No instance is
+    # inserted: the definition's member is all the tests look at.
+    attributes = Rhino.DocObjects.ObjectAttributes()
+    attributes.LayerIndex = layer_index
+    return doc.InstanceDefinitions.Add(
+        name,
+        "",
+        Rhino.Geometry.Point3d.Origin,
+        [Rhino.Geometry.Point(Rhino.Geometry.Point3d(0, 0, 0))],
+        [attributes],
+    )
 
 def detail(page_name):
     page = doc.Views.AddPageView(page_name, 200.0, 100.0)
@@ -567,6 +581,47 @@ async def test_a_created_object_carries_the_state_fields(fresh_document, tag):
     assert created["layerLocked"] is False
     listed = await _ok("rhino_objects", {"layer": target})
     assert [(obj["id"], obj["mode"]) for obj in listed["objects"]] == [(created["id"], "normal")]
+
+
+async def test_geometry_detail_carries_the_state_fields(fresh_document, tag):
+    held = f"{tag}_geometry"
+    hidden_id = (
+        await _setup(f'print(point(layer("{held}"), 0, hidden=True))')
+    ).strip().lower()
+
+    detail_before = await _ok("rhino_geometry", {"id": hidden_id})
+    assert detail_before["mode"] == "hidden"
+    assert detail_before["layerVisible"] is True
+    assert detail_before["layerLocked"] is False
+    assert detail_before["visible"] is False
+
+    await _ok("rhino_layer_lock", {"name": held, "locked": True})
+    await _ok("rhino_layer_visibility", {"name": held, "visible": False})
+
+    detail_after = await _ok("rhino_geometry", {"id": hidden_id})
+    assert detail_after["mode"] == "hidden"
+    assert detail_after["layerVisible"] is False
+    assert detail_after["layerLocked"] is True
+
+
+async def test_block_member_records_carry_the_state_fields(fresh_document, tag):
+    held, name = f"{tag}_block_layer", f"{tag}_block"
+    index = (await _setup(f'print(block("{name}", layer("{held}")))')).strip()
+    assert int(index) >= 0, "the setup script did not create the block definition"
+
+    before = await _ok("rhino_block_objects_detailed", {"name": name})
+    assert before["objectCount"] == 1
+    member = before["objects"][0]
+    # A definition's member is not a model object.
+    assert member["mode"] == "instanceDefinition"
+    assert member["layerVisible"] is True
+    assert member["layerLocked"] is False
+
+    await _ok("rhino_layer_visibility", {"name": held, "visible": False})
+
+    after = await _ok("rhino_block_objects_detailed", {"name": name})
+    assert after["objects"][0]["mode"] == "instanceDefinition"
+    assert after["objects"][0]["layerVisible"] is False
 
 
 async def test_objects_rejects_a_malformed_include_unlisted(fresh_document):
