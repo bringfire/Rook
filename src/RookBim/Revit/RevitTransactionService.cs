@@ -656,7 +656,9 @@ namespace RookBim.Revit
 
             private static string Bounded(string? text)
             {
-                var value = text ?? string.Empty;
+                // Revit's failure texts end with ". " ; the sentence built
+                // around them supplies its own punctuation.
+                var value = (text ?? string.Empty).Trim().TrimEnd('.').TrimEnd();
                 return value.Length <= MaxFailureTextLength
                     ? value
                     : value.Substring(0, MaxFailureTextLength) + "...";
