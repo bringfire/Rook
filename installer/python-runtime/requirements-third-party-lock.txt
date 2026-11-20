@@ -4,9 +4,12 @@
 # Includes transitive dependencies; Rook and Chirp are built separately from source.
 # Change versions/hashes only through reviewed dependency maintenance and audits.
 # Scoped firm-sign-in exception: MSAL 1.39.0; existing transitive pins retained.
-# Deliberate audit remediation: LiteLLM 1.89.7 and PyJWT 2.15.0; reviewed hashes.
+# Deliberate audit remediation: PyJWT 2.15.0; reviewed hashes.
 # Audit remediation: aiohttp 3.14.4, certifi 2026.10.19, filelock 4.2.4,
 # Pillow 13.0.0, pip 26.2.2 and setuptools 84.1.0; official PyPI wheel hashes.
+# Audit remediation: LiteLLM 1.100.4 and pyasn1 0.6.5; official PyPI wheel hashes.
+# LiteLLM 1.100.4 requires boto3, which adds boto3 1.44.8, botocore 1.44.8,
+# jmespath 1.1.0 and s3transfer 0.19.3; official PyPI wheel hashes.
 # uv is the installer's own tool (bringfire/Rook#595): extracted at install time from
 # this wheel, never installed into a venv. Hash = PyPI's published win_amd64 digest.
 agent-client-protocol==0.12.1 --hash=sha256:aaf3cc301ed87d9e2c4ccb91adfe1cd58784355f6ce7e513f50e7ca2391862ef
@@ -18,6 +21,8 @@ annotated-doc==0.0.5 --hash=sha256:117bac03a25ede5df5440e855b32d556049ca169ead22
 annotated-types==0.8.0 --hash=sha256:f072f4d804ea359e4eaf198b1af7a8b0943881a87f31bb764f8bf219bb9419e0
 anyio==4.15.1 --hash=sha256:6152fdbbf9a77fdec97731721bebf7c4c44f7c29b424b0065826173efc7ed101
 attrs==26.1.0 --hash=sha256:c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309
+boto3==1.44.8 --hash=sha256:099caf21553bbbfef118904aa02fadb8776a534704cf00bede0ed9f29a4da88e
+botocore==1.44.8 --hash=sha256:76342a76c338701db80dcb8afe1c9bd079283d6fffbb9d881442abb02a215043
 cachetools==7.2.0 --hash=sha256:3045213f186b89fdd95d94441354c4bd87c570b7a38d8c3fd1d9dd37f6dc90d8
 certifi==2026.10.19 --hash=sha256:42d35340cc5b9ba78e818ddbff0c5b1c2b779de448a340fd1b989f5fa8670e1b
 cffi==2.1.1 --hash=sha256:42f6930c31dc7f50732c9ae793c2786c7b6b044195967bbdde40bb9be81c4cc0
@@ -51,13 +56,14 @@ imageio==2.37.4 --hash=sha256:1ab2e22c8debf700f24c3ac43e8f95f3b3a8110c83b93411e9
 importlib-metadata==8.9.0 --hash=sha256:e0f761b6ea91ced3b0844c14c9d955224d538105921f8e6754c00f6ca79fba7f
 jinja2==3.1.6 --hash=sha256:85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67
 jiter==0.17.0 --hash=sha256:e654b6b04e39c9cb19cb8b04c6ddf1f2db07751fa14156413969fd78bad0e5cb
+jmespath==1.1.0 --hash=sha256:a5663118de4908c91729bea0acadca56526eb2698e83de10cd116ae0f4e97c64
 joblib==1.6.0 --hash=sha256:3dbbf9f6e4b592a2357b854608e980fe6390d131d7a82f011a377ef2ebef7aba
 json-repair==0.63.4 --hash=sha256:0f374f3eee21454aef0a5d72c06b8689b660a1788f80ab392639e3f7d5c5d458
 jsonschema==4.26.0 --hash=sha256:d489f15263b8d200f8387e64b4c3a75f06629559fb73deb8fdfb525f2dab50ce
 jsonschema-specifications==2025.9.1 --hash=sha256:98802fee3a11ee76ecaca44429fda8a41bff98b00a0f2838151b113f210cc6fe
 kiwisolver==1.5.1 --hash=sha256:1a7587dc335f2c0f5bd577fd0540bd16c66006bdb60f759a1059f025e6c4f071
 lazy-loader==0.5 --hash=sha256:ab0ea149e9c554d4ffeeb21105ac60bed7f3b4fd69b1d2360a4add51b170b005
-litellm==1.89.7 --hash=sha256:4a11bdeaec66b3bd64f7606bf59e238875867678f320e70dd38d8767fddde11b
+litellm==1.100.4 --hash=sha256:83342175eb948f146f405735b03c1cb1e5c332aeef6a98cfb31f59233d10426a
 mabwiser==2.7.4 --hash=sha256:4ac5a5d2d959b55685248645675d5f84f7c620eba270925bf86edce8c5712b49
 markupsafe==3.0.3 --hash=sha256:de8a88e63464af587c950061a5e6a67d3632e36df62b986892331d4620a35c01
 matplotlib==3.11.2 --hash=sha256:a24d5fd36e4f0e742c3851dcd20810e56a95633a342e4bf6cb591c678e8fe61f
@@ -74,7 +80,7 @@ pandas==3.0.6 --hash=sha256:2e5fa32ff162dfdbc280157d664f44d23049ae414725af9676df
 pillow==13.0.0 --hash=sha256:d7710eb676e9bb68965cb045be0d333b4c0d7f9dfbaa7fbf121385b1588683d3
 pip==26.2.2 --hash=sha256:fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70
 propcache==0.5.4 --hash=sha256:e904d4d01f36bd6e197590be1533c44e06058771e0746dd073a8ebb3ef880858
-pyasn1==0.6.4 --hash=sha256:deda9277cfd454080ec40b207fb6df82206a3a2688735233cdcd8d3d565f088b
+pyasn1==0.6.5 --hash=sha256:4017b0fce125096b8573b39c989fdb1a4b19cf761e683398184550fea0e66587
 pyasn1-modules==0.4.2 --hash=sha256:29253a9207ce32b64c3ac6600edc75368f98473906e8fd1043bd6b5b1de2c14a
 pycparser==3.0 --hash=sha256:b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992
 pydantic==2.13.5 --hash=sha256:346a034f080da3755d8e9cb5e00e8b07de1d39e4f6e2c87d8ab7cafa0b269a73
@@ -91,6 +97,7 @@ referencing==0.37.0 --hash=sha256:381329a9f99628c9069361716891d34ad94af76e461dcb
 regex==2026.9.10 --hash=sha256:ce7c118cb102975f974585688357a717ffbf9dddd64ab0bb1bc93eb5b367cf95
 requests==2.34.2 --hash=sha256:2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0
 rpds-py==2026.6.3 --hash=sha256:2c54a076ca4d370980ab57bc0e31df57bbe8d41340436a90ef8b1219a3cbb127
+s3transfer==0.19.3 --hash=sha256:24eb7535804306355e31c952a90022bf5b2f9d760f9a11062c7493a217c08553
 scikit-image==0.26.0 --hash=sha256:9490360c8d3f9a7e85c8de87daf7c0c66507960cf4947bb9610d1751928721c7
 scikit-learn==1.9.1 --hash=sha256:220fa18152852a5ce29c49e1eaba9d44ec44631cd2e5cf65f5a40eafa5ab3412
 scipy==1.17.1 --hash=sha256:d30e57c72013c2a4fe441c2fcb8e77b14e152ad48b5464858e07e2ad9fbfceff
