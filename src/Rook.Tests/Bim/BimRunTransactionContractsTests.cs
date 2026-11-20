@@ -68,9 +68,10 @@ namespace Rook.Tests.Bim
         [Fact]
         public void Request_TimeoutBudgetFitsUnderTheClientReadTimeout()
         {
-            // Idle wait (10 s) + script timeout + commit grace (15 s) must stay
-            // under the 120 s read timeout of bridge.py and the agent dispatcher.
-            Assert.True(10 + BimRunTransactionRequest.MaxTimeoutSeconds + 15 < 120);
+            // Idle wait (10 s) + script timeout + setup allowance (2 s) + commit
+            // grace (10 s) must stay under the 120 s read timeout of bridge.py
+            // and the agent dispatcher.
+            Assert.True(10 + BimRunTransactionRequest.MaxTimeoutSeconds + 2 + 10 < 120);
         }
 
         [Fact]
@@ -136,6 +137,90 @@ namespace Rook.Tests.Bim
             Assert.Equal("The script wrapper did not report success.", result.Error);
         }
 
+        [Theory]
+        [InlineData("bind")]
+        [InlineData("run")]
+        [InlineData("result")]
+        [InlineData("none")]
+        public void ScriptResult_SuccessBeforeTheLastStageIsNotSuccess(string stage)
+        {
+            // A payload that claims success without having finished must not
+            // be able to authorize a commit.
+            var result = BimTransactionScriptResult.Parse(
+                "{\"success\":true,\"stage\":\"" + stage + "\"}");
+
+            Assert.False(result.Success);
+            Assert.True(result.PayloadPresent);
+            Assert.Contains("reported success without finishing", result.Error);
+            Assert.Contains(stage, result.Error);
+        }
+
+        [Fact]
+        public void ScriptResult_SuccessWithoutAStageIsNotSuccess()
+        {
+            var result = BimTransactionScriptResult.Parse("{\"success\":true}");
+
+            Assert.False(result.Success);
+        }
+
+        [Fact]
+        public void ScriptResult_KeepsTheProducersTruncationFlags()
+        {
+            var result = BimTransactionScriptResult.Parse(
+                "{\"success\":true,\"stage\":\"done\",\"output\":\"short\",\"outputTruncated\":true," +
+                "\"stderr\":\"\",\"stderrTruncated\":false}");
+
+            Assert.True(result.Success);
+            Assert.Equal("short", result.Output);
+            Assert.True(result.OutputTruncated);
+            Assert.False(result.StderrTruncated);
+        }
+
+        [Fact]
+        public void ScriptResult_LongTracebackKeepsItsEnd()
+        {
+            var traceback = new string('t', BimTransactionScriptResult.MaxTracebackLength) + "ValueError: the cause";
+            var payload = new JsonObject
+            {
+                ["success"] = false,
+                ["stage"] = "run",
+                ["error"] = "ValueError: the cause",
+                ["traceback"] = traceback
+            };
+
+            var result = BimTransactionScriptResult.Parse(payload.ToJsonString());
+
+            Assert.EndsWith("ValueError: the cause", result.Traceback);
+            Assert.StartsWith("[...truncated...]", result.Traceback);
+        }
+
+        [Fact]
+        public void Request_DocumentKeyIsOptionalAndBounded()
+        {
+            var without = new BimRunTransactionRequest { Name = "Rename", Code = "pass" };
+            var with = new BimRunTransactionRequest
+            {
+                Name = "Rename",
+                Code = "pass",
+                DocumentKey = "file-document-v1:abc"
+            };
+            var tooLong = new BimRunTransactionRequest
+            {
+                Name = "Rename",
+                Code = "pass",
+                DocumentKey = new string('k', BimRunTransactionRequest.MaxDocumentKeyLength + 1)
+            };
+
+            Assert.True(without.Validate().Success);
+            Assert.False(without.HasDocumentKey);
+            Assert.True(with.Validate().Success);
+            Assert.True(with.HasDocumentKey);
+            var refused = tooLong.Validate();
+            Assert.False(refused.Success);
+            Assert.Equal(BimErrorCode.InvalidRequest, refused.ErrorCode);
+            Assert.Contains("documentKey must be at most 300 characters; got 301", refused.Message);
+        }
+
         [Fact]
         public void ScriptResult_TruncatesLongOutputAndSaysSo()
         {
@@ -170,7 +255,7 @@ namespace Rook.Tests.Bim
 
             Assert.True(result.Success);
             Assert.Null(result.Result);
-            Assert.Contains("the limit is 100000", result.ResultOmittedReason);
+            Assert.Contains("the limit is 50000", result.ResultOmittedReason);
         }
 
         [Fact]

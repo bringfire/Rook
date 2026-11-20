@@ -213,11 +213,56 @@ def test_stderr_is_captured_separately(tmp_path, revit):
     assert payload["stderr"] == "to stderr\n"
 
 
-def test_non_json_values_fall_back_to_their_string_form(tmp_path, revit):
-    payload = _run(tmp_path, "result = {'id': DB.ElementId(311), 'doc': object}\n")
+def test_result_holding_a_non_json_object_is_omitted_not_silently_stringified(tmp_path, revit):
+    payload = _run(tmp_path, "doc.renamed.append('done')\nresult = {'id': 311, 'element': object()}\n")
+
+    # The edit stands; the value that cannot be sent is not replaced by its
+    # str() form, which the caller could not tell from a real string.
+    assert payload["success"] is True
+    assert payload["stage"] == "done"
+    assert payload["result"] is None
+    assert "result could not be converted to JSON" in payload["resultOmittedReason"]
+    assert "element.Id.Value" in payload["resultOmittedReason"]
+    assert revit.document.renamed == ["done"]
+
+
+def test_oversized_result_is_omitted_with_its_size_and_the_limit(tmp_path, revit):
+    payload = _run(tmp_path, "result = 'r' * 60000\n")
 
     assert payload["success"] is True
-    assert payload["result"] == {"id": ["ElementId", 311], "doc": "<class 'object'>"}
+    assert payload["result"] is None
+    assert "60002 characters of JSON; the limit is 50000" in payload["resultOmittedReason"]
+
+
+def test_output_is_bounded_while_it_is_captured_and_says_so(tmp_path, revit):
+    payload = _run(
+        tmp_path,
+        "import sys\n"
+        "for _ in range(1000):\n"
+        "    print('x' * 999)\n"
+        "print('small', file=sys.stderr)\n",
+    )
+
+    assert payload["success"] is True
+    assert len(payload["output"]) == 20000
+    assert payload["outputTruncated"] is True
+    assert payload["stderr"] == "small\n"
+    assert payload["stderrTruncated"] is False
+
+
+def test_long_traceback_keeps_its_end_where_the_error_is(tmp_path, revit):
+    payload = _run(
+        tmp_path,
+        "def deep(n):\n"
+        "    if n == 0:\n"
+        "        raise RuntimeError('bottom of the stack')\n"
+        "    deep(n - 1)\n"
+        "deep(400)\n",
+    )
+
+    assert payload["success"] is False
+    assert len(payload["traceback"]) <= 20000
+    assert payload["traceback"].rstrip().endswith("RuntimeError: bottom of the stack")
 
 
 def test_unreturnable_result_is_omitted_with_a_reason_but_does_not_fail_the_script(tmp_path, revit):

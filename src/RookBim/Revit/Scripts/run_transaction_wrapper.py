@@ -8,7 +8,7 @@
 # already open on the active document. This wrapper never starts, commits or
 # rolls back a transaction: it runs the caller's script, captures what it
 # printed, and reports success or the exception. The C# side decides commit or
-# rollback from that payload alone.
+# rollback from that payload alone, and only accepts success at stage "done".
 #
 # Names bound for the caller's script:
 #     doc    Autodesk.Revit.DB.Document         the active document
@@ -17,25 +17,65 @@
 #     app    Autodesk.Revit.ApplicationServices.Application
 #     DB     the Autodesk.Revit.DB namespace
 #     UI     the Autodesk.Revit.UI namespace
-#     result None; assign a JSON-serializable value to return it to the caller
+#     result None; assign a JSON value (numbers, strings, lists, dicts) to
+#            return it to the caller
 import io
 import json
 import os
 import traceback
 from contextlib import redirect_stderr, redirect_stdout
 
+# Keep in step with BimTransactionScriptResult (MaxStreamLength,
+# MaxResultJsonLength, MaxTracebackLength, MaxErrorLength).
+_ROOK_STREAM_LIMIT = 20000
+_ROOK_RESULT_LIMIT = 50000
+_ROOK_TRACEBACK_LIMIT = 20000
+_ROOK_ERROR_LIMIT = 2000
+
+
+class _RookBoundedText(io.TextIOBase):
+    """Text sink that stops storing at a limit, so a script that prints a
+    huge report cannot grow memory inside the Revit process."""
+
+    def __init__(self, limit):
+        super().__init__()
+        self._limit = limit
+        self._parts = []
+        self._size = 0
+        self.truncated = False
+
+    def writable(self):
+        return True
+
+    def write(self, text):
+        text = str(text)
+        room = self._limit - self._size
+        if room > 0:
+            kept = text[:room]
+            self._parts.append(kept)
+            self._size += len(kept)
+        if len(text) > max(room, 0):
+            self.truncated = True
+        return len(text)
+
+    def getvalue(self):
+        return "".join(self._parts)
+
+
 _rook_payload = {
     "success": False,
     "stage": "bind",
     "output": "",
+    "outputTruncated": False,
     "stderr": "",
+    "stderrTruncated": False,
     "error": "",
     "traceback": "",
     "result": None,
     "resultOmittedReason": None,
 }
-_rook_stdout = io.StringIO()
-_rook_stderr = io.StringIO()
+_rook_stdout = _RookBoundedText(_ROOK_STREAM_LIMIT)
+_rook_stderr = _RookBoundedText(_ROOK_STREAM_LIMIT)
 
 try:
     import clr
@@ -79,32 +119,43 @@ try:
     _rook_payload["stage"] = "result"
     _rook_value = _rook_globals.get("result")
     if _rook_value is not None:
+        # A result that cannot be returned must not undo a script that ran
+        # correctly, and must not be silently replaced by something else:
+        # it is omitted and the reason is given.
         try:
-            # Round-trip so the payload only ever holds plain JSON (no NaN,
-            # no .NET objects); values json cannot encode fall back to str().
-            _rook_payload["result"] = json.loads(
-                json.dumps(_rook_value, default=str, allow_nan=False)
-            )
+            # Strict: no str() fallback for Revit objects, no NaN.
+            _rook_text = json.dumps(_rook_value, allow_nan=False)
+            if len(_rook_text) > _ROOK_RESULT_LIMIT:
+                _rook_payload["resultOmittedReason"] = (
+                    "result was "
+                    + str(len(_rook_text))
+                    + " characters of JSON; the limit is "
+                    + str(_ROOK_RESULT_LIMIT)
+                    + ". Return a smaller value, for example ids and counts."
+                )
+            else:
+                _rook_payload["result"] = json.loads(_rook_text)
         except Exception as _rook_result_err:
-            # A result that cannot be returned must not undo a script that
-            # ran correctly; say why it is missing instead.
             _rook_payload["resultOmittedReason"] = (
                 "result could not be converted to JSON ("
                 + type(_rook_result_err).__name__
                 + ": "
-                + str(_rook_result_err)
-                + "). Assign plain numbers, strings, lists and dicts."
+                + str(_rook_result_err)[:300]
+                + "). Assign plain numbers, strings, lists and dicts; "
+                + "return Revit elements as their ids, for example element.Id.Value."
             )
 
     _rook_payload["success"] = True
     _rook_payload["stage"] = "done"
 except BaseException as _rook_err:
     _rook_payload["success"] = False
-    _rook_payload["error"] = type(_rook_err).__name__ + ": " + str(_rook_err)
-    _rook_payload["traceback"] = traceback.format_exc()
+    _rook_payload["error"] = (type(_rook_err).__name__ + ": " + str(_rook_err))[:_ROOK_ERROR_LIMIT]
+    _rook_payload["traceback"] = traceback.format_exc()[-_ROOK_TRACEBACK_LIMIT:]
 finally:
     _rook_payload["output"] = _rook_stdout.getvalue()
+    _rook_payload["outputTruncated"] = _rook_stdout.truncated
     _rook_payload["stderr"] = _rook_stderr.getvalue()
+    _rook_payload["stderrTruncated"] = _rook_stderr.truncated
     try:
         _rook_dir = os.path.dirname(ROOK_RESULT_PATH)
         if _rook_dir:

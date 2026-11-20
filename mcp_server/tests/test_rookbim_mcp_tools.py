@@ -382,7 +382,19 @@ async def test_rookbim_run_transaction_schema_requires_name_and_code():
     assert schema["type"] == "object"
     assert schema["required"] == ["name", "code"]
     assert schema["additionalProperties"] is False
-    assert set(schema["properties"]) == {"name", "code", "timeoutSeconds", "port"}
+    assert set(schema["properties"]) == {
+        "name",
+        "code",
+        "timeoutSeconds",
+        "documentKey",
+        "port",
+    }
+    # documentKey is optional: an unsaved document may have none to pass.
+    assert schema["properties"]["documentKey"]["type"] == "string"
+    assert schema["properties"]["documentKey"]["maxLength"] == 300
+    # The same limit the HTTP route enforces, so a schema-valid call is not
+    # refused for length.
+    assert schema["properties"]["code"]["maxLength"] == 200000
     assert schema["properties"]["port"] == PORT_SCHEMA
     assert schema["properties"]["name"]["type"] == "string"
     assert schema["properties"]["name"]["minLength"] == 1
@@ -437,8 +449,8 @@ async def test_rookbim_run_transaction_description_states_contract_and_refusals(
     assert "only RookBIM tool that writes the Revit model" in description
     assert "Rhino.Inside.Revit" in description
     # Synchronous, atomic, one undo entry.
-    assert "returns the outcome in this same call" in description
-    assert "rolled back and the model is unchanged" in description
+    assert "answers in this same call" in description
+    assert "rolled back and the active document is unchanged" in description
     assert "one entry called `name` in Revit's undo list" in description
     # Names bound for the script, and what the script must not do.
     for bound in ("doc", "uidoc", "uiapp", "app", "DB", "UI", "`result`"):
@@ -447,13 +459,28 @@ async def test_rookbim_run_transaction_description_states_contract_and_refusals(
     # Every refusal the route can produce is named with what to do next.
     for code in (
         "revit_not_idle",
+        "document_mismatch",
+        "document_not_modifiable",
+        "no_active_document",
+        "invalid_request",
         "transaction_script_failed",
         "transaction_rolled_back",
         "transaction_timeout",
-        "document_not_modifiable",
-        "no_active_document",
+        "transaction_outcome_unknown",
     ):
         assert code in description
+    # A timeout must not be described as a guaranteed stop, and an unknown
+    # outcome must not be described as "not committed".
+    assert "Rook cannot stop a running script" in description
+    assert "do not run the script again" in description
+    # What the rollback guarantee does not cover.
+    assert "Do not edit another document" in description
+    assert "do not schedule work for later" in description
+    # How to use what comes back, exactly.
+    assert "pass an entry's `identity` to rookbim_element_info" in description
+    assert "identityOmittedReason" in description
+    assert "resultOmittedReason" in description
+    assert "Pass `documentKey`" in description
     # Exclusions: what to use instead.
     assert "rookbim_query_elements" in description
     assert "Do not use rhino_execute to change Revit" in description
@@ -465,6 +492,7 @@ async def test_rookbim_run_transaction_forwards_code_and_name_byte_exactly():
         "name": "Sätt nivånamn",
         "code": "lvl = doc.GetElement(DB.ElementId(311))\nlvl.Name = 'Plan 02'\nresult = {'id': 311}\n",
         "timeoutSeconds": 30,
+        "documentKey": "file-document-v1:50250fd46d4c96e14f57ff283d6fd21965d8525a34d638e5070eaf60df13a0ac",
     }
 
     with patch.object(server, "call_rhino", new_callable=AsyncMock) as mock:

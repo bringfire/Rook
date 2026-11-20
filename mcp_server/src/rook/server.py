@@ -587,12 +587,13 @@ def _rookbim_run_transaction_schema() -> dict[str, Any]:
             "code": {
                 "type": "string",
                 "minLength": 1,
+                "maxLength": 200000,
                 "description": (
                     "Python 3 source to run inside the already-open transaction. "
                     "Pre-bound names: doc, uidoc, uiapp, app, DB (Autodesk.Revit.DB), "
-                    "UI (Autodesk.Revit.UI). Assign a JSON-serializable value to "
-                    "`result` to return it. Do not create DB.Transaction or "
-                    "DB.TransactionGroup objects."
+                    "UI (Autodesk.Revit.UI). Assign a plain JSON value to `result` to "
+                    "return it. Do not create DB.Transaction or DB.TransactionGroup "
+                    "objects."
                 ),
             },
             "timeoutSeconds": {
@@ -601,8 +602,21 @@ def _rookbim_run_transaction_schema() -> dict[str, Any]:
                 "maximum": 90,
                 "default": 60,
                 "description": (
-                    "How long the script may run once Revit has started it. If it runs "
-                    "longer, nothing is committed."
+                    "How long the script may run, counted from when it starts. A script "
+                    "that runs longer is never committed. This does not stop the script: "
+                    "it keeps Revit busy until it returns."
+                ),
+            },
+            "documentKey": {
+                "type": "string",
+                "maxLength": 300,
+                "description": (
+                    "Recommended. The documentKey of the document you read, as returned "
+                    "by rookbim_active_document (document.documentKey) or in any element "
+                    "identity. If a different document is active when the script is "
+                    "about to run, the call is refused with document_mismatch and "
+                    "nothing changes. Without it the script runs on whatever document is "
+                    "active at that moment."
                 ),
             },
             "port": _rookbim_port_schema(),
@@ -618,33 +632,49 @@ _ROOKBIM_RUN_TRANSACTION_DESCRIPTION = (
     "selection. Requires Rhino running inside Revit (Rhino.Inside.Revit); check "
     "with rookbim_status.\n\n"
     "Runs your Python 3 `code` on Revit's API thread inside one transaction called "
-    "`name`, waits for it, and returns the outcome in this same call. If the "
-    "script raises, or Revit rejects the commit, the transaction is rolled back "
-    "and the model is unchanged. On success the whole change is one entry called "
-    "`name` in Revit's undo list. This tool cannot undo; the user undoes it in "
-    "Revit.\n\n"
+    "`name` on the active document, waits for it, and answers in this same call. "
+    "If the script raises, or Revit rejects the commit, that transaction is rolled "
+    "back and the active document is unchanged. On success the whole change is one "
+    "entry called `name` in Revit's undo list. This tool cannot undo; the user "
+    "undoes it in Revit.\n\n"
     "Names already bound in the script: doc (the active Autodesk.Revit.DB.Document), "
     "uidoc, uiapp, app, DB (the Autodesk.Revit.DB namespace), UI (Autodesk.Revit.UI). "
     "Example: `lvl = doc.GetElement(DB.ElementId(311)); lvl.Name = 'Level 02'; "
     "result = {'renamed': lvl.Id.Value}`. Lengths are Revit internal units (feet); "
     "convert with DB.UnitUtils.ConvertToInternalUnits. print() text comes back as "
-    "`output`; assign a JSON-serializable value to `result` to get it back.\n\n"
-    "Do not start, commit or roll back transactions in the script (no "
-    "DB.Transaction, no DB.TransactionGroup): one is already open and starting "
-    "another raises. DB.SubTransaction is allowed. Do not open dialogs or ask for "
-    "input.\n\n"
-    "Returns transaction.status, changed, elements.added and elements.modified "
-    "(identity envelopes that rookbim_element_info and rookbim_select_elements "
-    "accept; at most 200 each, with counts and a truncated flag), elements.deleted "
-    "(former element ids), warnings (Revit warnings, dismissed instead of shown as "
+    "`output`. Assign a plain JSON value (numbers, strings, lists, dicts) to "
+    "`result` to get it back; return elements as ids, because a Revit object in "
+    "`result` is not converted: `result` comes back null with "
+    "`resultOmittedReason`.\n\n"
+    "Element ids repeat across documents. Pass `documentKey` (from "
+    "rookbim_active_document) so the write is refused if the user has switched to "
+    "another document since you read it.\n\n"
+    "Limits of the guarantee. Only edits the script makes to `doc` while it runs "
+    "are inside the transaction. Do not edit another document, and do not schedule "
+    "work for later (events, idling callbacks, external events): those run outside "
+    "the transaction and are not rolled back. Do not start, commit or roll back "
+    "transactions (no DB.Transaction, no DB.TransactionGroup): one is already open "
+    "and starting another raises. DB.SubTransaction is allowed. Do not open dialogs "
+    "or ask for input. Rook cannot stop a running script: one that never returns "
+    "freezes Revit until the user ends it.\n\n"
+    "Returns transaction.status, changed, elements (added and modified: at most 100 "
+    "entries each, with counts and a truncated flag; pass an entry's `identity` to "
+    "rookbim_element_info or rookbim_select_elements; an entry whose identity could "
+    "not be read has `elementId` and `identityOmittedReason` instead; deleted: "
+    "former element ids), warnings (Revit warnings, dismissed instead of shown as "
     "dialogs), output, stderr and result.\n\n"
-    "Refusals, by data.errorCode: revit_not_idle = an open dialog or active command "
-    "in Revit kept the script from starting, nothing ran, ask the user to close "
-    "it and retry; transaction_script_failed = the script raised, rolled back, see "
-    "data.details.traceback; transaction_rolled_back = Revit refused the commit, see "
-    "data.details.failures; transaction_timeout = ran past timeoutSeconds, not "
-    "committed; document_not_modifiable = read-only document or another "
-    "transaction already open; no_active_document = no document open in Revit.\n\n"
+    "Refusals, by data.errorCode. Nothing ran and nothing changed: revit_not_idle "
+    "(an open dialog or active command in Revit; ask the user to close it, then "
+    "retry), document_mismatch (the active document is not `documentKey`), "
+    "document_not_modifiable (read-only document or another transaction already "
+    "open), no_active_document, invalid_request. Ran and was rolled back: "
+    "transaction_script_failed (the script raised; see data.details.traceback), "
+    "transaction_rolled_back (Revit refused the commit; see data.details.failures), "
+    "transaction_timeout (ran past timeoutSeconds or the wait ran out; never "
+    "committed; data.details.scriptStillRunning says whether Revit is still busy "
+    "with it). Outcome not known: transaction_outcome_unknown (Revit had not "
+    "finished the commit when the wait ended; do not run the script again; read "
+    "the model back first).\n\n"
     "Not for reading the model (use rookbim_query_elements, rookbim_element_info, "
     "rookbim_element_parameters) and not for Rhino geometry (use rhino_* tools). "
     "Do not use rhino_execute to change Revit: it runs outside Revit's API "

@@ -40,6 +40,32 @@ namespace Rook.Tests.Handlers
             }
         }
 
+        [Theory]
+        [InlineData("{\"op\":\"run_transaction\",\"name\":\"Rename level\",\"code\":\"pass\",\"timeoutSeconds\":\"30\"}")]
+        [InlineData("{\"op\":\"run_transaction\",\"name\":123,\"code\":\"pass\"}")]
+        [InlineData("{\"op\":\"run_transaction\",\"name\":\"Rename level\",\"code\":[\"pass\"]}")]
+        public void Dispatch_RunTransaction_WrongTypedFieldIsAnInvalidRequestNotAnInvalidScope(string body)
+        {
+            var runtime = new RecordingRuntime(BimApiResponse.Ok(null));
+            RookBimRuntimeRegistry.Install(runtime, "test-run-transaction");
+            try
+            {
+                var response = new BimHandler().Dispatch(body);
+                var data = ToJsonElement(response.Data);
+
+                Assert.False(response.Success);
+                Assert.Equal(400, response.HttpStatus);
+                Assert.Equal("invalid_request", data.GetProperty("errorCode").GetString());
+                Assert.Contains("wrong JSON type", data.GetProperty("message").GetString());
+                Assert.Contains("timeoutSeconds (integer, optional)", data.GetProperty("message").GetString());
+                Assert.Equal(0, runtime.RunTransactionCalls);
+            }
+            finally
+            {
+                RookBimRuntimeRegistry.ResetForTests();
+            }
+        }
+
         [Fact]
         public void Dispatch_RunTransaction_ForwardsTheValidatedRequestAndReturnsRuntimeData()
         {
@@ -53,7 +79,7 @@ namespace Rook.Tests.Handlers
             try
             {
                 var response = new BimHandler().Dispatch(
-                    "{\"op\":\"run_transaction\",\"name\":\"  Rename level \",\"code\":\"result = 1\",\"timeoutSeconds\":30}");
+                    "{\"op\":\"run_transaction\",\"name\":\"  Rename level \",\"code\":\"result = 1\",\"timeoutSeconds\":30,\"documentKey\":\"file-document-v1:abc\"}");
                 var data = ToJsonElement(response.Data);
 
                 Assert.True(response.Success);
@@ -62,6 +88,7 @@ namespace Rook.Tests.Handlers
                 Assert.Equal("Rename level", runtime.LastRequest!.EffectiveName);
                 Assert.Equal("result = 1", runtime.LastRequest.Code);
                 Assert.Equal(30, runtime.LastRequest.EffectiveTimeoutSeconds);
+                Assert.Equal("file-document-v1:abc", runtime.LastRequest.DocumentKey);
                 Assert.Equal("committed", data.GetProperty("transaction").GetProperty("status").GetString());
                 Assert.True(data.GetProperty("changed").GetBoolean());
                 // The script's own result keys travel verbatim, not camel-cased or renamed.
@@ -170,6 +197,7 @@ namespace Rook.Tests.Handlers
         [InlineData(BimErrorCode.TransactionScriptFailed, "transaction_script_failed")]
         [InlineData(BimErrorCode.TransactionRolledBack, "transaction_rolled_back")]
         [InlineData(BimErrorCode.TransactionTimeout, "transaction_timeout")]
+        [InlineData(BimErrorCode.TransactionOutcomeUnknown, "transaction_outcome_unknown")]
         public void MapErrorCode_GivesEveryTransactionAndIdleFailureItsOwnWireCode(
             BimErrorCode code,
             string expected)

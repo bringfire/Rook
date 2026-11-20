@@ -13,7 +13,16 @@ namespace Rook.Bim
     {
         public const int MaxStreamLength = 20000;
 
-        public const int MaxResultJsonLength = 100000;
+        // Bounded so a committed response always fits the 1 MiB native bridge
+        // buffer, even when every character is escaped to six bytes.
+        public const int MaxResultJsonLength = 50000;
+
+        public const int MaxTracebackLength = 20000;
+
+        public const int MaxErrorLength = 2000;
+
+        /// <summary>The only stage at which the wrapper may report success.</summary>
+        public const string DoneStage = "done";
 
         private BimTransactionScriptResult()
         {
@@ -82,25 +91,28 @@ namespace Rook.Bim
             {
                 PayloadPresent = true,
                 Stage = ReadString(payload, "stage") ?? "none",
-                Error = ReadString(payload, "error") ?? string.Empty,
-                Traceback = ReadString(payload, "traceback") ?? string.Empty,
+                Error = TruncateTail(ReadString(payload, "error"), MaxErrorLength),
+                Traceback = TruncateTail(ReadString(payload, "traceback"), MaxTracebackLength),
                 ResultOmittedReason = ReadString(payload, "resultOmittedReason")
             };
 
+            // The wrapper bounds its streams while capturing them and says so;
+            // the limit is applied again here in case a payload did not.
             result.Output = Truncate(ReadString(payload, "output"), out var outputTruncated);
-            result.OutputTruncated = outputTruncated;
+            result.OutputTruncated = outputTruncated || ReadTrue(payload, "outputTruncated");
             result.Stderr = Truncate(ReadString(payload, "stderr"), out var stderrTruncated);
-            result.StderrTruncated = stderrTruncated;
+            result.StderrTruncated = stderrTruncated || ReadTrue(payload, "stderrTruncated");
 
-            // Success must be the literal JSON true; anything else rolls back.
-            result.Success =
-                payload.TryGetPropertyValue("success", out var success) &&
-                success is JsonValue successValue &&
-                successValue.TryGetValue<bool>(out var succeeded) &&
-                succeeded;
+            // Success must be the literal JSON true AND the wrapper must have
+            // reached its last stage; anything else rolls back.
+            var reportedSuccess = ReadTrue(payload, "success");
+            result.Success = reportedSuccess &&
+                string.Equals(result.Stage, DoneStage, StringComparison.Ordinal);
             if (!result.Success && result.Error.Length == 0)
             {
-                result.Error = "The script wrapper did not report success.";
+                result.Error = reportedSuccess
+                    ? $"The script wrapper reported success without finishing (stage '{result.Stage}')."
+                    : "The script wrapper did not report success.";
             }
 
             if (payload.TryGetPropertyValue("result", out var value) && value != null)
@@ -130,6 +142,27 @@ namespace Rook.Bim
             }
 
             return value.TryGetValue<string>(out var text) ? text : null;
+        }
+
+        private static bool ReadTrue(JsonObject payload, string name)
+        {
+            return payload.TryGetPropertyValue(name, out var node) &&
+                node is JsonValue value &&
+                value.TryGetValue<bool>(out var flag) &&
+                flag;
+        }
+
+        /// <summary>Keeps the end of a long text: the end of a traceback names the error.</summary>
+        private static string TruncateTail(string? value, int limit)
+        {
+            if (string.IsNullOrEmpty(value))
+            {
+                return string.Empty;
+            }
+
+            return value!.Length <= limit
+                ? value
+                : "[...truncated...] " + value.Substring(value.Length - limit);
         }
 
         private static string Truncate(string? value, out bool truncated)

@@ -39,7 +39,8 @@ namespace Rook.Bim
         DocumentNotModifiable,
         TransactionScriptFailed,
         TransactionRolledBack,
-        TransactionTimeout
+        TransactionTimeout,
+        TransactionOutcomeUnknown
     }
 
     public enum BimDocumentGuidSource
@@ -785,9 +786,11 @@ namespace Rook.Bim
 
         public const int MinTimeoutSeconds = 1;
 
-        // Idle wait + script timeout + commit grace must stay below the
-        // 120 s HTTP read timeout every Rook client uses for /bim/* routes.
+        // Idle wait + script timeout + setup allowance + commit grace must stay
+        // below the 120 s HTTP read timeout every Rook client uses for /bim/*.
         public const int MaxTimeoutSeconds = 90;
+
+        public const int MaxDocumentKeyLength = 300;
 
         public const int MaxNameLength = 120;
 
@@ -801,6 +804,18 @@ namespace Rook.Bim
 
         /// <summary>How long the script may run once Revit has started it.</summary>
         public int? TimeoutSeconds { get; set; }
+
+        /// <summary>
+        /// Optional. The documentKey of the document the caller read (from
+        /// active-document or any element identity). When given, the write is
+        /// refused unless that document is still the active one.
+        /// </summary>
+        public string? DocumentKey { get; set; }
+
+        public bool HasDocumentKey
+        {
+            get { return !string.IsNullOrWhiteSpace(DocumentKey); }
+        }
 
         public int EffectiveTimeoutSeconds
         {
@@ -851,6 +866,13 @@ namespace Rook.Bim
                 return Fail(
                     $"timeoutSeconds must be between {MinTimeoutSeconds} and {MaxTimeoutSeconds}; " +
                     $"got {EffectiveTimeoutSeconds}.");
+            }
+
+            if (DocumentKey != null && DocumentKey.Length > MaxDocumentKeyLength)
+            {
+                return Fail(
+                    $"documentKey must be at most {MaxDocumentKeyLength} characters; got {DocumentKey.Length}. " +
+                    "Pass the documentKey string exactly as rookbim_active_document returned it.");
             }
 
             return BimValidationResult.Ok;

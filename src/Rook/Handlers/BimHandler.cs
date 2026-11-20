@@ -284,7 +284,24 @@ namespace Rook.Handlers
         {
             // Validate before the runtime is reached: a malformed write request
             // must be refused without ever entering the Revit API context.
-            var request = DeserializeRequest<BimRunTransactionRequest>(diagnostics, body);
+            BimRunTransactionRequest request;
+            try
+            {
+                request = DeserializeRequest<BimRunTransactionRequest>(diagnostics, body);
+            }
+            catch (JsonException ex)
+            {
+                // A wrong-typed field (for example timeoutSeconds as a string)
+                // is an invalid request, not an invalid scope.
+                return Fail(
+                    diagnostics,
+                    control,
+                    BimErrorCode.InvalidRequest,
+                    "run-transaction arguments have the wrong JSON type: " + ex.Message +
+                    " Expected name (string), code (string), timeoutSeconds (integer, optional) " +
+                    "and documentKey (string, optional).",
+                    400);
+            }
             var validation = request.Validate();
             if (!validation.Success)
             {
@@ -713,6 +730,7 @@ namespace Rook.Handlers
                 BimErrorCode.TransactionScriptFailed => "transaction_script_failed",
                 BimErrorCode.TransactionRolledBack => "transaction_rolled_back",
                 BimErrorCode.TransactionTimeout => "transaction_timeout",
+                BimErrorCode.TransactionOutcomeUnknown => "transaction_outcome_unknown",
                 BimErrorCode.InternalError => "internal_error",
                 BimErrorCode.None => "internal_error",
                 _ => "internal_error",
