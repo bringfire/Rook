@@ -26,7 +26,13 @@ ROOKBIM_TOOL_ROUTES = {
     "rookbim_clear_selection": ("/bim/clear-selection", "POST"),
     "rookbim_export_elements": ("/bim/export-elements", "POST"),
     "rookbim_export_preset": ("/bim/export-preset", "POST"),
+    "rookbim_run_transaction": ("/bim/run-transaction", "POST"),
 }
+
+# Every rookbim_* tool except the one that writes the Revit model.
+ROOKBIM_NON_WRITING_TOOLS = [
+    name for name in ROOKBIM_TOOL_ROUTES if name != "rookbim_run_transaction"
+] + ["rookbim_export_preset_to_rhino"]
 
 ROOKBIM_READONLY_TOOLS = [
     "rookbim_status",
@@ -242,6 +248,10 @@ async def test_rookbim_server_dispatches_to_expected_bridge_route(name, route):
             "preset": "architectural_shell",
             "output": {"directory": "C:\\fixtures", "name": "shell"},
         },
+        "rookbim_run_transaction": {
+            "name": "Rename Level 2",
+            "code": "doc.GetElement(DB.ElementId(311)).Name = 'Level 02'",
+        },
     }.get(name, {})
 
     with patch.object(server, "call_rhino", new_callable=AsyncMock) as mock:
@@ -323,6 +333,10 @@ async def test_rookbim_dispatcher_dispatches_to_expected_bridge_route(name, rout
             "preset": "architectural_shell",
             "output": {"directory": "C:\\fixtures", "name": "shell"},
         },
+        "rookbim_run_transaction": {
+            "name": "Rename Level 2",
+            "code": "doc.GetElement(DB.ElementId(311)).Name = 'Level 02'",
+        },
     }.get(name, {})
 
     with patch.object(tool_dispatcher, "call_rhino", new_callable=AsyncMock) as mock:
@@ -359,3 +373,134 @@ def test_rookbim_context_categories_registered():
         assert context.get_tool_category(name) == "document"
     assert context.get_tool_category("rookbim_select_elements") == "select"
     assert context.get_tool_category("rookbim_clear_selection") == "select"
+
+
+@pytest.mark.asyncio
+async def test_rookbim_run_transaction_schema_requires_name_and_code():
+    schema = (await _tools_by_name())["rookbim_run_transaction"].inputSchema
+
+    assert schema["type"] == "object"
+    assert schema["required"] == ["name", "code"]
+    assert schema["additionalProperties"] is False
+    assert set(schema["properties"]) == {"name", "code", "timeoutSeconds", "port"}
+    assert schema["properties"]["port"] == PORT_SCHEMA
+    assert schema["properties"]["name"]["type"] == "string"
+    assert schema["properties"]["name"]["minLength"] == 1
+    assert schema["properties"]["name"]["maxLength"] == 120
+    assert schema["properties"]["code"]["type"] == "string"
+    assert schema["properties"]["code"]["minLength"] == 1
+    timeout = schema["properties"]["timeoutSeconds"]
+    assert (timeout["type"], timeout["minimum"], timeout["maximum"], timeout["default"]) == (
+        "integer",
+        1,
+        90,
+        60,
+    )
+
+
+def test_rookbim_run_transaction_is_a_rhino_routed_mutation():
+    policy = targeting.policy_for_tool("rookbim_run_transaction")
+
+    assert policy.requires_rhino is True
+    assert policy.risk == "mutate"
+    assert context.get_tool_category("rookbim_run_transaction") == "document"
+
+
+def test_rookbim_run_transaction_is_excluded_from_every_readonly_surface():
+    from rook import mcp_tool_profiles
+
+    assert "rookbim_run_transaction" in tool_groups.TOOL_GROUPS["rookbim"]
+    assert "rookbim_run_transaction" not in tool_groups.TOOL_GROUPS["rookbim_readonly"]
+    assert "rookbim_run_transaction" not in mcp_tool_profiles.PUBLIC_READONLY_TOOL_NAMES
+    assert (
+        mcp_tool_profiles.tool_blocked(
+            "rookbim_run_transaction", mcp_tool_profiles.Profile.READONLY
+        )
+        is True
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", ROOKBIM_NON_WRITING_TOOLS)
+async def test_rookbim_non_writing_tools_say_so_and_name_the_writing_tool(name):
+    description = (await _tools_by_name())[name].description
+
+    assert "never changes the revit model" in description.lower()
+    assert "To change the model use rookbim_run_transaction." in description
+
+
+@pytest.mark.asyncio
+async def test_rookbim_run_transaction_description_states_contract_and_refusals():
+    description = (await _tools_by_name())["rookbim_run_transaction"].description
+
+    # What it is, and that it is the only one.
+    assert "only RookBIM tool that writes the Revit model" in description
+    assert "Rhino.Inside.Revit" in description
+    # Synchronous, atomic, one undo entry.
+    assert "returns the outcome in this same call" in description
+    assert "rolled back and the model is unchanged" in description
+    assert "one entry called `name` in Revit's undo list" in description
+    # Names bound for the script, and what the script must not do.
+    for bound in ("doc", "uidoc", "uiapp", "app", "DB", "UI", "`result`"):
+        assert bound in description
+    assert "no DB.Transaction, no DB.TransactionGroup" in description
+    # Every refusal the route can produce is named with what to do next.
+    for code in (
+        "revit_not_idle",
+        "transaction_script_failed",
+        "transaction_rolled_back",
+        "transaction_timeout",
+        "document_not_modifiable",
+        "no_active_document",
+    ):
+        assert code in description
+    # Exclusions: what to use instead.
+    assert "rookbim_query_elements" in description
+    assert "Do not use rhino_execute to change Revit" in description
+
+
+@pytest.mark.asyncio
+async def test_rookbim_run_transaction_forwards_code_and_name_byte_exactly():
+    body = {
+        "name": "Sätt nivånamn",
+        "code": "lvl = doc.GetElement(DB.ElementId(311))\nlvl.Name = 'Plan 02'\nresult = {'id': 311}\n",
+        "timeoutSeconds": 30,
+    }
+
+    with patch.object(server, "call_rhino", new_callable=AsyncMock) as mock:
+        mock.return_value = {"success": True, "data": {}}
+        await server.call_tool("rookbim_run_transaction", dict(body))
+
+    assert _normalize_call_rhino_args(mock.call_args) == (
+        "/bim/run-transaction",
+        "POST",
+        body,
+        None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_rookbim_run_transaction_refusal_reaches_the_model_with_code_and_cause():
+    refusal = {
+        "success": False,
+        "data": {
+            "errorCode": "revit_not_idle",
+            "message": (
+                "Revit did not become idle within 10 s, so RookBIM operation "
+                "'run_transaction' never ran and nothing was read or changed. The likely "
+                "cause is an open dialog or an active command in Revit."
+            ),
+            "details": {"operation": "run_transaction", "waitedSeconds": 10, "workStarted": False},
+        },
+    }
+
+    with patch.object(server, "call_rhino", new_callable=AsyncMock) as mock:
+        mock.return_value = refusal
+        result = await server.call_tool(
+            "rookbim_run_transaction", {"name": "Rename", "code": "pass"}
+        )
+
+    text = "".join(getattr(item, "text", "") for item in result)
+    assert "revit_not_idle" in text
+    assert "open dialog or an active command in Revit" in text
+    assert "not_rhino_inside" not in text

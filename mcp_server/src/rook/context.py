@@ -123,6 +123,7 @@ TOOL_CATEGORIES = {
     "rookbim_element_parameters": "document",
     "rookbim_select_elements": "select",
     "rookbim_clear_selection": "select",
+    "rookbim_run_transaction": "document",
 
     # Knowledge tools - mapped to document category (metadata operations)
     "knowledge_query": "document",

@@ -77,8 +77,8 @@ def test_profile_surface_counts_are_authoritative(monkeypatch):
         "readonly": len(readonly),
         "lean": len(lean),
     } == {
-        "full": 382,
-        "full_with_deprecated": 385,
+        "full": 383,
+        "full_with_deprecated": 386,
         "readonly": 120,
         "lean": 20,
     }

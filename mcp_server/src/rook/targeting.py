@@ -537,6 +537,7 @@ _ALL_KNOWN_TOOLS = {
     "rookbim_export_preset_to_rhino",
     "rookbim_list_categories",
     "rookbim_query_elements",
+    "rookbim_run_transaction",
     "rookbim_select_elements",
     "rookbim_status",
     "road_intersection_candidates",

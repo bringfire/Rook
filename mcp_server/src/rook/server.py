@@ -555,6 +555,103 @@ def _rookbim_empty_input_schema() -> dict[str, Any]:
     }
 
 
+# Appended to every rookbim_* tool that cannot change the Revit model, so a
+# model reading any one description learns where writes go.
+_ROOKBIM_READS_ONLY = (
+    " Reads only: it never changes the Revit model. To change the model use "
+    "rookbim_run_transaction."
+)
+_ROOKBIM_SELECTS_ONLY = (
+    " Changes the Revit UI selection only: it never changes the Revit model. "
+    "To change the model use rookbim_run_transaction."
+)
+_ROOKBIM_EXPORTS_ONLY = (
+    " Never changes the Revit model. To change the model use "
+    "rookbim_run_transaction."
+)
+
+
+def _rookbim_run_transaction_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120,
+                "description": (
+                    "Transaction name. It becomes the single entry for this change in "
+                    "Revit's undo list, so name the change, e.g. 'Rename Level 2'."
+                ),
+            },
+            "code": {
+                "type": "string",
+                "minLength": 1,
+                "description": (
+                    "Python 3 source to run inside the already-open transaction. "
+                    "Pre-bound names: doc, uidoc, uiapp, app, DB (Autodesk.Revit.DB), "
+                    "UI (Autodesk.Revit.UI). Assign a JSON-serializable value to "
+                    "`result` to return it. Do not create DB.Transaction or "
+                    "DB.TransactionGroup objects."
+                ),
+            },
+            "timeoutSeconds": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 90,
+                "default": 60,
+                "description": (
+                    "How long the script may run once Revit has started it. If it runs "
+                    "longer, nothing is committed."
+                ),
+            },
+            "port": _rookbim_port_schema(),
+        },
+        "required": ["name", "code"],
+        "additionalProperties": False,
+    }
+
+
+_ROOKBIM_RUN_TRANSACTION_DESCRIPTION = (
+    "Change the open Revit document. This is the only RookBIM tool that writes the "
+    "Revit model; every other rookbim_* tool only reads it or changes the UI "
+    "selection. Requires Rhino running inside Revit (Rhino.Inside.Revit); check "
+    "with rookbim_status.\n\n"
+    "Runs your Python 3 `code` on Revit's API thread inside one transaction called "
+    "`name`, waits for it, and returns the outcome in this same call. If the "
+    "script raises, or Revit rejects the commit, the transaction is rolled back "
+    "and the model is unchanged. On success the whole change is one entry called "
+    "`name` in Revit's undo list. This tool cannot undo; the user undoes it in "
+    "Revit.\n\n"
+    "Names already bound in the script: doc (the active Autodesk.Revit.DB.Document), "
+    "uidoc, uiapp, app, DB (the Autodesk.Revit.DB namespace), UI (Autodesk.Revit.UI). "
+    "Example: `lvl = doc.GetElement(DB.ElementId(311)); lvl.Name = 'Level 02'; "
+    "result = {'renamed': lvl.Id.Value}`. Lengths are Revit internal units (feet); "
+    "convert with DB.UnitUtils.ConvertToInternalUnits. print() text comes back as "
+    "`output`; assign a JSON-serializable value to `result` to get it back.\n\n"
+    "Do not start, commit or roll back transactions in the script (no "
+    "DB.Transaction, no DB.TransactionGroup): one is already open and starting "
+    "another raises. DB.SubTransaction is allowed. Do not open dialogs or ask for "
+    "input.\n\n"
+    "Returns transaction.status, changed, elements.added and elements.modified "
+    "(identity envelopes that rookbim_element_info and rookbim_select_elements "
+    "accept; at most 200 each, with counts and a truncated flag), elements.deleted "
+    "(former element ids), warnings (Revit warnings, dismissed instead of shown as "
+    "dialogs), output, stderr and result.\n\n"
+    "Refusals, by data.errorCode: revit_not_idle = an open dialog or active command "
+    "in Revit kept the script from starting, nothing ran, ask the user to close "
+    "it and retry; transaction_script_failed = the script raised, rolled back, see "
+    "data.details.traceback; transaction_rolled_back = Revit refused the commit, see "
+    "data.details.failures; transaction_timeout = ran past timeoutSeconds, not "
+    "committed; document_not_modifiable = read-only document or another "
+    "transaction already open; no_active_document = no document open in Revit.\n\n"
+    "Not for reading the model (use rookbim_query_elements, rookbim_element_info, "
+    "rookbim_element_parameters) and not for Rhino geometry (use rhino_* tools). "
+    "Do not use rhino_execute to change Revit: it runs outside Revit's API "
+    "context, where starting a transaction fails."
+)
+
+
 def _rookbim_identity_schema() -> dict[str, Any]:
     return {
         "type": "object",
@@ -13294,47 +13391,65 @@ Returns the full profile JSON including features, surfaces, and elements.""",
         # --- RookBIM (Revit bridge, Phase 1) ---
         Tool(
             name="rookbim_status",
-            description="Return health and availability for the RookBIM Revit bridge.",
+            description=(
+                "Return health and availability for the RookBIM Revit bridge."
+                + _ROOKBIM_READS_ONLY
+            ),
             inputSchema=_rookbim_empty_input_schema(),
         ),
         Tool(
             name="rookbim_active_document",
-            description="Return active Revit document identity and summary metadata from the RookBIM bridge.",
+            description=(
+                "Return active Revit document identity and summary metadata from the RookBIM bridge."
+                + _ROOKBIM_READS_ONLY
+            ),
             inputSchema=_rookbim_empty_input_schema(),
         ),
         Tool(
             name="rookbim_list_categories",
-            description="Return document-wide Revit categories available in the active document category table.",
+            description=(
+                "Return document-wide Revit categories available in the active document category table."
+                + _ROOKBIM_READS_ONLY
+            ),
             inputSchema=_rookbim_empty_input_schema(),
         ),
         Tool(
             name="rookbim_query_elements",
-            description="Query Revit elements in the active view or whole document by category and parameter filters.",
+            description=(
+                "Query Revit elements in the active view or whole document by category and parameter filters."
+                + _ROOKBIM_READS_ONLY
+            ),
             inputSchema=_rookbim_query_elements_schema(),
         ),
         Tool(
             name="rookbim_element_info",
-            description="Return core metadata for one Revit element identity envelope.",
+            description=(
+                "Return core metadata for one Revit element identity envelope."
+                + _ROOKBIM_READS_ONLY
+            ),
             inputSchema=_rookbim_identity_input_schema(),
         ),
         Tool(
             name="rookbim_element_parameters",
-            description="Return parameter values for one Revit element identity envelope.",
+            description=(
+                "Return parameter values for one Revit element identity envelope."
+                + _ROOKBIM_READS_ONLY
+            ),
             inputSchema=_rookbim_identity_input_schema(),
         ),
         Tool(
             name="rookbim_select_elements",
             description=(
-                "Select Revit elements by identity envelope. This mutates UI "
-                "selection only and does not write the Revit document."
+                "Select Revit elements by identity envelope."
+                + _ROOKBIM_SELECTS_ONLY
             ),
             inputSchema=_rookbim_select_elements_schema(),
         ),
         Tool(
             name="rookbim_clear_selection",
             description=(
-                "Clear the current Revit UI selection through the RookBIM "
-                "bridge. This does not write the Revit document."
+                "Clear the current Revit UI selection through the RookBIM bridge."
+                + _ROOKBIM_SELECTS_ONLY
             ),
             inputSchema=_rookbim_empty_input_schema(),
         ),
@@ -13344,6 +13459,7 @@ Returns the full profile JSON including features, surfaces, and elements.""",
                 "Export selected Revit elements to a Rhino-consumable .3dm + sidecar + validation "
                 "bundle (geometry + identity + semantic labels). Read-only on the Revit/Rhino "
                 "documents; writes files to disk. Provide exactly one of 'selector' or 'identities'."
+                + _ROOKBIM_EXPORTS_ONLY
             ),
             inputSchema=_rookbim_export_elements_schema(),
         ),
@@ -13354,6 +13470,7 @@ Returns the full profile JSON including features, surfaces, and elements.""",
                 "structural, rooms_and_spaces, calibration_fixture) to an organized Rhino bundle: "
                 "multi-category selection, RookBim:: layers, readable names, embedded metadata, a "
                 "summary + relationship index. Read-only on Revit/Rhino; writes files to disk."
+                + _ROOKBIM_EXPORTS_ONLY
             ),
             inputSchema=_rookbim_export_preset_schema(),
         ),
@@ -13363,9 +13480,15 @@ Returns the full profile JSON including features, surfaces, and elements.""",
                 "Demo workflow: export a RookBIM preset bundle, import the generated .3dm into "
                 "the current Rhino/Rhino.Inside document, project BIM sidecar facts for the "
                 "imported objects, and optionally return a scene-wide BIM relationship summary. "
-                "Mutates Rhino by importing geometry; does not modify Revit."
+                "Mutates Rhino by importing geometry."
+                + _ROOKBIM_EXPORTS_ONLY
             ),
             inputSchema=_rookbim_export_preset_to_rhino_schema(),
+        ),
+        Tool(
+            name="rookbim_run_transaction",
+            description=_ROOKBIM_RUN_TRANSACTION_DESCRIPTION,
+            inputSchema=_rookbim_run_transaction_schema(),
         ),
 
         # ─── Vision Video (PR-V4) ───────────────────────────────────────
@@ -21218,6 +21341,11 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
         case "rookbim_export_preset":
             result = await call_rhino(
                 "/bim/export-preset", "POST", arguments, port=port
+            )
+
+        case "rookbim_run_transaction":
+            result = await call_rhino(
+                "/bim/run-transaction", "POST", arguments, port=port
             )
 
         case "rookbim_export_preset_to_rhino":
