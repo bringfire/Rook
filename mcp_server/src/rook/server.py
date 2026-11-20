@@ -3983,7 +3983,16 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
                 "type": "object",
                 "properties": {
                     "layer": {"type": "string", "description": "Filter by layer path"},
-                    "type": {"type": "string", "description": "Filter by object type (Point, Curve, Brep, Mesh, etc)"},
+                    "type": {
+                        "type": "string",
+                        "description": (
+                            "Filter by object type (case-insensitive). Accepted values: "
+                            "Point, PointSet, Curve, Surface, Brep, Mesh, Annotation, "
+                            "InstanceReference, TextDot, Hatch, SubD, Extrusion, ClipPlane. "
+                            "Any other value is rejected with invalid_input (it does not "
+                            "fall back to returning every object)."
+                        ),
+                    },
                     "name": {"type": "string", "description": "Filter by name (partial match)"},
                     "limit": {"type": "integer", "description": "Maximum objects to return (default 100, max 500)"},
                     "offset": {"type": "integer", "description": "Skip this many objects (for pagination)"}
@@ -4010,7 +4019,11 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
                 "Bounding-box predicates: nested `bbox: {min:[x,y,z], "
                 "max:[x,y,z]}` is the router-advertised shape; legacy flat "
                 "`bboxMin`/`bboxMax` are accepted for backwards compatibility. "
-                "Flat takes precedence when both are present."
+                "Flat takes precedence when both are present. "
+                "Layer predicate: `layer` matches only objects directly on that "
+                "layer, so a parent layer whose objects all sit on sub-layers "
+                "selects 0 objects. Pass `includeSublayers: true` to also select "
+                "objects on every layer nested below it."
             ),
             inputSchema={
                 "type": "object",
@@ -4020,7 +4033,14 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
                         "items": {"type": "string"},
                         "description": "List of object GUIDs to select."
                     },
-                    "layer": {"type": "string", "description": "Select all objects on this layer."},
+                    "layer": {
+                        "type": "string",
+                        "description": "Select all objects directly on this layer (sub-layers excluded unless includeSublayers is true).",
+                    },
+                    "includeSublayers": {
+                        "type": "boolean",
+                        "description": "Opt-in, default false. With `layer`, also select objects on all layers nested below it. Requires `layer`.",
+                    },
                     "name": {
                         "type": "string",
                         "description": "Exact-match name predicate (case-insensitive). Mutually exclusive with namePattern — both in one request → invalid_input.",
@@ -4495,7 +4515,14 @@ Examples:
         ),
         Tool(
             name="rhino_layer_delete",
-            description="Delete an empty layer.",
+            description=(
+                "Delete an empty layer. Refused, with the reason, while anything holds "
+                "the layer: objects (hidden objects, lights and objects on a turned-off layer "
+                "count, although rhino_objects does not list them), child layers, block "
+                "definition geometry, or being the current layer. There is no purge "
+                "option: this tool never deletes objects. Use rhino_layer_dependencies "
+                "to see the holders first."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -4652,7 +4679,13 @@ Examples:
         ),
         Tool(
             name="rhino_layer_merge",
-            description="Move all objects from source to target layer, then delete the source layer. Source must have no child layers and must not be the current layer.",
+            description=(
+                "Move all objects from source to target layer, then delete the source layer. "
+                "Source must have no child layers and must not be the current layer. "
+                "Hidden objects on the source layer are moved too (they stay hidden) and are "
+                "counted in hiddenObjectsMoved, and lights are moved as well; otherwise they "
+                "would keep the source layer alive."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -4664,7 +4697,17 @@ Examples:
         ),
         Tool(
             name="rhino_layer_dependencies",
-            description="Analyze what holds a layer alive: direct objects, block definition references, child layers, and whether it is the current layer. Returns canDelete indicating if the layer can be safely deleted.",
+            description=(
+                "Analyze what holds a layer alive: direct objects, block definition references, "
+                "child layers, and whether it is the current layer. Returns canDelete indicating "
+                "if the layer can be safely deleted, and blockers listing each reason it cannot. "
+                "directObjects counts every undeleted object, including hidden objects, lights and "
+                "objects on a turned-off layer (rhino_objects lists none of these); hiddenObjects, "
+                "hiddenObjectTypes and hiddenObjectIds describe the hidden ones, lightObjects counts "
+                "the lights, and layerVisible says whether the layer is on. "
+                "deletedObjectsInUndo is informational: objects in the deleted state that Rhino "
+                "keeps for undo do not block a delete."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {

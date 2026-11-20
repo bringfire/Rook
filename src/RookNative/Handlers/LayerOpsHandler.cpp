@@ -22,6 +22,7 @@
 
 #include <cctype>
 #include <functional>
+#include <map>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -31,6 +32,7 @@ using Rook::Infrastructure::GetLayerFullPath;
 using Rook::Infrastructure::JoinLayerPath;
 using Rook::Infrastructure::ContainsPathSeparator;
 using Rook::Infrastructure::LayerExistsByFullPath;
+using Rook::Infrastructure::FindLayerIndexByFullPath;
 using Rook::Infrastructure::ValidateNewLayerName;
 using Rook::Infrastructure::ResolveLayerRef;
 
@@ -57,6 +59,204 @@ int FindMaterialIndexSafe(CRhinoDoc* pDoc, const std::string& name)
             return i;
     }
     return -1;
+}
+
+// Everything that can keep a layer from being deleted.
+//
+// CRhinoLayerTable::DeleteLayer(quiet) refuses while ANY undeleted object is
+// on the layer. Checked against Rhino 8, that includes three kinds the
+// default iterator (normal_or_locked_objects, lights excluded) never returns:
+//   - objects in hidden mode,
+//   - objects on a layer that is turned off,
+//   - lights.
+// Counting with the default iterator therefore reports a layer as empty when
+// Rhino will still refuse to delete it. Holders are counted with
+// undeleted_objects plus IncludeLights.
+//
+// Objects in the deleted state do NOT hold a layer (a layer whose only object
+// is deleted-but-undoable deletes fine). They are counted for information only.
+struct LayerHolders
+{
+    int objects = 0;            // every undeleted object on the layer, lights included
+    int hiddenObjects = 0;      // subset in hidden mode
+    int lightObjects = 0;       // subset that are lights
+    int deletedObjects = 0;     // objects in the deleted state — never a blocker
+    std::map<std::string, int> hiddenTypes;
+    std::vector<std::string> hiddenIds;     // capped at kMaxHiddenIds
+    std::vector<std::string> childLayers;
+    nlohmann::json blockRefs = nlohmann::json::array();
+    bool isCurrent = false;
+    bool layerVisible = true;
+
+    static constexpr size_t kMaxHiddenIds = 50;
+
+    bool CanDelete() const
+    {
+        return objects == 0 && childLayers.empty() && blockRefs.empty() && !isCurrent;
+    }
+
+    // True when the layer holds objects GET /objects (rhino_objects) will not
+    // show: hidden objects, lights, or anything on a turned-off layer.
+    bool HasUnlistedObjects() const
+    {
+        return hiddenObjects > 0 || lightObjects > 0 || (objects > 0 && !layerVisible);
+    }
+
+    // "6 objects (5 hidden: 5 ClipPlane; 1 light; layer is turned off)"
+    std::string DescribeObjects() const
+    {
+        std::string text = std::to_string(objects) + (objects == 1 ? " object" : " objects");
+        std::vector<std::string> notes;
+        if (hiddenObjects > 0)
+        {
+            std::string note = std::to_string(hiddenObjects) + " hidden: ";
+            bool first = true;
+            for (const auto& entry : hiddenTypes)
+            {
+                if (!first) note += ", ";
+                note += std::to_string(entry.second) + " " + entry.first;
+                first = false;
+            }
+            notes.push_back(note);
+        }
+        if (lightObjects > 0)
+            notes.push_back(std::to_string(lightObjects) + (lightObjects == 1 ? " light" : " lights"));
+        if (objects > 0 && !layerVisible)
+            notes.push_back("layer is turned off");
+
+        if (!notes.empty())
+        {
+            text += " (";
+            for (size_t i = 0; i < notes.size(); ++i)
+            {
+                if (i > 0) text += "; ";
+                text += notes[i];
+            }
+            text += ")";
+        }
+        return text;
+    }
+
+    // One human-readable line per blocker; empty when the layer can be deleted.
+    std::vector<std::string> Blockers() const
+    {
+        std::vector<std::string> blockers;
+        if (isCurrent)
+            blockers.push_back("it is the current layer");
+        if (objects > 0)
+            blockers.push_back("layer contains " + DescribeObjects());
+        if (!childLayers.empty())
+            blockers.push_back("layer has " + std::to_string(childLayers.size()) + " child layer(s)");
+        for (const auto& ref : blockRefs)
+        {
+            blockers.push_back("block definition '" + ref.value("blockName", std::string()) +
+                "' has " + std::to_string(ref.value("objectsOnLayer", 0)) +
+                " object(s) on this layer");
+        }
+        return blockers;
+    }
+
+    std::string DescribeBlockers() const
+    {
+        std::string text;
+        for (const auto& blocker : Blockers())
+        {
+            if (!text.empty()) text += "; ";
+            text += blocker;
+        }
+        return text;
+    }
+};
+
+LayerHolders CollectLayerHolders(CRhinoDoc* pDoc, int layerIdx)
+{
+    LayerHolders holders;
+    const ON_UUID layerId = pDoc->m_layer_table[layerIdx].Id();
+    holders.layerVisible = pDoc->m_layer_table[layerIdx].IsVisible();
+
+    // Undeleted objects: normal, locked and hidden, on visible or hidden
+    // layers, and lights (which the iterator leaves out unless asked).
+    {
+        CRhinoObjectIterator it(*pDoc,
+            CRhinoObjectIterator::undeleted_objects,
+            CRhinoObjectIterator::active_objects);
+        it.IncludeLights(true);
+        for (const CRhinoObject* obj = it.First(); obj; obj = it.Next())
+        {
+            if (obj->Attributes().m_layer_index != layerIdx)
+                continue;
+            ++holders.objects;
+            if (obj->ObjectType() == ON::light_object)
+                ++holders.lightObjects;
+            if (obj->Attributes().Mode() == ON::hidden_object)
+            {
+                ++holders.hiddenObjects;
+                ++holders.hiddenTypes[ObjectTypeToString(obj->ObjectType())];
+                if (holders.hiddenIds.size() < LayerHolders::kMaxHiddenIds)
+                    holders.hiddenIds.push_back(UuidToString(obj->Attributes().m_uuid));
+            }
+        }
+    }
+
+    // Objects in the deleted state (informational only). Rhino keeps these
+    // for undo: objects the user deleted, and the earlier versions of objects
+    // that were edited or replaced.
+    {
+        CRhinoObjectIterator it(*pDoc,
+            CRhinoObjectIterator::deleted_objects,
+            CRhinoObjectIterator::active_objects);
+        for (const CRhinoObject* obj = it.First(); obj; obj = it.Next())
+        {
+            if (obj->Attributes().m_layer_index == layerIdx)
+                ++holders.deletedObjects;
+        }
+    }
+
+    // Child layers
+    for (int i = 0; i < pDoc->m_layer_table.LayerCount(); ++i)
+    {
+        const CRhinoLayer& other = pDoc->m_layer_table[i];
+        if (other.IsDeleted()) continue;
+        if (ON_UuidCompare(other.ParentLayerId(), layerId) == 0)
+        {
+            ON_wString childPath;
+            pDoc->m_layer_table.GetLayerPathName(i, childPath);
+            holders.childLayers.push_back(WideToUtf8(childPath));
+        }
+    }
+
+    // Block definitions with geometry on this layer
+    const CRhinoInstanceDefinitionTable& idefTable = pDoc->m_instance_definition_table;
+    for (int d = 0; d < idefTable.InstanceDefinitionCount(); ++d)
+    {
+        const CRhinoInstanceDefinition* idef = idefTable[d];
+        if (!idef || idef->IsDeleted()) continue;
+
+        ON_SimpleArray<const CRhinoObject*> objArray;
+        idef->GetObjects(objArray);
+
+        int objsOnLayer = 0;
+        for (int j = 0; j < objArray.Count(); ++j)
+        {
+            if (objArray[j] && objArray[j]->Attributes().m_layer_index == layerIdx)
+                ++objsOnLayer;
+        }
+
+        if (objsOnLayer > 0)
+        {
+            ON_SimpleArray<const CRhinoInstanceObject*> refs;
+            idef->GetReferences(refs);
+
+            nlohmann::json ref;
+            ref["blockName"] = WideToUtf8(idef->Name());
+            ref["objectsOnLayer"] = objsOnLayer;
+            ref["instanceCount"] = refs.Count();
+            holders.blockRefs.push_back(std::move(ref));
+        }
+    }
+
+    holders.isCurrent = (pDoc->m_layer_table.CurrentLayerIndex() == layerIdx);
+    return holders;
 }
 
 // Validate that a JSON value is exactly a 3-element [r,g,b] integer array
@@ -174,12 +374,10 @@ LayerMutationResult ApplyLayerPropertiesMutation(
 
     // ---- Resolution: target layer
     int idx = -1;
-    std::string targetFullPathBefore;
     try
     {
         const ResolvedLayerRef layerRef = ResolveLayerRef(pDoc, name, "name");
         idx = layerRef.index;
-        targetFullPathBefore = layerRef.fullPath;
     }
     catch (const std::exception&)
     {
@@ -282,8 +480,11 @@ LayerMutationResult ApplyLayerPropertiesMutation(
             }
         }
         const std::string targetFullPath = JoinLayerPath(parentPath, targetLeafName);
-        if (LayerExistsByFullPath(pDoc, targetFullPath) &&
-            targetFullPath != targetFullPathBefore)
+        // Rhino resolves layer paths case-insensitively, so a case-only rename
+        // ("mullions" -> "MULLIONS") finds the layer being renamed. Only a
+        // DIFFERENT layer at the target path is a collision.
+        const int existingIdx = FindLayerIndexByFullPath(pDoc, targetFullPath);
+        if (existingIdx >= 0 && existingIdx != idx)
         {
             return MakeLayerFailure("name_collision",
                 "Layer '" + targetFullPath + "' already exists");
@@ -849,46 +1050,40 @@ void HandleDeleteLayer(const httplib::Request& req, httplib::Response& res)
         if (layer.IsDeleted())
             throw std::invalid_argument("Layer '" + name + "' already deleted");
 
-        // Check for objects on layer
+        // Preflight with the same holder scan rhino_layer_dependencies reports,
+        // so the two agree and the refusal says what is holding the layer.
+        const LayerHolders holders = CollectLayerHolders(pDoc, layerIdx);
+
+        if (holders.objects > 0)
         {
-            int objCount = 0;
-            CRhinoObjectIterator it(*pDoc,
-                CRhinoObjectIterator::normal_or_locked_objects,
-                CRhinoObjectIterator::active_objects);
-            for (const CRhinoObject* obj = it.First(); obj; obj = it.Next())
-            {
-                if (obj->Attributes().m_layer_index == layerIdx)
-                    ++objCount;
-            }
-            if (objCount > 0)
-                throw std::invalid_argument("Cannot delete layer '" + name +
-                    "': layer contains " + std::to_string(objCount) + " objects");
+            std::string message = "Cannot delete layer '" + name +
+                "': layer contains " + holders.DescribeObjects();
+            if (holders.HasUnlistedObjects())
+                message += ". rhino_objects does not list hidden objects, lights, "
+                    "or objects on a turned-off layer, and rhino_delete cannot "
+                    "delete hidden objects; rhino_layer_dependencies reports them. "
+                    "rhino_layer_merge moves everything to another layer (hidden "
+                    "objects stay hidden) and then deletes this one";
+            throw std::invalid_argument(message);
         }
 
-        // Check if current layer
-        if (pDoc->m_layer_table.CurrentLayerIndex() == layerIdx)
+        if (holders.isCurrent)
             throw std::invalid_argument("Cannot delete layer '" + name +
                 "': it is the current layer");
 
-        // Check for child layers
-        {
-            ON_UUID layerId = layer.Id();
-            int childCount = 0;
-            for (int i = 0; i < pDoc->m_layer_table.LayerCount(); ++i)
-            {
-                const CRhinoLayer& other = pDoc->m_layer_table[i];
-                if (other.IsDeleted())
-                    continue;
-                if (ON_UuidCompare(other.ParentLayerId(), layerId) == 0)
-                    ++childCount;
-            }
-            if (childCount > 0)
-                throw std::invalid_argument("Cannot delete layer '" + name +
-                    "': layer has " + std::to_string(childCount) + " child layer(s)");
-        }
+        if (!holders.childLayers.empty())
+            throw std::invalid_argument("Cannot delete layer '" + name +
+                "': layer has " + std::to_string(holders.childLayers.size()) + " child layer(s)");
+
+        if (!holders.blockRefs.empty())
+            throw std::invalid_argument("Cannot delete layer '" + name + "': " +
+                holders.DescribeBlockers() +
+                ". Use rhino_block_set_layers to remap block geometry first");
 
         if (!pDoc->m_layer_table.DeleteLayer(layerIdx, true))
-            throw std::runtime_error("Failed to delete layer '" + name + "'");
+            throw std::runtime_error("Failed to delete layer '" + name +
+                "': Rhino refused the delete although no object, child layer or "
+                "block definition was found on it. Check rhino_layer_dependencies");
 
         WriteResult wr;
         wr.success = true;
@@ -1356,7 +1551,10 @@ void HandleLayerRename(const httplib::Request& req, httplib::Response& res)
             }
         }
         const std::string targetFullPath = JoinLayerPath(parentPath, newName);
-        if (LayerExistsByFullPath(pDoc, targetFullPath) && targetFullPath != layerRef.fullPath)
+        // Compare by layer index, not by path string: Rhino's lookup is
+        // case-insensitive, so a case-only rename resolves to this same layer.
+        const int existingIdx = FindLayerIndexByFullPath(pDoc, targetFullPath);
+        if (existingIdx >= 0 && existingIdx != idx)
             throw std::invalid_argument("Cannot rename: layer '" + targetFullPath + "' already exists");
 
         ON_Layer layerCopy = pDoc->m_layer_table[idx];
@@ -1537,16 +1735,25 @@ void HandleLayerMerge(const httplib::Request& req, httplib::Response& res)
         // Fail fast on first error to minimize partial state. The entire
         // operation is wrapped in UndoScope so Ctrl+Z reverts all changes
         // made before the throw.
+        //
+        // Iterate undeleted_objects plus lights, not the default
+        // normal_or_locked_objects: hidden objects, lights and objects on a
+        // source layer that is turned off also hold the layer, so leaving
+        // them behind makes DeleteLayer refuse after the visible objects have
+        // already moved. Hidden objects stay hidden; only their layer changes.
         int moved = 0;
+        int hiddenMoved = 0;
         {
             CRhinoObjectIterator it(*pDoc,
-                CRhinoObjectIterator::normal_or_locked_objects,
+                CRhinoObjectIterator::undeleted_objects,
                 CRhinoObjectIterator::active_objects);
+            it.IncludeLights(true);
             for (CRhinoObject* obj = const_cast<CRhinoObject*>(it.First());
                  obj; obj = const_cast<CRhinoObject*>(it.Next()))
             {
                 if (obj->Attributes().m_layer_index == srcRef.index)
                 {
+                    const bool wasHidden = (obj->Attributes().Mode() == ON::hidden_object);
                     CRhinoObjectAttributes attrs = obj->Attributes();
                     attrs.m_layer_index = tgtRef.index;
                     if (!pDoc->ModifyObjectAttributes(CRhinoObjRef(obj), attrs))
@@ -1556,13 +1763,23 @@ void HandleLayerMerge(const httplib::Request& req, httplib::Response& res)
                             "' (" + std::to_string(moved) + " moved before failure). "
                             "Use Ctrl+Z to undo partial changes.");
                     ++moved;
+                    if (wasHidden)
+                        ++hiddenMoved;
                 }
             }
         }
 
         // Delete the now-empty source layer
         if (!pDoc->m_layer_table.DeleteLayer(srcRef.index, true))
-            throw std::runtime_error("Objects moved but failed to delete source layer '" + source + "'");
+        {
+            const std::string blockers = CollectLayerHolders(pDoc, srcRef.index).DescribeBlockers();
+            throw std::runtime_error(
+                "Objects moved but failed to delete source layer '" + source + "': " +
+                (blockers.empty()
+                    ? std::string("Rhino refused the delete although nothing was found holding the layer")
+                    : blockers) +
+                ". Use Ctrl+Z to undo the move.");
+        }
 
         pDoc->Redraw();
 
@@ -1571,6 +1788,7 @@ void HandleLayerMerge(const httplib::Request& req, httplib::Response& res)
         wr.data["source"] = source;
         wr.data["target"] = target;
         wr.data["objectsMoved"] = moved;
+        wr.data["hiddenObjectsMoved"] = hiddenMoved;
         wr.data["sourceDeleted"] = true;
         return wr;
     });
@@ -1629,78 +1847,34 @@ void HandleLayerDependencies(const httplib::Request& req, httplib::Response& res
 
         const ResolvedLayerRef layerRef = ResolveLayerRef(pDoc, name, "name");
         const int layerIdx = layerRef.index;
-        const ON_UUID layerId = pDoc->m_layer_table[layerIdx].Id();
 
-        // Count direct objects
-        int directObjects = 0;
-        {
-            CRhinoObjectIterator it(*pDoc,
-                CRhinoObjectIterator::normal_or_locked_objects,
-                CRhinoObjectIterator::active_objects);
-            for (const CRhinoObject* obj = it.First(); obj; obj = it.Next())
-            {
-                if (obj->Attributes().m_layer_index == layerIdx)
-                    ++directObjects;
-            }
-        }
-
-        // Count child layers
-        nlohmann::json childLayers = nlohmann::json::array();
-        for (int i = 0; i < pDoc->m_layer_table.LayerCount(); ++i)
-        {
-            const CRhinoLayer& other = pDoc->m_layer_table[i];
-            if (other.IsDeleted()) continue;
-            if (ON_UuidCompare(other.ParentLayerId(), layerId) == 0)
-            {
-                ON_wString childPath;
-                pDoc->m_layer_table.GetLayerPathName(i, childPath);
-                childLayers.push_back(WideToUtf8(childPath));
-            }
-        }
-
-        // Scan block definitions for geometry on this layer
-        nlohmann::json blockRefs = nlohmann::json::array();
-        const CRhinoInstanceDefinitionTable& idefTable = pDoc->m_instance_definition_table;
-        for (int d = 0; d < idefTable.InstanceDefinitionCount(); ++d)
-        {
-            const CRhinoInstanceDefinition* idef = idefTable[d];
-            if (!idef || idef->IsDeleted()) continue;
-
-            ON_SimpleArray<const CRhinoObject*> objArray;
-            idef->GetObjects(objArray);
-
-            int objsOnLayer = 0;
-            for (int j = 0; j < objArray.Count(); ++j)
-            {
-                if (objArray[j] && objArray[j]->Attributes().m_layer_index == layerIdx)
-                    ++objsOnLayer;
-            }
-
-            if (objsOnLayer > 0)
-            {
-                ON_SimpleArray<const CRhinoInstanceObject*> refs;
-                idef->GetReferences(refs);
-
-                nlohmann::json ref;
-                ref["blockName"] = WideToUtf8(idef->Name());
-                ref["objectsOnLayer"] = objsOnLayer;
-                ref["instanceCount"] = refs.Count();
-                blockRefs.push_back(std::move(ref));
-            }
-        }
-
-        bool isCurrentLayer = (pDoc->m_layer_table.CurrentLayerIndex() == layerIdx);
-        bool canDelete = (directObjects == 0) && childLayers.empty() &&
-                         blockRefs.empty() && !isCurrentLayer;
+        // Same scan HandleDeleteLayer preflights with, so canDelete agrees
+        // with what delete will actually do.
+        const LayerHolders holders = CollectLayerHolders(pDoc, layerIdx);
 
         WriteResult wr;
         wr.success = true;
         wr.data["layer"] = name;
-        wr.data["directObjects"] = directObjects;
-        wr.data["childLayers"] = std::move(childLayers);
-        wr.data["blockReferences"] = std::move(blockRefs);
-        wr.data["isCurrentLayer"] = isCurrentLayer;
-        wr.data["canDelete"] = canDelete;
+        // Every undeleted object on the layer: hidden objects, lights and
+        // objects on a turned-off layer included.
+        wr.data["directObjects"] = holders.objects;
+        // Subset of directObjects in hidden mode. rhino_objects does not list
+        // these, so their ids are returned here (first kMaxHiddenIds).
+        wr.data["hiddenObjects"] = holders.hiddenObjects;
+        wr.data["hiddenObjectTypes"] = nlohmann::json(holders.hiddenTypes);
+        wr.data["hiddenObjectIds"] = holders.hiddenIds;
+        // Subset of directObjects that are lights (also not listed by rhino_objects).
+        wr.data["lightObjects"] = holders.lightObjects;
+        wr.data["layerVisible"] = holders.layerVisible;
+        // Objects in the deleted state that Rhino keeps for undo (deleted
+        // objects and earlier versions of edited ones). Informational: they
+        // do not block a delete and are not part of canDelete.
+        wr.data["deletedObjectsInUndo"] = holders.deletedObjects;
+        wr.data["childLayers"] = holders.childLayers;
+        wr.data["blockReferences"] = holders.blockRefs;
+        wr.data["isCurrentLayer"] = holders.isCurrent;
+        wr.data["canDelete"] = holders.CanDelete();
+        wr.data["blockers"] = holders.Blockers();
         return wr;
     });
 

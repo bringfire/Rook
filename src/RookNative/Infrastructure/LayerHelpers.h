@@ -36,6 +36,17 @@ void ValidateNewLayerName(const std::string& name);
 /// Join parent path and name with "::" separator.
 std::string JoinLayerPath(const std::string& parentPath, const std::string& name);
 
+/// Index of the non-deleted layer at fullPath, or -1 when there is none.
+/// Rhino compares layer names case-insensitively, so a path that differs from
+/// an existing layer only in case resolves to that layer. Callers checking a
+/// rename/reparent for collisions must compare this index with the layer being
+/// modified, not the path strings.
+int FindLayerIndexByFullPath(CRhinoDoc* pDoc, const std::string& fullPath);
+
+/// Indices of a layer and every non-deleted layer nested below it (children,
+/// grandchildren, ...). The first element is always layerIndex itself.
+std::vector<int> CollectLayerWithDescendants(CRhinoDoc* pDoc, int layerIndex);
+
 /// Check if a layer exists by full path (not deleted).
 bool LayerExistsByFullPath(CRhinoDoc* pDoc, const std::string& fullPath);
 
