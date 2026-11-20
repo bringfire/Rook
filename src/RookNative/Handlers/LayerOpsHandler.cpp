@@ -762,18 +762,11 @@ static nlohmann::json SerializeLayerAtIndex(CRhinoDoc* pDoc, int layerIndex)
     else
         snap.parentId = UuidToString(parentId);
 
-    // Object count: quick scan (acceptable for single-layer response)
-    snap.objectCount = 0;
-    {
-        CRhinoObjectIterator it(*pDoc,
-            CRhinoObjectIterator::normal_or_locked_objects,
-            CRhinoObjectIterator::active_objects);
-        for (const CRhinoObject* obj = it.First(); obj; obj = it.Next())
-        {
-            if (obj->Attributes().m_layer_index == layerIndex)
-                ++snap.objectCount;
-        }
-    }
+    // Object count: quick scan (acceptable for single-layer response).
+    // Same meaning as GET /layers: every undeleted object on the layer.
+    const ObjectCounts counts = CountObjects(pDoc, layerIndex);
+    snap.objectCount = counts.all;
+    snap.unlistedObjectCount = counts.Unlisted();
 
     return Serializer::SerializeLayer(snap);
 }
@@ -1615,24 +1608,39 @@ void HandleLayerMoveObjects(const httplib::Request& req, httplib::Response& res)
         if (srcRef.index == tgtRef.index)
             throw std::invalid_argument("Source and target are the same layer");
 
+        // "All objects" means every undeleted object on the source layer, as
+        // in HandleLayerMerge: iterate undeleted_objects plus lights, not the
+        // default normal_or_locked_objects. The default iterator skips hidden
+        // objects, lights and — when the source layer is turned off — every
+        // object on it, so the move used to report success and leave them
+        // behind. Hidden objects stay hidden; only their layer changes.
         int moved = 0;
-        CRhinoObjectIterator it(*pDoc,
-            CRhinoObjectIterator::normal_or_locked_objects,
-            CRhinoObjectIterator::active_objects);
-        for (CRhinoObject* obj = const_cast<CRhinoObject*>(it.First());
-             obj; obj = const_cast<CRhinoObject*>(it.Next()))
+        int hiddenMoved = 0;
         {
-            if (obj->Attributes().m_layer_index == srcRef.index)
+            CRhinoObjectIterator it(*pDoc,
+                CRhinoObjectIterator::undeleted_objects,
+                CRhinoObjectIterator::active_objects);
+            it.IncludeLights(true);
+            for (CRhinoObject* obj = const_cast<CRhinoObject*>(it.First());
+                 obj; obj = const_cast<CRhinoObject*>(it.Next()))
             {
-                CRhinoObjectAttributes attrs = obj->Attributes();
-                attrs.m_layer_index = tgtRef.index;
-                if (!pDoc->ModifyObjectAttributes(CRhinoObjRef(obj), attrs))
-                    throw std::runtime_error(
-                        "Failed to move object '" + UuidToString(obj->Attributes().m_uuid) +
-                        "' from '" + source + "' to '" + target +
-                        "' (" + std::to_string(moved) + " moved before failure). "
-                        "Use Ctrl+Z to undo partial changes.");
-                ++moved;
+                if (obj->Attributes().m_layer_index == srcRef.index)
+                {
+                    const bool wasHidden = (obj->Attributes().Mode() == ON::hidden_object);
+                    CRhinoObjectAttributes attrs = obj->Attributes();
+                    attrs.m_layer_index = tgtRef.index;
+                    // bQuiet = true: a refusal must come back as an error,
+                    // never as a message box that blocks Rhino's UI thread.
+                    if (!pDoc->ModifyObjectAttributes(CRhinoObjRef(obj), attrs, true))
+                        throw std::runtime_error(
+                            "Failed to move object '" + UuidToString(obj->Attributes().m_uuid) +
+                            "' from '" + source + "' to '" + target +
+                            "' (" + std::to_string(moved) + " moved before failure). "
+                            "Use Ctrl+Z to undo partial changes.");
+                    ++moved;
+                    if (wasHidden)
+                        ++hiddenMoved;
+                }
             }
         }
 
@@ -1643,6 +1651,7 @@ void HandleLayerMoveObjects(const httplib::Request& req, httplib::Response& res)
         wr.data["source"] = source;
         wr.data["target"] = target;
         wr.data["objectsMoved"] = moved;
+        wr.data["hiddenObjectsMoved"] = hiddenMoved;
         return wr;
     });
 

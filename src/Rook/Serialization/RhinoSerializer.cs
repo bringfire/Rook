@@ -24,8 +24,10 @@ namespace Rook.Serialization
 
             var geometry = obj.Geometry;
 
-            // Safely get layer name
+            // Safely get layer name and the layer's state
             string layerPath = "Default";
+            bool layerVisible = true;
+            bool layerLocked = false;
             try
             {
                 var doc = obj.Document;
@@ -38,6 +40,8 @@ namespace Rook.Serialization
                         if (layer != null)
                         {
                             layerPath = layer.FullPath ?? layer.Name ?? "Default";
+                            layerVisible = layer.IsVisible;
+                            layerLocked = layer.IsLocked;
                         }
                     }
                 }
@@ -54,6 +58,13 @@ namespace Rook.Serialization
                 ["layer"] = layerPath,
                 ["name"] = string.IsNullOrEmpty(obj.Attributes.Name) ? null : obj.Attributes.Name,
                 ["visible"] = obj.Visible,
+                // The object's own mode and its layer's state, as in the native
+                // object snapshot (RookNative CaptureObjectState). Routes that
+                // create through this companion return this dictionary as is,
+                // so it must carry the same fields a later listing will.
+                ["mode"] = ObjectModeName(obj.Attributes.Mode),
+                ["layerVisible"] = layerVisible,
+                ["layerLocked"] = layerLocked,
                 ["bbox"] = geometry != null ? SerializeBoundingBox(geometry.GetBoundingBox(true)) : null
             };
 
@@ -64,6 +75,22 @@ namespace Rook.Serialization
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// The object's own mode as the native snapshot names it. It says nothing
+        /// about the object's layer: an object on a turned-off or locked layer
+        /// keeps mode normal. Members of a block definition have their own mode.
+        /// </summary>
+        public static string ObjectModeName(ObjectMode mode)
+        {
+            switch (mode)
+            {
+                case ObjectMode.Locked: return "locked";
+                case ObjectMode.Hidden: return "hidden";
+                case ObjectMode.InstanceDefinitionObject: return "instanceDefinition";
+                default: return "normal";
+            }
         }
 
         /// <summary>

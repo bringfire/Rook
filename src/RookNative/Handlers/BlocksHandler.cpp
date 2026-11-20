@@ -3484,6 +3484,15 @@ void HandleBlockObjectsDetailed(const httplib::Request& req, httplib::Response& 
             }
 
             info["visible"] = obj->IsVisible();
+            {
+                // A definition member reports mode "instanceDefinition". Its
+                // layer's state is what a caller can act on: geometry on a
+                // turned-off layer is not drawn in the block's instances.
+                const ObjectState state = ReadObjectState(obj, pDoc);
+                info["mode"] = state.mode;
+                info["layerVisible"] = state.layerVisible;
+                info["layerLocked"] = state.layerLocked;
+            }
             if (attrs.MaterialSource() == ON::material_from_object && attrs.m_material_index >= 0 && attrs.m_material_index < pDoc->m_material_table.MaterialCount())
                 info["material"] = WideToUtf8(pDoc->m_material_table[attrs.m_material_index].Name());
 

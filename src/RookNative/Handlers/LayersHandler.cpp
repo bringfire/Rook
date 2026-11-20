@@ -52,15 +52,12 @@ void HandleLayers(const httplib::Request& req, httplib::Response& res)
         const int layerCount = pDoc->m_layer_table.LayerCount();
         result.layers.reserve(layerCount);
 
-        // Pre-count objects per layer in a single pass (O(N) objects).
-        std::unordered_map<int, int> objectsPerLayer;
-        {
-            CRhinoObjectIterator it(*pDoc,
-                CRhinoObjectIterator::normal_or_locked_objects,
-                CRhinoObjectIterator::active_objects);
-            for (const CRhinoObject* obj = it.First(); obj; obj = it.Next())
-                objectsPerLayer[obj->Attributes().m_layer_index]++;
-        }
+        // Pre-count objects per layer (O(N) objects). objectCount is every
+        // undeleted object on the layer — hidden objects, lights and objects
+        // on a turned-off layer included — so a layer that is turned off does
+        // not read as empty. unlistedObjectCount is the part of it that
+        // GET /objects leaves out unless includeUnlisted is passed.
+        const std::unordered_map<int, ObjectCounts> objectsPerLayer = CountObjectsByLayer(pDoc);
 
         for (int i = 0; i < layerCount; ++i)
         {
@@ -122,7 +119,11 @@ void HandleLayers(const httplib::Request& req, httplib::Response& res)
                 snap.parentId = UuidToString(parentId);
 
             auto countIt = objectsPerLayer.find(i);
-            snap.objectCount = (countIt != objectsPerLayer.end()) ? countIt->second : 0;
+            if (countIt != objectsPerLayer.end())
+            {
+                snap.objectCount = countIt->second.all;
+                snap.unlistedObjectCount = countIt->second.Unlisted();
+            }
 
             result.layers.push_back(std::move(snap));
         }

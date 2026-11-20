@@ -39,6 +39,11 @@ struct ObjectSnapshot {
     std::string layer;     // Full path: "Architecture::Walls"
     std::string name;      // May be empty
     bool visible = true;
+    // Why `visible` is what it is, and what the object will accept. Empty
+    // mode = not captured (the three fields are then left out of the JSON).
+    std::string mode;          // The object's own mode: "normal", "locked", "hidden" (or "instanceDefinition")
+    bool layerVisible = true;  // false when the object's layer is turned off
+    bool layerLocked = false;  // true when the object's layer is locked
     BBoxSnapshot bbox;
     std::optional<ColorSnapshot> color;  // Only set when ColorSource == FromObject
     std::string blockName;           // Non-empty only for InstanceReference (selection only)
@@ -177,6 +182,10 @@ struct GeometrySnapshot {
     std::string layer;
     std::string name;
     bool visible = true;
+    // Same three state fields as ObjectSnapshot (see ReadObjectState).
+    std::string mode;
+    bool layerVisible = true;
+    bool layerLocked = false;
     BBoxSnapshot bbox;
     std::optional<ColorSnapshot> color;
 
@@ -197,7 +206,8 @@ struct LayerSnapshot {
     bool visible = true;
     bool locked = false;
     std::string parentId;      // Empty → serialized as null
-    int objectCount = 0;
+    int objectCount = 0;           // Every undeleted object on the layer (see ObjectCounts)
+    int unlistedObjectCount = 0;   // Subset GET /objects leaves out unless includeUnlisted
 
     // Extended properties (Phase 2)
     ColorSnapshot plotColor;
@@ -218,7 +228,8 @@ struct DocumentSnapshot {
     std::string units;         // "Millimeters", "Meters", etc.
     double tolerance = 0.01;
     double angleTolerance = 1.0;  // Degrees
-    int objectCount = 0;
+    int objectCount = 0;           // Every undeleted object (see ObjectCounts)
+    int unlistedObjectCount = 0;   // Subset GET /objects leaves out unless includeUnlisted
     int layerCount = 0;
     std::string activeLayer;
     bool modified = false;

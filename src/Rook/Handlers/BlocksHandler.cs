@@ -4310,7 +4310,11 @@ namespace Rook.Handlers
                     ["color"] = new[] { obj.Attributes.ObjectColor.R, obj.Attributes.ObjectColor.G, obj.Attributes.ObjectColor.B },
                     ["colorSource"] = obj.Attributes.ColorSource.ToString(),
                     ["materialSource"] = obj.Attributes.MaterialSource.ToString(),
-                    ["visible"] = obj.Attributes.Visible
+                    ["visible"] = obj.Attributes.Visible,
+                    // Same three state fields as the native record.
+                    ["mode"] = Rook.Serialization.RhinoSerializer.ObjectModeName(obj.Attributes.Mode),
+                    ["layerVisible"] = doc.Layers[obj.Attributes.LayerIndex].IsVisible,
+                    ["layerLocked"] = doc.Layers[obj.Attributes.LayerIndex].IsLocked
                 };
 
                 // Material name if set

@@ -814,14 +814,14 @@ PHASE_4_TESTS = [
         id="select-008",
         tool="rhino_select_by_type",
         params={"type": "InvalidType"},
-        expected=ExpectedOutcome.SUCCESS,  # Returns 0 selected, doesn't fail
+        expected=ExpectedOutcome.FAILURE,  # invalid_input with acceptedTypes
         phase=TestPhase.PHASE_4_SELECT,
-        description="Select by invalid type (should succeed with 0 selected)",
+        description="Select by invalid type (rejected, selection untouched)",
         intent="select with invalid type",
         tags=["selection", "type", "edge-case"],
-        learn_on_success=(
-            "Invalid type in rhino_select_by_type doesn't error - it selects nothing. "
-            "Check selectedCount in response to verify objects were found."
+        learn_on_failure=(
+            "An unrecognized type in rhino_select_by_type is rejected with invalid_input "
+            "and the accepted type names in acceptedTypes; nothing is selected or cleared."
         ),
     ),
     TestCase(
