@@ -897,10 +897,10 @@ Assert.Contains(""required"", member);";
             Assert.Contains("CompareExchange(ref state, Running, Pending)", execute);
             Assert.Contains("CompareExchange(ref state, Abandoned, Pending)", tryAbandon);
             Assert.Contains("completion.TrySetCanceled();", tryAbandon);
-            Assert.Contains("var neverStarted = dispatch.Abandon();", dispatchWithTimeout);
-            Assert.Contains(
-                "throw new RevitDispatchTimeoutException(!neverStarted, timeout);",
-                dispatchWithTimeout);
+            // The queue has its own deadline; only work that was still queued is abandoned.
+            Assert.Contains("if (first < 0 && dispatch.Abandon())", dispatchWithTimeout);
+            Assert.Contains("throw new RevitDispatchTimeoutException(false, pickup);", dispatchWithTimeout);
+            Assert.Contains("throw new RevitDispatchTimeoutException(true, timeout);", dispatchWithTimeout);
             Assert.DoesNotContain("throw new TimeoutException(", dispatchWithTimeout);
             Assert.DoesNotContain("ExternalEvent", ExecutableCode(runtime));
         }
@@ -1167,7 +1167,7 @@ Assert.Contains(""required"", member);";
             var documentContext = ExtractExecutableMember(
                 runtime,
                 RuntimeType,
-                "private BimApiResponse ExecuteInDocumentContext(BimDiagnosticContext diagnostics, string operation, Func<UIDocument, Document, RevitDocumentIdentityEvidence, BimApiResponse> work, TimeSpan? timeout = null, BimTransactionCommitGate? transactionGate = null)");
+                "private BimApiResponse ExecuteInDocumentContext(BimDiagnosticContext diagnostics, string operation, Func<UIDocument, Document, RevitDocumentIdentityEvidence, BimApiResponse> work, TimeSpan? timeout = null, BimTransactionCall? transactionCall = null)");
 
             Assert.Equal(
                 RemoveWhitespace("private readonly RevitCategoryResolver categories;"),
@@ -1284,7 +1284,7 @@ Assert.Contains(""required"", member);";
             var documentContext = ExtractExecutableMember(
                 runtime,
                 RuntimeType,
-                "private BimApiResponse ExecuteInDocumentContext(BimDiagnosticContext diagnostics, string operation, Func<UIDocument, Document, RevitDocumentIdentityEvidence, BimApiResponse> work, TimeSpan? timeout = null, BimTransactionCommitGate? transactionGate = null)");
+                "private BimApiResponse ExecuteInDocumentContext(BimDiagnosticContext diagnostics, string operation, Func<UIDocument, Document, RevitDocumentIdentityEvidence, BimApiResponse> work, TimeSpan? timeout = null, BimTransactionCall? transactionCall = null)");
 
             Assert.Equal(
                 RemoveWhitespace("private readonly RevitQueryService query;"),
@@ -1718,7 +1718,7 @@ Assert.Contains(""required"", member);";
             var execute = ExtractExecutableMember(
                 runtime,
                 RuntimeType,
-                "private BimApiResponse ExecuteInDocumentContext(BimDiagnosticContext diagnostics, string operation, Func<UIDocument, Document, RevitDocumentIdentityEvidence, BimApiResponse> work, TimeSpan? timeout = null, BimTransactionCommitGate? transactionGate = null)");
+                "private BimApiResponse ExecuteInDocumentContext(BimDiagnosticContext diagnostics, string operation, Func<UIDocument, Document, RevitDocumentIdentityEvidence, BimApiResponse> work, TimeSpan? timeout = null, BimTransactionCall? transactionCall = null)");
             var select = ExtractExecutableMember(
                 selection,
                 "internal sealed class RevitSelectionService",
@@ -3109,7 +3109,7 @@ Assert.Contains(""required"", member);";
             var execute = ExtractExecutableMember(
                 runtime,
                 RuntimeType,
-                "private BimApiResponse ExecuteInDocumentContext(BimDiagnosticContext diagnostics, string operation, Func<UIDocument, Document, RevitDocumentIdentityEvidence, BimApiResponse> work, TimeSpan? timeout = null, BimTransactionCommitGate? transactionGate = null)");
+                "private BimApiResponse ExecuteInDocumentContext(BimDiagnosticContext diagnostics, string operation, Func<UIDocument, Document, RevitDocumentIdentityEvidence, BimApiResponse> work, TimeSpan? timeout = null, BimTransactionCall? transactionCall = null)");
             AssertSingleInvocationArguments(
                 execute,
                 "RevitDocumentIdentityResolver.Capture",

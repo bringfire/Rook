@@ -5,9 +5,13 @@ using System.Text.Json.Nodes;
 namespace Rook.Bim
 {
     /// <summary>
-    /// The payload the run-transaction Python wrapper writes after it ran the
-    /// caller's script. Host-neutral: parsing it needs no Revit types, so the
-    /// decision "commit or roll back" is testable without Revit.
+    /// How one script run ended, built from two independent observations:
+    /// what the host saw (its own call into the script engine returned, or
+    /// threw), and what the script wrapper reported through the host channel
+    /// (it reached its end, or caught an exception).
+    ///
+    /// A run counts as successful only when both agree. Host-neutral, so the
+    /// decision "may this be committed?" is unit-tested without Revit.
     /// </summary>
     public sealed class BimTransactionScriptResult
     {
@@ -21,20 +25,24 @@ namespace Rook.Bim
 
         public const int MaxErrorLength = 2000;
 
-        /// <summary>The only stage at which the wrapper may report success.</summary>
-        public const string DoneStage = "done";
+        // Well below the JSON reader's own nesting limit, with room for the
+        // envelopes the result is wrapped in on the way out.
+        public const int MaxResultDepth = 32;
 
         private BimTransactionScriptResult()
         {
         }
 
-        /// <summary>True only when the wrapper reported that the script ran to its end.</summary>
+        /// <summary>True only when the host saw the engine return AND the wrapper reported completion.</summary>
         public bool Success { get; private set; }
 
-        /// <summary>False when no usable payload was produced at all.</summary>
-        public bool PayloadPresent { get; private set; }
+        /// <summary>The host's own call into the script engine returned without throwing.</summary>
+        public bool HostObservedReturn { get; private set; }
 
-        /// <summary>Wrapper stage reached: bind, read, compile, run, result, done.</summary>
+        /// <summary>The script itself raised (as opposed to never running, or the engine failing).</summary>
+        public bool ScriptRaised { get; private set; }
+
+        /// <summary>Last stage the wrapper reported: none, bind, compile, run, result, done.</summary>
         public string Stage { get; private set; } = "none";
 
         public string Output { get; private set; } = string.Empty;
@@ -55,101 +63,105 @@ namespace Rook.Bim
         /// <summary>Why <see cref="Result"/> is null although the script set one.</summary>
         public string? ResultOmittedReason { get; private set; }
 
-        public static BimTransactionScriptResult Missing(string reason)
+        /// <summary>The script was never invoked (the engine could not be reached, for example).</summary>
+        public static BimTransactionScriptResult NotRun(string reason)
         {
             return new BimTransactionScriptResult
             {
-                Success = false,
-                PayloadPresent = false,
-                Error = reason
+                Error = TruncateTail(reason, MaxErrorLength)
             };
         }
 
-        public static BimTransactionScriptResult Parse(string? json)
+        public static BimTransactionScriptResult FromHostRun(
+            bool hostObservedReturn,
+            string? hostError,
+            bool scriptReportedCompletion,
+            string? stage,
+            string? scriptError,
+            string? scriptTraceback,
+            string? output,
+            bool outputTruncated,
+            string? stderr,
+            bool stderrTruncated,
+            string? resultJson,
+            string? resultOmittedReason)
         {
-            if (string.IsNullOrWhiteSpace(json))
-            {
-                return Missing("The script wrapper wrote an empty result payload.");
-            }
-
-            JsonNode? root;
-            try
-            {
-                root = JsonNode.Parse(json!);
-            }
-            catch (JsonException ex)
-            {
-                return Missing("The script wrapper wrote an unreadable result payload: " + ex.Message);
-            }
-
-            if (!(root is JsonObject payload))
-            {
-                return Missing("The script wrapper result payload was not a JSON object.");
-            }
-
             var result = new BimTransactionScriptResult
             {
-                PayloadPresent = true,
-                Stage = ReadString(payload, "stage") ?? "none",
-                Error = TruncateTail(ReadString(payload, "error"), MaxErrorLength),
-                Traceback = TruncateTail(ReadString(payload, "traceback"), MaxTracebackLength),
-                ResultOmittedReason = ReadString(payload, "resultOmittedReason")
+                HostObservedReturn = hostObservedReturn,
+                Stage = string.IsNullOrWhiteSpace(stage) ? "none" : stage!,
+                ScriptRaised = !string.IsNullOrWhiteSpace(scriptError),
+                ResultOmittedReason = resultOmittedReason
             };
 
-            // The wrapper bounds its streams while capturing them and says so;
-            // the limit is applied again here in case a payload did not.
-            result.Output = Truncate(ReadString(payload, "output"), out var outputTruncated);
-            result.OutputTruncated = outputTruncated || ReadTrue(payload, "outputTruncated");
-            result.Stderr = Truncate(ReadString(payload, "stderr"), out var stderrTruncated);
-            result.StderrTruncated = stderrTruncated || ReadTrue(payload, "stderrTruncated");
+            result.Output = Truncate(output, out var cutOutput);
+            result.OutputTruncated = cutOutput || outputTruncated;
+            result.Stderr = Truncate(stderr, out var cutStderr);
+            result.StderrTruncated = cutStderr || stderrTruncated;
 
-            // Success must be the literal JSON true AND the wrapper must have
-            // reached its last stage; anything else rolls back.
-            var reportedSuccess = ReadTrue(payload, "success");
-            result.Success = reportedSuccess &&
-                string.Equals(result.Stage, DoneStage, StringComparison.Ordinal);
-            if (!result.Success && result.Error.Length == 0)
+            result.Success = hostObservedReturn && scriptReportedCompletion && !result.ScriptRaised;
+            if (!result.Success)
             {
-                result.Error = reportedSuccess
-                    ? $"The script wrapper reported success without finishing (stage '{result.Stage}')."
-                    : "The script wrapper did not report success.";
-            }
-
-            if (payload.TryGetPropertyValue("result", out var value) && value != null)
-            {
-                var text = value.ToJsonString();
-                if (text.Length > MaxResultJsonLength)
+                if (result.ScriptRaised)
                 {
-                    result.ResultOmittedReason =
-                        $"result was {text.Length} characters of JSON; the limit is {MaxResultJsonLength}. " +
-                        "Return a smaller value (for example ids and counts).";
+                    result.Error = TruncateTail(scriptError, MaxErrorLength);
+                    result.Traceback = TruncateTail(
+                        string.IsNullOrWhiteSpace(scriptTraceback) ? hostError : scriptTraceback,
+                        MaxTracebackLength);
+                }
+                else if (!hostObservedReturn)
+                {
+                    result.Error = TruncateTail(
+                        string.IsNullOrWhiteSpace(hostError)
+                            ? "The script engine failed without a message."
+                            : hostError,
+                        MaxErrorLength);
+                    result.Traceback = TruncateTail(hostError, MaxTracebackLength);
                 }
                 else
                 {
-                    // Re-parse so the node has no parent and can be attached to a response.
-                    result.Result = JsonNode.Parse(text);
+                    result.Error =
+                        $"The script engine returned, but the script did not reach its end (stage '{result.Stage}').";
                 }
+
+                return result;
             }
 
+            result.ReadResult(resultJson);
             return result;
         }
 
-        private static string? ReadString(JsonObject payload, string name)
+        /// <summary>
+        /// The return value is optional detail: whatever is wrong with it, the
+        /// script still succeeded. It is omitted with a reason, never a failure.
+        /// </summary>
+        private void ReadResult(string? resultJson)
         {
-            if (!payload.TryGetPropertyValue(name, out var node) || !(node is JsonValue value))
+            if (string.IsNullOrWhiteSpace(resultJson))
             {
-                return null;
+                return;
             }
 
-            return value.TryGetValue<string>(out var text) ? text : null;
-        }
+            if (resultJson!.Length > MaxResultJsonLength)
+            {
+                ResultOmittedReason =
+                    $"result was {resultJson.Length} characters of JSON; the limit is {MaxResultJsonLength}. " +
+                    "Return a smaller value (for example ids and counts).";
+                return;
+            }
 
-        private static bool ReadTrue(JsonObject payload, string name)
-        {
-            return payload.TryGetPropertyValue(name, out var node) &&
-                node is JsonValue value &&
-                value.TryGetValue<bool>(out var flag) &&
-                flag;
+            try
+            {
+                Result = JsonNode.Parse(
+                    resultJson,
+                    documentOptions: new JsonDocumentOptions { MaxDepth = MaxResultDepth });
+            }
+            catch (JsonException ex)
+            {
+                ResultOmittedReason =
+                    "result could not be read back as JSON (" + ex.Message + "). Return a flatter, plain value: " +
+                    $"numbers, strings, lists and dicts nested at most {MaxResultDepth} deep.";
+            }
         }
 
         /// <summary>Keeps the end of a long text: the end of a traceback names the error.</summary>

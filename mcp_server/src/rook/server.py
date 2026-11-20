@@ -609,19 +609,41 @@ def _rookbim_run_transaction_schema() -> dict[str, Any]:
             },
             "documentKey": {
                 "type": "string",
+                "minLength": 1,
                 "maxLength": 300,
                 "description": (
                     "Recommended. The documentKey of the document you read, as returned "
                     "by rookbim_active_document (document.documentKey) or in any element "
-                    "identity. If a different document is active when the script is "
-                    "about to run, the call is refused with document_mismatch and "
-                    "nothing changes. Without it the script runs on whatever document is "
-                    "active at that moment."
+                    "identity. If a different document is active when the transaction is "
+                    "about to start, the call is refused with document_mismatch and "
+                    "nothing changes. Leave it out (do not send an empty string) only "
+                    "when the document has no documentKey, as an unsaved document does; "
+                    "the script then runs on whichever document is active."
                 ),
             },
             "port": _rookbim_port_schema(),
         },
         "required": ["name", "code"],
+        "additionalProperties": False,
+    }
+
+
+def _rookbim_transaction_receipt_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "transactionId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "description": (
+                    "The transaction.id from a rookbim_run_transaction answer. Leave it "
+                    "out to list the most recent receipts, newest first."
+                ),
+            },
+            "port": _rookbim_port_schema(),
+        },
+        "required": [],
         "additionalProperties": False,
     }
 
@@ -633,19 +655,27 @@ _ROOKBIM_RUN_TRANSACTION_DESCRIPTION = (
     "with rookbim_status.\n\n"
     "Runs your Python 3 `code` on Revit's API thread inside one transaction called "
     "`name` on the active document, waits for it, and answers in this same call. "
-    "If the script raises, or Revit rejects the commit, that transaction is rolled "
-    "back and the active document is unchanged. On success the whole change is one "
-    "entry called `name` in Revit's undo list. This tool cannot undo; the user "
-    "undoes it in Revit.\n\n"
+    "The transaction is committed only if the script runs to its end; if the "
+    "script raises, or Revit rejects the commit, it is rolled back and the active "
+    "document is unchanged. On success the whole change is one entry called `name` "
+    "in Revit's undo list. This tool cannot undo; the user undoes it in Revit.\n\n"
+    "Every answer says what happened to the transaction, in `transaction` "
+    "{id, name, status} and `documentChanged`. On success they are in data; on a "
+    "refusal they are in data.details. status is one of: committed "
+    "(documentChanged true or false); rolled_back or not_started (documentChanged "
+    "false: nothing changed, safe to correct and call again); open or unresolved "
+    "(documentChanged null: Revit had not confirmed the end when this call "
+    "answered; do not run the script again; call rookbim_transaction_receipt with "
+    "transaction.id to see how it ended).\n\n"
     "Names already bound in the script: doc (the active Autodesk.Revit.DB.Document), "
     "uidoc, uiapp, app, DB (the Autodesk.Revit.DB namespace), UI (Autodesk.Revit.UI). "
     "Example: `lvl = doc.GetElement(DB.ElementId(311)); lvl.Name = 'Level 02'; "
     "result = {'renamed': lvl.Id.Value}`. Lengths are Revit internal units (feet); "
     "convert with DB.UnitUtils.ConvertToInternalUnits. print() text comes back as "
-    "`output`. Assign a plain JSON value (numbers, strings, lists, dicts) to "
-    "`result` to get it back; return elements as ids, because a Revit object in "
-    "`result` is not converted: `result` comes back null with "
-    "`resultOmittedReason`.\n\n"
+    "`output`. Assign a plain JSON value (numbers, strings, lists, dicts with "
+    "string keys, nested at most 32 deep) to `result` to get it back; return "
+    "elements as ids. A `result` that is not plain JSON is not converted: it comes "
+    "back null with `resultOmittedReason`, and the script's changes still stand.\n\n"
     "Element ids repeat across documents. Pass `documentKey` (from "
     "rookbim_active_document) so the write is refused if the user has switched to "
     "another document since you read it.\n\n"
@@ -657,28 +687,54 @@ _ROOKBIM_RUN_TRANSACTION_DESCRIPTION = (
     "and starting another raises. DB.SubTransaction is allowed. Do not open dialogs "
     "or ask for input. Rook cannot stop a running script: one that never returns "
     "freezes Revit until the user ends it.\n\n"
-    "Returns transaction.status, changed, elements (added and modified: at most 100 "
-    "entries each, with counts and a truncated flag; pass an entry's `identity` to "
-    "rookbim_element_info or rookbim_select_elements; an entry whose identity could "
-    "not be read has `elementId` and `identityOmittedReason` instead; deleted: "
-    "former element ids), warnings (Revit warnings, dismissed instead of shown as "
-    "dialogs), output, stderr and result.\n\n"
-    "Refusals, by data.errorCode. Nothing ran and nothing changed: revit_not_idle "
-    "(an open dialog or active command in Revit; ask the user to close it, then "
-    "retry), document_mismatch (the active document is not `documentKey`), "
-    "document_not_modifiable (read-only document or another transaction already "
-    "open), no_active_document, invalid_request. Ran and was rolled back: "
-    "transaction_script_failed (the script raised; see data.details.traceback), "
-    "transaction_rolled_back (Revit refused the commit; see data.details.failures), "
-    "transaction_timeout (ran past timeoutSeconds or the wait ran out; never "
-    "committed; data.details.scriptStillRunning says whether Revit is still busy "
-    "with it). Outcome not known: transaction_outcome_unknown (Revit had not "
-    "finished the commit when the wait ended; do not run the script again; read "
-    "the model back first).\n\n"
+    "On success also returns changed, elements (added and modified: at most 100 "
+    "entries each, with counts and a truncated flag; use an entry as "
+    "rookbim_element_info {identity: entry.identity} or rookbim_select_elements "
+    "{identities: [entry.identity]}; an entry whose identity the read tools would "
+    "not accept has identity null with `elementId` and `identityOmittedReason`; "
+    "deleted: former element ids), warnings (Revit warnings, dismissed instead of "
+    "shown as dialogs), output, stderr and result. Anything left out for size is "
+    "named in `omitted` with the reason; the transaction status is never left "
+    "out.\n\n"
+    "Refusals, by data.errorCode. Nothing started (status not_started): "
+    "revit_not_idle (an open dialog or active command in Revit; ask the user to "
+    "close it, then retry), document_mismatch (the active document is not "
+    "`documentKey`), document_not_modifiable (read-only document or another "
+    "transaction already open), no_active_document, invalid_request. Rolled back "
+    "(status rolled_back): transaction_script_failed (the script raised; see "
+    "data.details.traceback), transaction_rolled_back (Revit refused the commit; "
+    "see data.details.failures), transaction_timeout (the script ran past "
+    "timeoutSeconds). Not finished when the call answered: transaction_timeout "
+    "with status open means the script is still running, will not be committed, "
+    "and is rolled back when it returns; transaction_outcome_unknown means Revit "
+    "had not confirmed the commit. For both, ask rookbim_transaction_receipt.\n\n"
     "Not for reading the model (use rookbim_query_elements, rookbim_element_info, "
     "rookbim_element_parameters) and not for Rhino geometry (use rhino_* tools). "
     "Do not use rhino_execute to change Revit: it runs outside Revit's API "
     "context, where starting a transaction fails."
+)
+
+_ROOKBIM_TRANSACTION_RECEIPT_DESCRIPTION = (
+    "Read how an earlier rookbim_run_transaction call ended. Use it when that "
+    "call answered with transaction.status open or unresolved, or when its answer "
+    "was lost."
+    + _ROOKBIM_READS_ONLY
+    + "\n\n"
+    "Answered from memory without waiting for Revit, so it works while Revit is "
+    "busy with the script or blocked by a dialog. Pass `transactionId` "
+    "(transaction.id from the run_transaction answer), or leave it out to list "
+    "the 10 most recent receipts, newest first.\n\n"
+    "Returns transaction {id, name, status, commitProhibited}, final (true once "
+    "the status can no longer change), documentChanged (true, false, or null "
+    "while not confirmed), document, errorCode and message. status: committed, "
+    "rolled_back, not_started, open (the script is still running; with "
+    "commitProhibited true it will be rolled back when it returns, so ask again "
+    "later), unresolved (Revit never confirmed the end: read the model back with "
+    "rookbim_query_elements or rookbim_element_parameters in that document before "
+    "any further write).\n\n"
+    "Receipts are kept for the last 64 write calls of this Revit session and do "
+    "not survive a restart of Revit. An unknown id is refused with "
+    "transaction_receipt_not_found; then read the model back instead."
 )
 
 
@@ -13525,6 +13581,11 @@ Returns the full profile JSON including features, surfaces, and elements.""",
             description=_ROOKBIM_RUN_TRANSACTION_DESCRIPTION,
             inputSchema=_rookbim_run_transaction_schema(),
         ),
+        Tool(
+            name="rookbim_transaction_receipt",
+            description=_ROOKBIM_TRANSACTION_RECEIPT_DESCRIPTION,
+            inputSchema=_rookbim_transaction_receipt_schema(),
+        ),
 
         # ─── Vision Video (PR-V4) ───────────────────────────────────────
         # Seven MCP tools wrapping the V2/V3 video routes plus the two
@@ -21381,6 +21442,11 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
         case "rookbim_run_transaction":
             result = await call_rhino(
                 "/bim/run-transaction", "POST", arguments, port=port
+            )
+
+        case "rookbim_transaction_receipt":
+            result = await call_rhino(
+                "/bim/transaction-receipt", "POST", arguments, port=port
             )
 
         case "rookbim_export_preset_to_rhino":

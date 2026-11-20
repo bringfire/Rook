@@ -40,7 +40,8 @@ namespace Rook.Bim
         TransactionScriptFailed,
         TransactionRolledBack,
         TransactionTimeout,
-        TransactionOutcomeUnknown
+        TransactionOutcomeUnknown,
+        TransactionReceiptNotFound
     }
 
     public enum BimDocumentGuidSource
@@ -812,9 +813,10 @@ namespace Rook.Bim
         /// </summary>
         public string? DocumentKey { get; set; }
 
+        /// <summary>True when the caller asked for the document guard.</summary>
         public bool HasDocumentKey
         {
-            get { return !string.IsNullOrWhiteSpace(DocumentKey); }
+            get { return DocumentKey != null; }
         }
 
         public int EffectiveTimeoutSeconds
@@ -868,6 +870,15 @@ namespace Rook.Bim
                     $"got {EffectiveTimeoutSeconds}.");
             }
 
+            if (DocumentKey != null && string.IsNullOrWhiteSpace(DocumentKey))
+            {
+                // A blank key must not quietly turn a guarded write into an
+                // unguarded one: only leaving the field out does that.
+                return Fail(
+                    "documentKey was given but is blank. Leave documentKey out to run on whichever document is " +
+                    "active, or pass the documentKey string exactly as rookbim_active_document returned it.");
+            }
+
             if (DocumentKey != null && DocumentKey.Length > MaxDocumentKeyLength)
             {
                 return Fail(
@@ -887,6 +898,15 @@ namespace Rook.Bim
                 Message = message
             };
         }
+    }
+
+    /// <summary>Request for <c>POST /bim/transaction-receipt</c>.</summary>
+    public sealed class BimTransactionReceiptRequest
+    {
+        public const int MaxRecent = 10;
+
+        /// <summary>The transaction.id a run-transaction response carried. Omit to list recent receipts.</summary>
+        public string? TransactionId { get; set; }
     }
 
     public sealed class BimPresetDefinition

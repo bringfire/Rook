@@ -1,9 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.IO;
 using System.Linq;
-using System.Text;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Events;
 using Autodesk.Revit.UI;
@@ -12,32 +9,36 @@ using Rook.Bim;
 namespace RookBim.Revit
 {
     /// <summary>
-    /// The only place in RookBIM that writes the Revit document. Runs one
-    /// caller-supplied Python script inside one named transaction, on Revit's
-    /// API thread, and commits only when the script ran to its end.
+    /// The only place in RookBIM that writes the Revit document, and the only
+    /// writer of a transaction receipt's status.
     ///
-    /// What it guarantees is the fate of that one transaction on the active
-    /// document. A script is trusted code with the whole Revit API: edits it
-    /// makes to another document, or work it schedules for later, are outside
-    /// this transaction and outside this guarantee.
+    /// It owns one transaction on the active document from the document check
+    /// to the confirmed end: it starts the transaction, runs the edit by
+    /// calling it and observing it return, commits or rolls back, and records
+    /// each thing Revit reports in the receipt the moment Revit reports it.
+    /// What the caller is told is then derived from that receipt in one place
+    /// (<see cref="BimTransactionReport"/>).
+    ///
+    /// What it guarantees is the fate of that one transaction. The edit is
+    /// trusted code with the whole Revit API: changes it makes to another
+    /// document, or work it schedules for later, are outside this transaction
+    /// and outside this guarantee.
     /// </summary>
     internal sealed class RevitTransactionService
     {
         internal const int MaxReportedElements = 100;
         internal const int MaxReportedFailures = 50;
         internal const int MaxFailureTextLength = 500;
-        internal const long MaxResultFileBytes = 2 * 1024 * 1024;
-        private const string WrapperResourceName = "RookBim.run_transaction_wrapper.py";
-        private readonly Func<string, bool> runRhinoScript;
+        private readonly Func<RevitScriptChannel, string?> runScript;
 
         public RevitTransactionService()
-            : this(RunRhinoScriptForActiveDocument)
+            : this(RevitPythonScriptRunner.Run)
         {
         }
 
-        internal RevitTransactionService(Func<string, bool> runRhinoScript)
+        internal RevitTransactionService(Func<RevitScriptChannel, string?> runScript)
         {
-            this.runRhinoScript = runRhinoScript ?? throw new ArgumentNullException(nameof(runRhinoScript));
+            this.runScript = runScript ?? throw new ArgumentNullException(nameof(runScript));
         }
 
         public BimApiResponse Run(
@@ -45,7 +46,7 @@ namespace RookBim.Revit
             Document document,
             RevitDocumentIdentityEvidence evidence,
             BimRunTransactionRequest request,
-            BimTransactionCommitGate gate)
+            BimTransactionCall call)
         {
             if (uiDocument == null)
             {
@@ -62,78 +63,77 @@ namespace RookBim.Revit
                 throw new ArgumentNullException(nameof(request));
             }
 
-            if (gate == null)
+            if (call == null)
             {
-                throw new ArgumentNullException(nameof(gate));
+                throw new ArgumentNullException(nameof(call));
             }
 
-            gate.MarkPickedUp();
+            var receipt = call.Receipt;
+            var gate = call.Gate;
+            var name = request.EffectiveName;
 
             if (evidence == null || !RevitDocumentIdentityResolver.IsSameDocument(document, evidence.Owner))
             {
-                return BimApiResponse.Fail(
+                receipt.Refuse(
                     BimErrorCode.DocumentIdentityInvalid,
-                    "Transaction document does not match the captured identity evidence.",
-                    400);
+                    "Transaction document does not match the captured identity evidence.");
+                return BimTransactionReport.Build(receipt.Snapshot());
             }
 
-            var name = request.EffectiveName;
             var activeDocument = RevitDocumentIdentityResolver.ProjectDocument(evidence);
+            receipt.SetDocument(activeDocument);
+
             if (request.HasDocumentKey &&
                 !string.Equals(request.DocumentKey, activeDocument.DocumentKey, StringComparison.Ordinal))
             {
                 // The caller read one document; a different one is active now.
                 // Element ids repeat across documents, so writing here would
                 // change the wrong model without any error.
-                var mismatch = BimApiResponse.Fail(
+                receipt.Refuse(
                     BimErrorCode.DocumentMismatch,
-                    $"The active Revit document is not the one this write was prepared for, so transaction '{name}' " +
-                    "was not started and nothing changed. " +
+                    "The active Revit document is not the one this write was prepared for. " +
                     $"Expected documentKey '{request.DocumentKey}'; the active document is '{activeDocument.Title}' " +
                     $"with documentKey '{activeDocument.DocumentKey ?? "unavailable"}'. " +
                     "Ask the user to switch back to the intended document, or read the elements again in the " +
-                    "active document and call again with its documentKey.",
-                    409);
-                mismatch.Data = new
-                {
-                    transaction = new { name = name, status = "not_started" },
-                    documentChanged = false,
-                    expectedDocumentKey = request.DocumentKey,
-                    document = activeDocument
-                };
-                return mismatch;
+                    "active document and call again with its documentKey.");
+                return BimTransactionReport.Build(
+                    receipt.Snapshot(),
+                    new Dictionary<string, object?> { ["expectedDocumentKey"] = request.DocumentKey });
             }
 
             if (document.IsReadOnly)
             {
-                return Refuse(
+                receipt.Refuse(
                     BimErrorCode.DocumentNotModifiable,
-                    $"The active Revit document is read-only, so transaction '{name}' was not started and nothing changed. " +
-                    "Open an editable copy of the model in Revit, then retry.",
-                    name);
+                    "The active Revit document is read-only. Open an editable copy of the model in Revit, then retry.");
+                return BimTransactionReport.Build(receipt.Snapshot());
             }
 
             if (document.IsModifiable)
             {
-                return Refuse(
+                receipt.Refuse(
                     BimErrorCode.DocumentNotModifiable,
-                    $"Another transaction is already open in the active Revit document, so transaction '{name}' was not started and nothing changed. " +
-                    "An active command or edit mode in Revit is the likely cause: finish or cancel it in Revit, then retry.",
-                    name);
+                    "Another transaction is already open in the active Revit document. An active command or edit " +
+                    "mode in Revit is the likely cause: finish or cancel it in Revit, then retry.");
+                return BimTransactionReport.Build(receipt.Snapshot());
+            }
+
+            if (gate.CommitProhibited)
+            {
+                receipt.Refuse(
+                    BimErrorCode.TransactionTimeout,
+                    "The caller stopped waiting before the transaction was started.");
+                return BimTransactionReport.Build(receipt.Snapshot());
             }
 
             var changes = new ChangeCollector(document);
             var failures = new CollectingFailuresPreprocessor();
             var application = uiDocument.Application.Application;
             var subscribed = false;
-            ScriptFiles? files = null;
+            BimTransactionScriptResult? script = null;
             Transaction? transaction = null;
             try
             {
-                files = ScriptFiles.Create();
-                File.WriteAllText(files.Code, request.Code ?? string.Empty, new UTF8Encoding(false));
-                File.WriteAllText(files.Wrapper, BuildWrapper(files), new UTF8Encoding(false));
-
                 application.DocumentChanged += changes.OnDocumentChanged;
                 subscribed = true;
 
@@ -147,21 +147,23 @@ namespace RookBim.Revit
                 {
                     // Revit refuses to start: read-only command context,
                     // changes temporarily disabled, or failure mode.
-                    return Refuse(
+                    receipt.Refuse(
                         BimErrorCode.DocumentNotModifiable,
-                        $"Revit refused to start transaction '{name}', so nothing changed: {ex.Message} " +
-                        "Finish or cancel any active command in Revit, then retry.",
-                        name);
+                        $"Revit refused to start the transaction: {ex.Message} " +
+                        "Finish or cancel any active command in Revit, then retry.");
+                    return BimTransactionReport.Build(receipt.Snapshot());
                 }
 
                 if (started != TransactionStatus.Started)
                 {
-                    return Refuse(
+                    receipt.Refuse(
                         BimErrorCode.DocumentNotModifiable,
-                        $"Revit did not start transaction '{name}' (status {started}); nothing changed. " +
-                        "Finish or cancel any active command in Revit, then retry.",
-                        name);
+                        $"Revit did not start the transaction (status {started}). " +
+                        "Finish or cancel any active command in Revit, then retry.");
+                    return BimTransactionReport.Build(receipt.Snapshot());
                 }
+
+                receipt.MarkOpen();
 
                 // Start() resets failure handling to its defaults, so the
                 // options must be applied after it, never before.
@@ -176,22 +178,24 @@ namespace RookBim.Revit
 
                 if (!gate.TryEnterScript())
                 {
-                    var settled = Settle(transaction);
-                    return Fail(
+                    receipt.ProhibitCommit(
                         BimErrorCode.TransactionTimeout,
-                        "The caller stopped waiting before the script could start, so the script was not run. " +
-                        $"Transaction '{name}' was " + SettledClause(settled),
-                        504,
-                        name,
-                        settled,
-                        null,
-                        failures);
+                        "The caller stopped waiting before the script could start, so the script was not run.");
+                    receipt.Settle(Settle(transaction));
+                    return BimTransactionReport.Build(receipt.Snapshot());
                 }
 
-                var script = RunScript(files);
+                script = RunScript(uiDocument, document, request);
+                gate.MarkScriptReturned();
                 if (!script.Success)
                 {
-                    return ScriptFailure(name, script, Settle(transaction));
+                    receipt.ProhibitCommit(
+                        BimErrorCode.TransactionScriptFailed,
+                        script.ScriptRaised
+                            ? "The script raised " + script.Error + "."
+                            : "The script did not run to its end: " + script.Error);
+                    receipt.Settle(Settle(transaction));
+                    return BimTransactionReport.Build(receipt.Snapshot(), Details(script, failures, gate));
                 }
 
                 if (!gate.TryBeginCommit())
@@ -199,91 +203,64 @@ namespace RookBim.Revit
                     // Either the caller was already told nothing would be
                     // committed, or the script ran past its budget. Both end
                     // the same way: no commit.
-                    var settled = Settle(transaction);
-                    var cause = gate.ScriptRanOverBudget
-                        ? $"The script ran for {Seconds(gate.ScriptDuration)} s, longer than timeoutSeconds " +
-                          $"({Seconds(gate.ScriptTimeout)}), so it was not committed."
-                        : "The script finished after the caller stopped waiting, so it was not committed.";
-                    return Fail(
+                    receipt.ProhibitCommit(
                         BimErrorCode.TransactionTimeout,
-                        $"{cause} Transaction '{name}' was " + SettledClause(settled) +
-                        " Retry with a faster script or a larger timeoutSeconds.",
-                        504,
-                        name,
-                        settled,
-                        script,
-                        failures);
+                        gate.ScriptRanOverBudget
+                            ? $"The script ran for {Seconds(gate.ScriptDuration)} s, longer than timeoutSeconds " +
+                              $"({Seconds(gate.ScriptTimeout)}), so it was not committed."
+                            : "The script finished after the caller stopped waiting, so it was not committed.");
+                    receipt.Settle(Settle(transaction));
+                    return BimTransactionReport.Build(receipt.Snapshot(), Details(script, failures, gate));
                 }
 
                 var committed = transaction.Commit();
-                if (committed == TransactionStatus.Committed)
-                {
-                    return Committed(name, document, evidence, changes, failures, script, activeDocument);
-                }
-
                 if (committed == TransactionStatus.RolledBack)
                 {
-                    var reasons = failures.Errors.Count > 0
-                        ? " Revit reported: " + string.Join(" | ", failures.Errors)
-                        : string.Empty;
-                    return Fail(
+                    receipt.ProhibitCommit(
                         BimErrorCode.TransactionRolledBack,
-                        $"The script ran, but Revit refused to commit transaction '{name}' and rolled it back; " +
-                        "the Revit document is unchanged." + reasons +
-                        " Change the script so the model stays valid, then call again.",
-                        409,
-                        name,
-                        "rolled_back",
-                        script,
-                        failures);
+                        "The script ran, but Revit refused to commit the transaction" +
+                        (failures.Errors.Count > 0
+                            ? ". Revit reported: " + string.Join(" | ", failures.Errors)
+                            : string.Empty) + ".");
                 }
 
-                // Pending (Revit is still resolving failures and will finish
-                // the commit or the rollback later) or any other status: the
-                // outcome is not known here, and saying "rolled back" would
-                // invite a duplicate edit.
-                return Fail(
-                    BimErrorCode.TransactionOutcomeUnknown,
-                    $"Revit has not finished committing transaction '{name}' (status {committed}). It may still be " +
-                    "committed or rolled back, for example after the user answers a Revit dialog. Do not run the " +
-                    "script again. Call rookbim_status until Revit is idle, then read the model back " +
-                    "(rookbim_query_elements or rookbim_element_parameters) to see whether the change is there.",
-                    409,
-                    name,
-                    StatusName(committed),
-                    script,
-                    failures);
+                // Recorded the moment Revit answers, before anything that
+                // could fail or take time: from here on the receipt, not this
+                // method, is the answer to "was it committed?".
+                receipt.Settle(StatusOf(committed));
+
+                var details = Details(script, failures, gate);
+                if (committed == TransactionStatus.Committed)
+                {
+                    AddCommittedDetails(details, changes, document, evidence);
+                }
+
+                return BimTransactionReport.Build(
+                    receipt.Snapshot(),
+                    details,
+                    committed == TransactionStatus.Committed ? changes.Total > 0 : (bool?)null);
             }
             catch (Exception ex)
             {
-                var settled = Settle(transaction);
-                if (settled == "committed")
+                if (receipt.Snapshot().Status == BimTransactionStatus.Committed)
                 {
-                    // The commit already happened; saying "rolled back" or
-                    // "unknown" here would invite a second, duplicate run.
-                    var committedResponse = BimApiResponse.Fail(
-                        BimErrorCode.InternalError,
-                        $"Transaction '{name}' was committed, but RookBIM failed while reporting it: " +
-                        $"{ex.GetType().Name}: {ex.Message}. The change is in the Revit document and its undo list. " +
-                        "Do not run the script again; read the model back with rookbim_query_elements to see the result.",
-                        500);
-                    committedResponse.Data = new
-                    {
-                        transaction = new { name = name, status = "committed" },
-                        documentChanged = true
-                    };
-                    return committedResponse;
+                    // The commit already happened and is on record; only the
+                    // optional reporting failed.
+                    var details = script == null
+                        ? new Dictionary<string, object?>()
+                        : Details(script, failures, gate);
+                    details["elementsOmittedReason"] =
+                        $"Reporting failed after the commit ({ex.GetType().Name}: {ex.Message}).";
+                    return BimTransactionReport.Build(receipt.Snapshot(), details);
                 }
 
-                return Fail(
+                receipt.ProhibitCommit(
                     BimErrorCode.InternalError,
-                    $"RookBIM failed while running transaction '{name}': {ex.GetType().Name}: {ex.Message}. The transaction was " +
-                    SettledClause(settled),
-                    500,
-                    name,
-                    settled,
-                    null,
-                    failures);
+                    $"RookBIM failed while running the transaction: {ex.GetType().Name}: {ex.Message}.");
+                receipt.Settle(Settle(transaction));
+                return BimTransactionReport.Build(
+                    receipt.Snapshot(),
+                    script == null ? null : Details(script, failures, gate));
             }
             finally
             {
@@ -298,104 +275,73 @@ namespace RookBim.Revit
                     }
                 }
 
-                Settle(transaction);
-                try
+                // Whatever path led here, a transaction this call started is
+                // not left open, and the receipt records where it ended.
+                if (transaction != null)
                 {
-                    transaction?.Dispose();
-                }
-                catch
-                {
-                }
-
-                files?.Delete();
-            }
-        }
-
-        private static bool RunRhinoScriptForActiveDocument(string command)
-        {
-            // The document-serial-number overload is the one POST /execute
-            // uses from the native plug-in, where it runs the script to its
-            // end before returning.
-            var rhinoDocument = Rhino.RhinoDoc.ActiveDoc;
-            return rhinoDocument != null
-                ? Rhino.RhinoApp.RunScript(rhinoDocument.RuntimeSerialNumber, command, false)
-                : Rhino.RhinoApp.RunScript(command, false);
-        }
-
-        private BimTransactionScriptResult RunScript(ScriptFiles files)
-        {
-            // Same engine as POST /execute: Rhino's RunPythonScript command.
-            // The difference is the caller: this runs inside Revit's API
-            // context with a transaction already open.
-            var accepted = runRhinoScript("_-RunPythonScript \"" + files.Wrapper + "\"");
-            if (!accepted)
-            {
-                // Never read a payload for a command Rhino did not accept.
-                return BimTransactionScriptResult.Missing(
-                    "Rhino refused to start the script command. A Rhino command is probably " +
-                    "still running; finish or cancel it in the Rhino window, then retry.");
-            }
-
-            var result = new FileInfo(files.Result);
-            if (!result.Exists)
-            {
-                return BimTransactionScriptResult.Missing(
-                    "Rhino accepted the script command but the script had not reported a result when the " +
-                    "command returned. It may have asked for interactive input, which a transaction script " +
-                    "must not do, or Rhino did not run it to its end.");
-            }
-
-            if (result.Length > MaxResultFileBytes)
-            {
-                return BimTransactionScriptResult.Missing(
-                    $"The script result payload was {result.Length} bytes; the limit is {MaxResultFileBytes}.");
-            }
-
-            return BimTransactionScriptResult.Parse(File.ReadAllText(files.Result, Encoding.UTF8));
-        }
-
-        private static string BuildWrapper(ScriptFiles files)
-        {
-            return "#! python 3\n" +
-                "ROOK_CODE_PATH = '" + EscapePythonString(files.Code) + "'\n" +
-                "ROOK_RESULT_PATH = '" + EscapePythonString(files.Result) + "'\n" +
-                ReadWrapperBody();
-        }
-
-        private static string ReadWrapperBody()
-        {
-            using (var stream = typeof(RevitTransactionService).Assembly
-                .GetManifestResourceStream(WrapperResourceName))
-            {
-                if (stream == null)
-                {
-                    throw new InvalidOperationException(
-                        "RookBim.dll is missing its embedded resource " + WrapperResourceName + ".");
-                }
-
-                using (var reader = new StreamReader(stream, Encoding.UTF8))
-                {
-                    return reader.ReadToEnd();
+                    receipt.Settle(Settle(transaction));
+                    try
+                    {
+                        transaction.Dispose();
+                    }
+                    catch
+                    {
+                    }
                 }
             }
         }
 
-        private static string EscapePythonString(string value)
+        private BimTransactionScriptResult RunScript(
+            UIDocument uiDocument,
+            Document document,
+            BimRunTransactionRequest request)
         {
-            return value.Replace("\\", "\\\\").Replace("'", "\\'");
+            var uiApplication = uiDocument.Application;
+            var channel = new RevitScriptChannel(
+                request.Code ?? string.Empty,
+                document,
+                uiDocument,
+                uiApplication,
+                uiApplication.Application);
+
+            // The host calls the script engine itself and is here again only
+            // when that call has returned or thrown.
+            string? hostError;
+            try
+            {
+                hostError = runScript(channel);
+            }
+            catch (Exception ex)
+            {
+                hostError = ex.GetType().Name + ": " + ex.Message;
+            }
+
+            return BimTransactionScriptResult.FromHostRun(
+                hostObservedReturn: hostError == null,
+                hostError: hostError,
+                scriptReportedCompletion: channel.Completed,
+                stage: channel.Stage,
+                scriptError: channel.ScriptError,
+                scriptTraceback: channel.ScriptTraceback,
+                output: channel.Output,
+                outputTruncated: channel.OutputTruncated,
+                stderr: channel.Stderr,
+                stderrTruncated: channel.StderrTruncated,
+                resultJson: channel.ResultJson,
+                resultOmittedReason: channel.ResultOmittedReason);
         }
 
         /// <summary>
-        /// Brings the transaction to rest and names where it ended:
-        /// not_started, rolled_back, committed, pending or unknown. A started
-        /// transaction is rolled back; one Revit is still finalizing (pending)
-        /// is left alone, because it cannot be rolled back from here.
+        /// Brings the Revit transaction to rest and returns where it ended, as
+        /// Revit reports it. A started transaction is rolled back; one Revit
+        /// is still finalizing cannot be rolled back from here and is reported
+        /// as unresolved, never as rolled back.
         /// </summary>
-        private static string Settle(Transaction? transaction)
+        private static BimTransactionStatus Settle(Transaction? transaction)
         {
             if (transaction == null)
             {
-                return "not_started";
+                return BimTransactionStatus.NotStarted;
             }
 
             try
@@ -406,57 +352,29 @@ namespace RookBim.Revit
                     status = transaction.RollBack();
                 }
 
-                return StatusName(status);
+                return StatusOf(status);
             }
             catch
             {
-                return "unknown";
+                return BimTransactionStatus.Unresolved;
             }
         }
 
-        private static string StatusName(TransactionStatus status)
+        private static BimTransactionStatus StatusOf(TransactionStatus status)
         {
             switch (status)
             {
                 case TransactionStatus.Uninitialized:
-                    return "not_started";
+                    return BimTransactionStatus.NotStarted;
+                case TransactionStatus.Started:
+                    return BimTransactionStatus.Open;
                 case TransactionStatus.RolledBack:
-                    return "rolled_back";
+                    return BimTransactionStatus.RolledBack;
                 case TransactionStatus.Committed:
-                    return "committed";
-                case TransactionStatus.Pending:
-                    return "pending";
+                    return BimTransactionStatus.Committed;
                 default:
-                    return "unknown";
-            }
-        }
-
-        private static string SettledClause(string settled)
-        {
-            switch (settled)
-            {
-                case "rolled_back":
-                    return "rolled back; the Revit document is unchanged.";
-                case "not_started":
-                    return "never started; the Revit document is unchanged.";
-                default:
-                    return $"not confirmed rolled back (status {settled}); check the Revit undo list and read the " +
-                        "model back before continuing.";
-            }
-        }
-
-        private static bool? DocumentChangedFor(string settled)
-        {
-            switch (settled)
-            {
-                case "rolled_back":
-                case "not_started":
-                    return false;
-                case "committed":
-                    return true;
-                default:
-                    // null means RookBIM could not confirm either way.
-                    return null;
+                    // Pending, Error, Proceed: Revit has not given a final answer.
+                    return BimTransactionStatus.Unresolved;
             }
         }
 
@@ -467,170 +385,50 @@ namespace RookBim.Revit
                 : "an unknown number of";
         }
 
-        private static BimApiResponse Committed(
-            string name,
-            Document document,
-            RevitDocumentIdentityEvidence evidence,
-            ChangeCollector changes,
-            CollectingFailuresPreprocessor failures,
+        private static Dictionary<string, object?> Details(
             BimTransactionScriptResult script,
-            BimDocumentIdentity activeDocument)
+            CollectingFailuresPreprocessor failures,
+            BimTransactionCommitGate gate)
         {
-            // Everything below runs after the commit and is optional detail.
-            // It must never be able to turn the committed status into an error.
-            object elements;
-            string? elementsOmittedReason = null;
+            return new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                // Whether the script itself raised, or never ran to its end
+                // for another reason (engine unavailable, for example).
+                ["scriptRaised"] = script.ScriptRaised,
+                ["stage"] = script.Stage,
+                ["error"] = script.Success ? null : script.Error,
+                ["traceback"] = script.Success ? null : script.Traceback,
+                ["scriptSeconds"] = gate.ScriptDuration?.TotalSeconds,
+                ["output"] = script.Output,
+                ["outputTruncated"] = script.OutputTruncated,
+                ["stderr"] = script.Stderr,
+                ["stderrTruncated"] = script.StderrTruncated,
+                ["result"] = script.Result,
+                ["resultOmittedReason"] = script.ResultOmittedReason,
+                ["warnings"] = failures.Warnings,
+                ["warningsOmitted"] = failures.WarningsOmitted,
+                ["failures"] = failures.Errors,
+                ["failuresOmitted"] = failures.ErrorsOmitted,
+            };
+        }
+
+        /// <summary>Optional detail, gathered after the commit is on record. It cannot fail the response.</summary>
+        private static void AddCommittedDetails(
+            Dictionary<string, object?> details,
+            ChangeCollector changes,
+            Document document,
+            RevitDocumentIdentityEvidence evidence)
+        {
+            details["changed"] = changes.Total > 0;
             try
             {
-                elements = changes.Describe(document, evidence);
+                details["elements"] = changes.Describe(document, evidence);
             }
             catch (Exception ex)
             {
-                elements = changes.CountsOnly();
-                elementsOmittedReason =
+                details["elements"] = changes.CountsOnly();
+                details["elementsOmittedReason"] =
                     $"The changed elements could not be listed ({ex.GetType().Name}: {ex.Message}); only counts are given.";
-            }
-
-            return BimApiResponse.Ok(new
-            {
-                transaction = new
-                {
-                    name = name,
-                    status = "committed"
-                },
-                changed = changes.Total > 0,
-                elements = elements,
-                elementsOmittedReason = elementsOmittedReason,
-                warnings = failures.Warnings,
-                warningsTruncated = failures.WarningsTruncated,
-                output = script.Output,
-                outputTruncated = script.OutputTruncated,
-                stderr = script.Stderr,
-                stderrTruncated = script.StderrTruncated,
-                result = script.Result,
-                resultOmittedReason = script.ResultOmittedReason,
-                document = activeDocument
-            });
-        }
-
-        private static BimApiResponse ScriptFailure(
-            string name,
-            BimTransactionScriptResult script,
-            string settled)
-        {
-            var cause = script.PayloadPresent
-                ? "The script raised " + script.Error + "."
-                : script.Error;
-            return Fail(
-                BimErrorCode.TransactionScriptFailed,
-                $"{cause} Transaction '{name}' was " + SettledClause(settled) +
-                (script.PayloadPresent ? " Fix the script (see details.traceback) and call again." : string.Empty),
-                422,
-                name,
-                settled,
-                script,
-                null);
-        }
-
-        /// <summary>A refusal issued before any transaction existed.</summary>
-        private static BimApiResponse Refuse(
-            BimErrorCode code,
-            string message,
-            string name)
-        {
-            var response = BimApiResponse.Fail(code, message, 409);
-            response.Data = new
-            {
-                transaction = new
-                {
-                    name = name,
-                    status = "not_started"
-                },
-                documentChanged = false
-            };
-            return response;
-        }
-
-        private static BimApiResponse Fail(
-            BimErrorCode code,
-            string message,
-            int httpStatus,
-            string name,
-            string settled,
-            BimTransactionScriptResult? script,
-            CollectingFailuresPreprocessor? failures)
-        {
-            var response = BimApiResponse.Fail(code, message, httpStatus);
-            response.Data = new
-            {
-                transaction = new
-                {
-                    name = name,
-                    status = settled
-                },
-                documentChanged = DocumentChangedFor(settled),
-                stage = script?.Stage,
-                error = script?.Error,
-                traceback = script?.Traceback,
-                output = script?.Output,
-                outputTruncated = script?.OutputTruncated,
-                stderr = script?.Stderr,
-                stderrTruncated = script?.StderrTruncated,
-                failures = failures?.Errors ?? new List<string>(),
-                warnings = failures?.Warnings ?? new List<string>()
-            };
-            return response;
-        }
-
-        private sealed class ScriptFiles
-        {
-            private ScriptFiles(string code, string wrapper, string result)
-            {
-                Code = code;
-                Wrapper = wrapper;
-                Result = result;
-            }
-
-            public string Code { get; }
-
-            public string Wrapper { get; }
-
-            public string Result { get; }
-
-            public static ScriptFiles Create()
-            {
-                var directory = Path.Combine(Path.GetTempPath(), "rook");
-                Directory.CreateDirectory(directory);
-                // A fresh GUID per call: a result file left behind by an
-                // earlier call (or an earlier process with the same id) can
-                // never be read as this call's payload.
-                var stem = Path.Combine(
-                    directory,
-                    "bimtx_" + Process.GetCurrentProcess().Id + "_" + Guid.NewGuid().ToString("N"));
-                var files = new ScriptFiles(
-                    stem + "_code.py",
-                    stem + "_wrapper.py",
-                    stem + "_result.json");
-                if (File.Exists(files.Result))
-                {
-                    File.Delete(files.Result);
-                }
-
-                return files;
-            }
-
-            public void Delete()
-            {
-                foreach (var path in new[] { Code, Wrapper, Result })
-                {
-                    try
-                    {
-                        File.Delete(path);
-                    }
-                    catch
-                    {
-                    }
-                }
             }
         }
 
@@ -713,11 +511,26 @@ namespace RookBim.Revit
                             continue;
                         }
 
+                        var identity = RevitDocumentIdentityResolver.ProjectElement(evidence, element);
+                        // Only hand back an identity the read tools will accept:
+                        // the same preflight they apply to their input.
+                        var usable = RevitDocumentIdentityResolver.PreflightBatch(
+                            evidence,
+                            new BimElementIdentity?[] { identity },
+                            BimDiagnosticContext.Disabled);
+                        if (!usable.Success)
+                        {
+                            described.Add(Undescribed(
+                                id,
+                                "The read tools would refuse this identity: " +
+                                (usable.Message ?? usable.ErrorCode.ToString()) +
+                                " (an unsaved document has no stable document identity)."));
+                            continue;
+                        }
+
                         described.Add(new
                         {
-                            // The identity envelope rookbim_element_info and
-                            // rookbim_select_elements take as input.
-                            identity = RevitDocumentIdentityResolver.ProjectElement(evidence, element),
+                            identity = identity,
                             name = SafeRead(() => element.Name),
                             category = SafeRead(() => element.Category?.Name),
                             className = element.GetType().Name
@@ -766,7 +579,10 @@ namespace RookBim.Revit
 
             public List<string> Errors { get; } = new List<string>();
 
-            public bool WarningsTruncated { get; private set; }
+            /// <summary>How many warnings were dismissed but not listed.</summary>
+            public int WarningsOmitted { get; private set; }
+
+            public int ErrorsOmitted { get; private set; }
 
             public FailureProcessingResult PreprocessFailures(FailuresAccessor failuresAccessor)
             {
@@ -782,7 +598,7 @@ namespace RookBim.Revit
                         }
                         else
                         {
-                            WarningsTruncated = true;
+                            WarningsOmitted++;
                         }
 
                         failuresAccessor.DeleteWarning(failure);
@@ -792,6 +608,10 @@ namespace RookBim.Revit
                         if (Errors.Count < MaxReportedFailures)
                         {
                             Errors.Add(text);
+                        }
+                        else
+                        {
+                            ErrorsOmitted++;
                         }
 
                         hasError = true;

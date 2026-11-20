@@ -129,15 +129,70 @@ namespace Rook.Tests.Bim
         }
 
         [Fact]
-        public void PickedUp_CompletesOnlyWhenTheHostThreadSaysSo()
+        public void ScriptEntered_SignalsTheWaiterAtTheInstantTheBudgetStarts()
         {
             var gate = Gate(60, new ManualClock());
-            Assert.False(gate.PickedUp.IsCompleted);
+            Assert.False(gate.ScriptEntered.IsCompleted);
 
-            gate.MarkPickedUp();
-            gate.MarkPickedUp();
+            Assert.True(gate.TryEnterScript());
 
-            Assert.True(gate.PickedUp.Wait(TimeSpan.FromSeconds(5)));
+            Assert.True(gate.ScriptEntered.Wait(TimeSpan.FromSeconds(5)));
+        }
+
+        [Fact]
+        public void ScriptEntered_NeverSignalsForAScriptThatWasCancelledBeforeEntry()
+        {
+            var gate = Gate(60, new ManualClock());
+            gate.Cancel();
+
+            Assert.False(gate.TryEnterScript());
+
+            Assert.False(gate.ScriptEntered.IsCompleted);
+        }
+
+        [Fact]
+        public void TimeSpentAfterTheScriptReturnedDoesNotCountAgainstItsBudget()
+        {
+            var clock = new ManualClock();
+            var gate = Gate(5, clock);
+            Assert.True(gate.TryEnterScript());
+            clock.Now += TimeSpan.FromSeconds(1);
+            gate.MarkScriptReturned();
+
+            // Reading the result, however slow, is the host's time.
+            clock.Now += TimeSpan.FromSeconds(30);
+
+            Assert.True(gate.TryBeginCommit());
+            Assert.Equal(TimeSpan.FromSeconds(1), gate.ScriptDuration);
+        }
+
+        [Fact]
+        public void CommitProhibited_IsTrueExactlyWhenACommitCanNoLongerHappen()
+        {
+            var clock = new ManualClock();
+
+            var waiting = Gate(60, clock);
+            Assert.False(waiting.CommitProhibited);
+
+            var cancelledEarly = Gate(60, clock);
+            cancelledEarly.Cancel();
+            Assert.True(cancelledEarly.CommitProhibited);
+
+            var cancelledLate = Gate(60, clock);
+            cancelledLate.TryEnterScript();
+            cancelledLate.Cancel();
+            Assert.True(cancelledLate.CommitProhibited);
+
+            var overBudget = Gate(1, clock);
+            overBudget.TryEnterScript();
+            clock.Now += TimeSpan.FromSeconds(2);
+            overBudget.TryBeginCommit();
+            Assert.True(overBudget.CommitProhibited);
+
+            var committing = Gate(60, clock);
+            committing.TryEnterScript();
+            committing.TryBeginCommit();
+            Assert.False(committing.CommitProhibited);
         }
 
         [Fact]

@@ -59,7 +59,7 @@ namespace RookBim.Revit
                 item.TrySetException(ex);
             }
 
-            return new RevitApiDispatch<T>(item.Task, item.TryAbandon);
+            return new RevitApiDispatch<T>(item.Task, item.TryAbandon, item.Started);
         }
 
         private static void EnqueueIdlingAction(Action action)
@@ -146,13 +146,21 @@ namespace RookBim.Revit
         {
             private readonly Func<bool> abandon;
 
-            public RevitApiDispatch(Task<T> task, Func<bool> abandon)
+            public RevitApiDispatch(Task<T> task, Func<bool> abandon, Task started)
             {
                 Task = task ?? throw new ArgumentNullException(nameof(task));
                 this.abandon = abandon ?? throw new ArgumentNullException(nameof(abandon));
+                Started = started ?? throw new ArgumentNullException(nameof(started));
             }
 
             public Task<T> Task { get; }
+
+            /// <summary>
+            /// Completes when Revit's idle queue has picked the work up. Lets a
+            /// waiter give the queue its own short deadline, separate from how
+            /// long the work itself may take.
+            /// </summary>
+            public Task Started { get; }
 
             public bool Abandon()
             {
@@ -171,7 +179,14 @@ namespace RookBim.Revit
             private readonly Func<UIApplication, T> work;
             private readonly TaskCompletionSource<T> completion =
                 new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+            private readonly TaskCompletionSource<bool> started =
+                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             private int state = Pending;
+
+            public Task Started
+            {
+                get { return started.Task; }
+            }
 
             public RevitApiWorkItem(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)
             {
@@ -191,6 +206,7 @@ namespace RookBim.Revit
                     return;
                 }
 
+                started.TrySetResult(true);
                 BimDiagnostics.Observe(
                     diagnostics,
                     BimDiagnosticStage.RevitDispatchExecute,

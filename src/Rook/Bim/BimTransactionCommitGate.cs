@@ -13,12 +13,16 @@ namespace Rook.Bim
         /// <summary>The script had not been entered; it will never run.</summary>
         BeforeScript,
 
-        /// <summary>The script is running; its transaction will be rolled back when it returns.</summary>
+        /// <summary>The script was entered; its transaction will not be committed.</summary>
         DuringScript
     }
 
     /// <summary>
-    /// Decides, exactly once, whether a run-transaction call may commit.
+    /// Decides, exactly once, whether a run-transaction call may enter its
+    /// script and may commit. It answers "is a commit still permitted?" and
+    /// nothing else: what actually happened to the transaction is recorded
+    /// by the host thread in <see cref="BimTransactionReceipt"/>.
+    ///
     /// Two threads use it: the request thread, which stops waiting after a
     /// timeout, and the host API thread, which runs the script and commits.
     ///
@@ -40,11 +44,11 @@ namespace Rook.Bim
         private const int OverBudget = 5;
 
         private readonly Func<TimeSpan> clock;
-        private readonly TaskCompletionSource<bool> pickedUp =
+        private readonly TaskCompletionSource<bool> scriptEntered =
             new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         private int state = Waiting;
         private long scriptEnteredTicks = -1;
-        private long scriptEndedTicks = -1;
+        private long scriptReturnedTicks = -1;
 
         public BimTransactionCommitGate(TimeSpan scriptTimeout)
             : this(scriptTimeout, MonotonicClock())
@@ -64,10 +68,14 @@ namespace Rook.Bim
 
         public TimeSpan ScriptTimeout { get; }
 
-        /// <summary>Completes when the host API thread has picked the work up.</summary>
-        public Task PickedUp
+        /// <summary>
+        /// Completes when the host thread claimed the script, immediately
+        /// before invoking it. The waiting thread measures the script budget
+        /// from this signal, the same instant the host thread measures from.
+        /// </summary>
+        public Task ScriptEntered
         {
-            get { return pickedUp.Task; }
+            get { return scriptEntered.Task; }
         }
 
         /// <summary>True when the host thread refused the commit because the script ran over budget.</summary>
@@ -76,28 +84,38 @@ namespace Rook.Bim
             get { return Volatile.Read(ref state) == OverBudget; }
         }
 
-        /// <summary>How long the script ran, once it has returned; null before that.</summary>
+        /// <summary>
+        /// True once a commit can no longer happen: the caller cancelled, or
+        /// the script ran over budget. False while a commit is still possible
+        /// or already under way.
+        /// </summary>
+        public bool CommitProhibited
+        {
+            get
+            {
+                var current = Volatile.Read(ref state);
+                return current == CancelledBeforeScript ||
+                    current == CancelledDuringScript ||
+                    current == OverBudget;
+            }
+        }
+
+        /// <summary>How long the script ran, once the host saw it return; null before that.</summary>
         public TimeSpan? ScriptDuration
         {
             get
             {
                 var entered = Interlocked.Read(ref scriptEnteredTicks);
-                var ended = Interlocked.Read(ref scriptEndedTicks);
-                return entered < 0 || ended < 0
+                var returned = Interlocked.Read(ref scriptReturnedTicks);
+                return entered < 0 || returned < 0
                     ? (TimeSpan?)null
-                    : TimeSpan.FromTicks(ended - entered);
+                    : TimeSpan.FromTicks(returned - entered);
             }
         }
 
-        /// <summary>Host thread: the work was dequeued and is being prepared.</summary>
-        public void MarkPickedUp()
-        {
-            pickedUp.TrySetResult(true);
-        }
-
         /// <summary>
-        /// Host thread, immediately before running the script. False means the
-        /// caller already stopped waiting: the script must not be run.
+        /// Host thread, immediately before invoking the script. False means
+        /// the caller already stopped waiting: the script must not be run.
         /// The script budget is measured from this call.
         /// </summary>
         public bool TryEnterScript()
@@ -108,25 +126,35 @@ namespace Rook.Bim
             }
 
             Interlocked.Exchange(ref scriptEnteredTicks, clock().Ticks);
+            scriptEntered.TrySetResult(true);
             return true;
         }
 
         /// <summary>
-        /// Host thread, after the script returned and immediately before
-        /// committing. False means the transaction must be rolled back:
-        /// the caller cancelled, or the script ran over its budget.
+        /// Host thread, the moment the script invocation returned (whether it
+        /// succeeded or raised), so that reading its result does not count
+        /// against the script's budget.
+        /// </summary>
+        public void MarkScriptReturned()
+        {
+            Interlocked.CompareExchange(ref scriptReturnedTicks, clock().Ticks, -1);
+        }
+
+        /// <summary>
+        /// Host thread, immediately before committing. False means the
+        /// transaction must be rolled back: the caller cancelled, or the
+        /// script ran over its budget.
         /// </summary>
         public bool TryBeginCommit()
         {
-            var now = clock().Ticks;
-            Interlocked.Exchange(ref scriptEndedTicks, now);
+            MarkScriptReturned();
             var entered = Interlocked.Read(ref scriptEnteredTicks);
             if (entered < 0)
             {
                 return false;
             }
 
-            if (now - entered > ScriptTimeout.Ticks)
+            if (Interlocked.Read(ref scriptReturnedTicks) - entered > ScriptTimeout.Ticks)
             {
                 // Enforced here, not only by the waiting thread: that thread
                 // may not have been scheduled yet when the script returns late.

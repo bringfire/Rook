@@ -17,6 +17,7 @@ namespace Rook.Tests.Handlers
         [InlineData("Post", "/bim/clear-selection", "HandleBimClearSelection", "clear_selection")]
         [InlineData("Post", "/bim/export-elements", "HandleBimExportElements", "export_elements")]
         [InlineData("Post", "/bim/run-transaction", "HandleBimRunTransaction", "run_transaction")]
+        [InlineData("Post", "/bim/transaction-receipt", "HandleBimTransactionReceipt", "transaction_receipt")]
         public void RookServer_RegistersBimRoutesWithCanonicalOps(
             string method,
             string route,
@@ -56,6 +57,35 @@ namespace Rook.Tests.Handlers
             Assert.Contains("res.set_header(\"X-Rook-Bim-Op\", op);", helper);
             Assert.Contains("400,", helper);
             Assert.Contains("\"invalid_scope\"", helper);
+        }
+
+        [Theory]
+        [InlineData("HandleBimRunTransaction", "run_transaction")]
+        [InlineData("HandleBimTransactionReceipt", "transaction_receipt")]
+        public void RookServer_TransactionRoutesRefuseAMalformedBodyAsInvalidRequest(string handlerName, string op)
+        {
+            var source = ReadSourceFile("src", "RookNative", "Handlers", "GrasshopperProxyHandler.cpp");
+            var handler = ExtractFunction(source, handlerName);
+            var parse = ExtractFunction(source, "ParseBimPostBody");
+
+            // These routes have no scope argument; the code for a malformed
+            // body must match what the managed handler uses for their fields.
+            Assert.Contains($"ParseBimPostBody(req, res, \"{op}\", body, \"invalid_request\")", handler);
+            Assert.Contains("const char* malformedBodyCode = \"invalid_scope\"", parse);
+            Assert.Equal(2, CountOccurrences(parse, "malformedBodyCode,"));
+        }
+
+        private static int CountOccurrences(string source, string value)
+        {
+            var count = 0;
+            var index = 0;
+            while ((index = source.IndexOf(value, index, StringComparison.Ordinal)) >= 0)
+            {
+                count++;
+                index += value.Length;
+            }
+
+            return count;
         }
 
         [Fact]

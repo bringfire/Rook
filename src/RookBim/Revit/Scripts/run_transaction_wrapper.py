@@ -1,14 +1,15 @@
-# RookBIM run-transaction wrapper (body).
+# RookBIM run-transaction wrapper.
 #
-# RevitTransactionService prepends a generated header to this file:
-#     #! python 3
-#     ROOK_CODE_PATH = '<file holding the caller's script>'
-#     ROOK_RESULT_PATH = '<file this wrapper writes its JSON payload to>'
-# and runs the result with Rhino's RunPythonScript while a Revit transaction is
-# already open on the active document. This wrapper never starts, commits or
-# rolls back a transaction: it runs the caller's script, captures what it
-# printed, and reports success or the exception. The C# side decides commit or
-# rollback from that payload alone, and only accepts success at stage "done".
+# RevitPythonScriptRunner runs this text in Rhino's Python 3 engine by calling
+# the engine directly, with one input: __rook__, a RevitScriptChannel created
+# by the host. A Revit transaction is already open on the active document.
+#
+# This wrapper never starts, commits or rolls back a transaction. It runs the
+# caller's script, forwards what it prints to the host as it is printed, and
+# tells the host how it ended. The host decides commit or rollback from two
+# things together: its own engine call returned without raising, and this
+# wrapper called __rook__.Complete. An exception is re-raised so that the
+# host sees it as well.
 #
 # Names bound for the caller's script:
 #     doc    Autodesk.Revit.DB.Document         the active document
@@ -17,151 +18,159 @@
 #     app    Autodesk.Revit.ApplicationServices.Application
 #     DB     the Autodesk.Revit.DB namespace
 #     UI     the Autodesk.Revit.UI namespace
-#     result None; assign a JSON value (numbers, strings, lists, dicts) to
-#            return it to the caller
+#     result None; assign a plain JSON value (numbers, strings, lists, dicts
+#            with string keys) to return it to the caller
 import io
 import json
-import os
+import linecache
+import math
 import traceback
 from contextlib import redirect_stderr, redirect_stdout
 
-# Keep in step with BimTransactionScriptResult (MaxStreamLength,
-# MaxResultJsonLength, MaxTracebackLength, MaxErrorLength).
-_ROOK_STREAM_LIMIT = 20000
-_ROOK_RESULT_LIMIT = 50000
-_ROOK_TRACEBACK_LIMIT = 20000
-_ROOK_ERROR_LIMIT = 2000
+_ROOK_SCRIPT_NAME = "<rookbim_run_transaction>"
 
 
-class _RookBoundedText(io.TextIOBase):
-    """Text sink that stops storing at a limit, so a script that prints a
-    huge report cannot grow memory inside the Revit process."""
+class _RookStream(io.TextIOBase):
+    """Forwards text to a host method as it is written. The host keeps a
+    bounded amount, so nothing accumulates on the Python side."""
 
-    def __init__(self, limit):
+    def __init__(self, forward):
         super().__init__()
-        self._limit = limit
-        self._parts = []
-        self._size = 0
-        self.truncated = False
+        self._forward = forward
 
     def writable(self):
         return True
 
     def write(self, text):
         text = str(text)
-        room = self._limit - self._size
-        if room > 0:
-            kept = text[:room]
-            self._parts.append(kept)
-            self._size += len(kept)
-        if len(text) > max(room, 0):
-            self.truncated = True
+        if text:
+            self._forward(text)
         return len(text)
 
-    def getvalue(self):
-        return "".join(self._parts)
+
+def _rook_check_result(value, max_depth, budget):
+    """Refuses a result the caller could not get back intact, before any of
+    it is encoded: wrong types, non-string keys (JSON would merge 1 and "1"),
+    NaN, nesting too deep, or simply too much. Returns nothing; raises
+    ValueError with the reason."""
+    remaining = [budget]
+
+    def spend(amount):
+        remaining[0] -= amount
+        if remaining[0] < 0:
+            raise ValueError(
+                "result is larger than "
+                + str(budget)
+                + " characters; return a smaller value, for example ids and counts"
+            )
+
+    def walk(item, depth):
+        if depth > max_depth:
+            raise ValueError("result is nested more than " + str(max_depth) + " levels deep")
+        if item is None or isinstance(item, bool):
+            spend(5)
+        elif isinstance(item, int):
+            spend(len(str(item)))
+        elif isinstance(item, float):
+            if not math.isfinite(item):
+                raise ValueError("result contains NaN or infinity, which JSON cannot carry")
+            spend(24)
+        elif isinstance(item, str):
+            spend(len(item) + 2)
+        elif isinstance(item, (list, tuple)):
+            spend(2)
+            for child in item:
+                walk(child, depth + 1)
+        elif isinstance(item, dict):
+            spend(2)
+            for key, child in item.items():
+                if not isinstance(key, str):
+                    raise ValueError(
+                        "result has a dict key of type "
+                        + type(key).__name__
+                        + "; use string keys"
+                    )
+                spend(len(key) + 3)
+                walk(child, depth + 1)
+        else:
+            raise ValueError(
+                "result contains a "
+                + type(item).__name__
+                + ", which is not a plain JSON value; return Revit elements as their ids, "
+                + "for example element.Id.Value"
+            )
+
+    walk(value, 1)
 
 
-_rook_payload = {
-    "success": False,
-    "stage": "bind",
-    "output": "",
-    "outputTruncated": False,
-    "stderr": "",
-    "stderrTruncated": False,
-    "error": "",
-    "traceback": "",
-    "result": None,
-    "resultOmittedReason": None,
-}
-_rook_stdout = _RookBoundedText(_ROOK_STREAM_LIMIT)
-_rook_stderr = _RookBoundedText(_ROOK_STREAM_LIMIT)
-
+__rook__.SetStage("bind")
 try:
-    import clr
-
-    # The assemblies are already loaded in the Revit process; AddReference is
-    # best effort and an import failure below reports the real problem.
-    for _rook_assembly in ("RevitAPI", "RevitAPIUI", "RhinoInside.Revit"):
-        try:
-            clr.AddReference(_rook_assembly)
-        except Exception:
-            pass
-
-    import Autodesk.Revit.DB as _rook_db
-    import Autodesk.Revit.UI as _rook_ui
-    from RhinoInside.Revit import Revit as _rook_revit
-
-    _rook_uiapp = _rook_revit.ActiveUIApplication
     _rook_globals = {
         "__name__": "__main__",
-        "__file__": ROOK_CODE_PATH,
-        "DB": _rook_db,
-        "UI": _rook_ui,
-        "uiapp": _rook_uiapp,
-        "app": _rook_uiapp.Application,
-        "uidoc": _rook_revit.ActiveUIDocument,
-        "doc": _rook_revit.ActiveDBDocument,
+        "doc": __rook__.Document,
+        "uidoc": __rook__.UIDocument,
+        "uiapp": __rook__.UIApplication,
+        "app": __rook__.Application,
         "result": None,
     }
+    if __rook__.BindRevitNamespaces:
+        import Autodesk.Revit.DB as _rook_db
+        import Autodesk.Revit.UI as _rook_ui
 
-    _rook_payload["stage"] = "read"
-    with open(ROOK_CODE_PATH, "r", encoding="utf-8") as _rook_code_file:
-        _rook_code = _rook_code_file.read()
+        _rook_globals["DB"] = _rook_db
+        _rook_globals["UI"] = _rook_ui
 
-    _rook_payload["stage"] = "compile"
-    _rook_compiled = compile(_rook_code, ROOK_CODE_PATH, "exec")
+    __rook__.SetStage("compile")
+    _rook_code = __rook__.Code
+    # Lets a traceback show the caller's own source lines.
+    linecache.cache[_ROOK_SCRIPT_NAME] = (
+        len(_rook_code),
+        None,
+        _rook_code.splitlines(True),
+        _ROOK_SCRIPT_NAME,
+    )
+    _rook_compiled = compile(_rook_code, _ROOK_SCRIPT_NAME, "exec")
 
-    _rook_payload["stage"] = "run"
-    with redirect_stdout(_rook_stdout), redirect_stderr(_rook_stderr):
+    __rook__.SetStage("run")
+    with redirect_stdout(_RookStream(__rook__.WriteOutput)), redirect_stderr(
+        _RookStream(__rook__.WriteError)
+    ):
         exec(_rook_compiled, _rook_globals, _rook_globals)
 
-    _rook_payload["stage"] = "result"
+    __rook__.SetStage("result")
     _rook_value = _rook_globals.get("result")
+    _rook_json = None
+    _rook_omitted = None
     if _rook_value is not None:
         # A result that cannot be returned must not undo a script that ran
         # correctly, and must not be silently replaced by something else:
         # it is omitted and the reason is given.
         try:
-            # Strict: no str() fallback for Revit objects, no NaN.
-            _rook_text = json.dumps(_rook_value, allow_nan=False)
-            if len(_rook_text) > _ROOK_RESULT_LIMIT:
-                _rook_payload["resultOmittedReason"] = (
-                    "result was "
-                    + str(len(_rook_text))
+            _rook_check_result(_rook_value, __rook__.MaxResultDepth, __rook__.MaxResultLength)
+            _rook_json = json.dumps(_rook_value, allow_nan=False)
+            if len(_rook_json) > __rook__.MaxResultLength:
+                raise ValueError(
+                    "result is "
+                    + str(len(_rook_json))
                     + " characters of JSON; the limit is "
-                    + str(_ROOK_RESULT_LIMIT)
-                    + ". Return a smaller value, for example ids and counts."
+                    + str(__rook__.MaxResultLength)
                 )
-            else:
-                _rook_payload["result"] = json.loads(_rook_text)
         except Exception as _rook_result_err:
-            _rook_payload["resultOmittedReason"] = (
-                "result could not be converted to JSON ("
-                + type(_rook_result_err).__name__
-                + ": "
+            _rook_json = None
+            _rook_omitted = (
+                "result was not returned: "
                 + str(_rook_result_err)[:300]
-                + "). Assign plain numbers, strings, lists and dicts; "
-                + "return Revit elements as their ids, for example element.Id.Value."
+                + ". The script's changes are not affected."
             )
 
-    _rook_payload["success"] = True
-    _rook_payload["stage"] = "done"
+    __rook__.SetStage("done")
+    __rook__.Complete(_rook_json, _rook_omitted)
 except BaseException as _rook_err:
-    _rook_payload["success"] = False
-    _rook_payload["error"] = (type(_rook_err).__name__ + ": " + str(_rook_err))[:_ROOK_ERROR_LIMIT]
-    _rook_payload["traceback"] = traceback.format_exc()[-_ROOK_TRACEBACK_LIMIT:]
+    __rook__.Fail(
+        (type(_rook_err).__name__ + ": " + str(_rook_err))[: __rook__.MaxErrorLength],
+        # limit=-30 formats only the innermost frames, where the error is.
+        traceback.format_exc(limit=-30)[-__rook__.MaxTracebackLength :],
+    )
+    raise
 finally:
-    _rook_payload["output"] = _rook_stdout.getvalue()
-    _rook_payload["outputTruncated"] = _rook_stdout.truncated
-    _rook_payload["stderr"] = _rook_stderr.getvalue()
-    _rook_payload["stderrTruncated"] = _rook_stderr.truncated
-    try:
-        _rook_dir = os.path.dirname(ROOK_RESULT_PATH)
-        if _rook_dir:
-            os.makedirs(_rook_dir, exist_ok=True)
-        with open(ROOK_RESULT_PATH, "w", encoding="utf-8") as _rook_result_file:
-            json.dump(_rook_payload, _rook_result_file)
-    except Exception:
-        # No payload means the C# side rolls the transaction back.
-        pass
+    linecache.cache.pop(_ROOK_SCRIPT_NAME, None)

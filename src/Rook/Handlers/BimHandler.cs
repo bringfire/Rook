@@ -52,6 +52,7 @@ namespace Rook.Handlers
             "export_elements",
             "export_preset",
             "run_transaction",
+            "transaction_receipt",
         };
 
         private static readonly HashSet<string> ExpectedBimOpSet =
@@ -186,6 +187,14 @@ namespace Rook.Handlers
                 return DispatchStandaloneStatus(diagnostics, control);
             }
 
+            if (string.Equals(op, "transaction_receipt", StringComparison.Ordinal))
+            {
+                // Answered from memory, without entering the host API thread:
+                // it must work exactly when that thread is busy with the
+                // transaction the caller is asking about.
+                return DispatchTransactionReceipt(diagnostics, control, body);
+            }
+
             RookBimModuleLoader.TryActivate(diagnostics);
             var runtime = RookBimRuntimeRegistry.Current;
             return op switch
@@ -274,6 +283,83 @@ namespace Rook.Handlers
                 InvokeRuntime(
                     diagnostics,
                     () => runtime.QueryElements(diagnostics, request)));
+        }
+
+        private ApiResponse DispatchTransactionReceipt(
+            BimDiagnosticContext diagnostics,
+            DispatchControlState control,
+            string? body)
+        {
+            BimTransactionReceiptRequest request;
+            try
+            {
+                request = DeserializeRequest<BimTransactionReceiptRequest>(diagnostics, body);
+            }
+            catch (JsonException ex)
+            {
+                return Fail(
+                    diagnostics,
+                    control,
+                    BimErrorCode.InvalidRequest,
+                    "transaction-receipt arguments have the wrong JSON type: " + ex.Message +
+                    " Expected transactionId (string, optional).",
+                    400);
+            }
+
+            if (string.IsNullOrWhiteSpace(request.TransactionId))
+            {
+                var recent = new List<object>();
+                foreach (var snapshot in BimTransactionReceiptStore.Recent(BimTransactionReceiptRequest.MaxRecent))
+                {
+                    recent.Add(DescribeReceipt(snapshot));
+                }
+
+                return Ok(
+                    diagnostics,
+                    control,
+                    new Dictionary<string, object?>
+                    {
+                        ["receipts"] = recent,
+                        ["kept"] = BimTransactionReceiptStore.Capacity,
+                    });
+            }
+
+            if (!BimTransactionReceiptStore.TryGet(request.TransactionId, out var receipt) || receipt == null)
+            {
+                return Fail(
+                    diagnostics,
+                    control,
+                    BimErrorCode.TransactionReceiptNotFound,
+                    $"No receipt with transactionId '{request.TransactionId}' in this Revit session. Receipts are " +
+                    $"kept in memory for the last {BimTransactionReceiptStore.Capacity} write calls and do not " +
+                    "survive a restart of Revit. Call rookbim_transaction_receipt without transactionId to list " +
+                    "the ones that exist, or read the model back to see whether the change is there.",
+                    404);
+            }
+
+            return Ok(diagnostics, control, DescribeReceipt(receipt.Snapshot()));
+        }
+
+        private static Dictionary<string, object?> DescribeReceipt(BimTransactionReceiptSnapshot snapshot)
+        {
+            var code = BimTransactionReport.EffectiveCode(snapshot);
+            return new Dictionary<string, object?>
+            {
+                ["transaction"] = new Dictionary<string, object?>
+                {
+                    ["id"] = snapshot.Id,
+                    ["name"] = snapshot.Name,
+                    ["status"] = BimTransactionReport.WireStatus(snapshot.Status),
+                    ["commitProhibited"] = snapshot.CommitProhibited,
+                },
+                // true once the status can no longer change.
+                ["final"] = snapshot.IsTerminal,
+                ["documentChanged"] = BimTransactionReport.DocumentChanged(snapshot, null),
+                ["document"] = snapshot.Document,
+                ["errorCode"] = code == BimErrorCode.None ? null : MapErrorCode(code),
+                ["message"] = BimTransactionReport.Message(snapshot),
+                ["updatedUtc"] = snapshot.UpdatedUtc.ToString("o", System.Globalization.CultureInfo.InvariantCulture),
+            };
         }
 
         private ApiResponse DispatchRunTransaction(
@@ -731,6 +817,7 @@ namespace Rook.Handlers
                 BimErrorCode.TransactionRolledBack => "transaction_rolled_back",
                 BimErrorCode.TransactionTimeout => "transaction_timeout",
                 BimErrorCode.TransactionOutcomeUnknown => "transaction_outcome_unknown",
+                BimErrorCode.TransactionReceiptNotFound => "transaction_receipt_not_found",
                 BimErrorCode.InternalError => "internal_error",
                 BimErrorCode.None => "internal_error",
                 _ => "internal_error",
@@ -881,6 +968,7 @@ namespace Rook.Handlers
                 "export_elements" => "POST /bim/export-elements",
                 "export_preset" => "POST /bim/export-preset",
                 "run_transaction" => "POST /bim/run-transaction",
+                "transaction_receipt" => "POST /bim/transaction-receipt",
                 _ => "POST /bim",
             };
         }

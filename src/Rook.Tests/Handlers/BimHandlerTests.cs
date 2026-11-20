@@ -26,6 +26,7 @@ namespace Rook.Tests.Handlers
             "export_elements",
             "export_preset",
             "run_transaction",
+            "transaction_receipt",
         };
 
         [Fact]

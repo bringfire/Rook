@@ -1,4 +1,3 @@
-using System.Text.Json.Nodes;
 using Rook.Bim;
 using Xunit;
 
@@ -68,130 +67,10 @@ namespace Rook.Tests.Bim
         [Fact]
         public void Request_TimeoutBudgetFitsUnderTheClientReadTimeout()
         {
-            // Idle wait (10 s) + script timeout + setup allowance (2 s) + commit
-            // grace (10 s) must stay under the 120 s read timeout of bridge.py
-            // and the agent dispatcher.
-            Assert.True(10 + BimRunTransactionRequest.MaxTimeoutSeconds + 2 + 10 < 120);
-        }
-
-        [Fact]
-        public void ScriptResult_SuccessPayloadCarriesOutputAndResult()
-        {
-            var result = BimTransactionScriptResult.Parse(
-                "{\"success\":true,\"stage\":\"done\",\"output\":\"hi\\n\",\"stderr\":\"\",\"error\":\"\"," +
-                "\"traceback\":\"\",\"result\":{\"ids\":[1,2]},\"resultOmittedReason\":null}");
-
-            Assert.True(result.Success);
-            Assert.True(result.PayloadPresent);
-            Assert.Equal("done", result.Stage);
-            Assert.Equal("hi\n", result.Output);
-            Assert.Null(result.ResultOmittedReason);
-            Assert.Equal(2, result.Result!["ids"]!.AsArray().Count);
-            // The node must be attachable to a response object.
-            Assert.Null(result.Result.Parent);
-            var holder = new JsonObject { ["result"] = result.Result };
-            Assert.Equal(1, holder["result"]!["ids"]![0]!.GetValue<int>());
-        }
-
-        [Fact]
-        public void ScriptResult_FailurePayloadKeepsErrorAndTraceback()
-        {
-            var result = BimTransactionScriptResult.Parse(
-                "{\"success\":false,\"stage\":\"run\",\"output\":\"before\",\"stderr\":\"\"," +
-                "\"error\":\"ZeroDivisionError: division by zero\",\"traceback\":\"Traceback...\",\"result\":null}");
-
-            Assert.False(result.Success);
-            Assert.True(result.PayloadPresent);
-            Assert.Equal("run", result.Stage);
-            Assert.Equal("ZeroDivisionError: division by zero", result.Error);
-            Assert.Equal("Traceback...", result.Traceback);
-            Assert.Equal("before", result.Output);
-            Assert.Null(result.Result);
-        }
-
-        [Theory]
-        [InlineData(null)]
-        [InlineData("")]
-        [InlineData("{")]
-        [InlineData("[1,2]")]
-        public void ScriptResult_UnusablePayloadIsNeverSuccess(string? json)
-        {
-            var result = BimTransactionScriptResult.Parse(json);
-
-            Assert.False(result.Success);
-            Assert.False(result.PayloadPresent);
-            Assert.NotEqual(string.Empty, result.Error);
-        }
-
-        [Theory]
-        [InlineData("{\"stage\":\"done\"}")]
-        [InlineData("{\"success\":\"true\",\"stage\":\"done\"}")]
-        [InlineData("{\"success\":1,\"stage\":\"done\"}")]
-        [InlineData("{\"success\":null,\"stage\":\"done\"}")]
-        public void ScriptResult_OnlyLiteralTrueCountsAsSuccess(string json)
-        {
-            var result = BimTransactionScriptResult.Parse(json);
-
-            Assert.False(result.Success);
-            Assert.True(result.PayloadPresent);
-            Assert.Equal("The script wrapper did not report success.", result.Error);
-        }
-
-        [Theory]
-        [InlineData("bind")]
-        [InlineData("run")]
-        [InlineData("result")]
-        [InlineData("none")]
-        public void ScriptResult_SuccessBeforeTheLastStageIsNotSuccess(string stage)
-        {
-            // A payload that claims success without having finished must not
-            // be able to authorize a commit.
-            var result = BimTransactionScriptResult.Parse(
-                "{\"success\":true,\"stage\":\"" + stage + "\"}");
-
-            Assert.False(result.Success);
-            Assert.True(result.PayloadPresent);
-            Assert.Contains("reported success without finishing", result.Error);
-            Assert.Contains(stage, result.Error);
-        }
-
-        [Fact]
-        public void ScriptResult_SuccessWithoutAStageIsNotSuccess()
-        {
-            var result = BimTransactionScriptResult.Parse("{\"success\":true}");
-
-            Assert.False(result.Success);
-        }
-
-        [Fact]
-        public void ScriptResult_KeepsTheProducersTruncationFlags()
-        {
-            var result = BimTransactionScriptResult.Parse(
-                "{\"success\":true,\"stage\":\"done\",\"output\":\"short\",\"outputTruncated\":true," +
-                "\"stderr\":\"\",\"stderrTruncated\":false}");
-
-            Assert.True(result.Success);
-            Assert.Equal("short", result.Output);
-            Assert.True(result.OutputTruncated);
-            Assert.False(result.StderrTruncated);
-        }
-
-        [Fact]
-        public void ScriptResult_LongTracebackKeepsItsEnd()
-        {
-            var traceback = new string('t', BimTransactionScriptResult.MaxTracebackLength) + "ValueError: the cause";
-            var payload = new JsonObject
-            {
-                ["success"] = false,
-                ["stage"] = "run",
-                ["error"] = "ValueError: the cause",
-                ["traceback"] = traceback
-            };
-
-            var result = BimTransactionScriptResult.Parse(payload.ToJsonString());
-
-            Assert.EndsWith("ValueError: the cause", result.Traceback);
-            Assert.StartsWith("[...truncated...]", result.Traceback);
+            // Queue pickup (10 s) + setup (4 s) + script + return allowance (1 s)
+            // + commit grace (8 s) must stay under the 120 s read timeout of
+            // bridge.py and the agent dispatcher.
+            Assert.True(10 + 4 + BimRunTransactionRequest.MaxTimeoutSeconds + 1 + 8 < 120);
         }
 
         [Fact]
@@ -221,37 +100,146 @@ namespace Rook.Tests.Bim
             Assert.Contains("documentKey must be at most 300 characters; got 301", refused.Message);
         }
 
-        [Fact]
-        public void ScriptResult_TruncatesLongOutputAndSaysSo()
+        [Theory]
+        [InlineData("")]
+        [InlineData("   ")]
+        public void Request_ABlankDocumentKeyIsRefusedInsteadOfSilentlyDisablingTheGuard(string blank)
         {
-            var output = new string('x', BimTransactionScriptResult.MaxStreamLength + 10);
-            var payload = new JsonObject
-            {
-                ["success"] = true,
-                ["stage"] = "done",
-                ["output"] = output,
-                ["stderr"] = "short"
-            };
+            var request = new BimRunTransactionRequest { Name = "Rename", Code = "pass", DocumentKey = blank };
 
-            var result = BimTransactionScriptResult.Parse(payload.ToJsonString());
+            var validation = request.Validate();
 
-            Assert.Equal(BimTransactionScriptResult.MaxStreamLength, result.Output.Length);
-            Assert.True(result.OutputTruncated);
-            Assert.Equal("short", result.Stderr);
-            Assert.False(result.StderrTruncated);
+            Assert.False(validation.Success);
+            Assert.Equal(BimErrorCode.InvalidRequest, validation.ErrorCode);
+            Assert.Contains("documentKey was given but is blank", validation.Message);
+            Assert.Contains("Leave documentKey out", validation.Message);
+            // Had it passed validation, the guard would still be on, not off.
+            Assert.True(request.HasDocumentKey);
+        }
+
+        private static BimTransactionScriptResult HostRun(
+            bool hostReturned = true,
+            string? hostError = null,
+            bool completed = true,
+            string? stage = "done",
+            string? scriptError = null,
+            string? traceback = null,
+            string? output = "",
+            bool outputTruncated = false,
+            string? resultJson = null,
+            string? resultOmittedReason = null)
+        {
+            return BimTransactionScriptResult.FromHostRun(
+                hostReturned, hostError, completed, stage, scriptError, traceback,
+                output, outputTruncated, string.Empty, false, resultJson, resultOmittedReason);
+        }
+
+        [Fact]
+        public void ScriptResult_SuccessNeedsTheHostToSeeTheReturnAndTheScriptToReportCompletion()
+        {
+            var result = HostRun(output: "hi\n", resultJson: "{\"ids\":[1,2]}");
+
+            Assert.True(result.Success);
+            Assert.True(result.HostObservedReturn);
+            Assert.False(result.ScriptRaised);
+            Assert.Equal("done", result.Stage);
+            Assert.Equal("hi\n", result.Output);
+            Assert.Equal(2, result.Result!["ids"]!.AsArray().Count);
+            Assert.Null(result.Result.Parent);
+        }
+
+        [Fact]
+        public void ScriptResult_ScriptReportingCompletionIsNotEnoughIfTheHostSawTheEngineFail()
+        {
+            // The script-side signal alone must never authorize a commit.
+            var result = HostRun(hostReturned: false, hostError: "engine fault", completed: true);
+
+            Assert.False(result.Success);
+            Assert.False(result.ScriptRaised);
+            Assert.Equal("engine fault", result.Error);
+        }
+
+        [Fact]
+        public void ScriptResult_HostSeeingAReturnIsNotEnoughIfTheScriptNeverReportedCompletion()
+        {
+            var result = HostRun(hostReturned: true, completed: false, stage: "run");
+
+            Assert.False(result.Success);
+            Assert.Contains("did not reach its end (stage 'run')", result.Error);
+        }
+
+        [Fact]
+        public void ScriptResult_AScriptExceptionKeepsItsErrorAndTraceback()
+        {
+            var result = HostRun(
+                hostReturned: false,
+                hostError: "wall type not found",
+                completed: false,
+                stage: "run",
+                scriptError: "ValueError: wall type not found",
+                traceback: "Traceback...\nValueError: wall type not found",
+                output: "before");
+
+            Assert.False(result.Success);
+            Assert.True(result.ScriptRaised);
+            Assert.Equal("ValueError: wall type not found", result.Error);
+            Assert.EndsWith("ValueError: wall type not found", result.Traceback);
+            Assert.Equal("before", result.Output);
+            Assert.Null(result.Result);
+        }
+
+        [Fact]
+        public void ScriptResult_AReportedScriptErrorWinsEvenIfBothOtherSignalsLookFine()
+        {
+            var result = HostRun(hostReturned: true, completed: true, scriptError: "ValueError: x");
+
+            Assert.False(result.Success);
+            Assert.True(result.ScriptRaised);
+        }
+
+        [Fact]
+        public void ScriptResult_NotRunCarriesTheReasonAndIsNeverSuccess()
+        {
+            var result = BimTransactionScriptResult.NotRun("Rhino's Python 3 script engine is not available.");
+
+            Assert.False(result.Success);
+            Assert.False(result.HostObservedReturn);
+            Assert.False(result.ScriptRaised);
+            Assert.Equal("none", result.Stage);
+            Assert.Equal("Rhino's Python 3 script engine is not available.", result.Error);
+        }
+
+        [Fact]
+        public void ScriptResult_TruncatesLongOutputAndKeepsTheProducersFlag()
+        {
+            var cut = HostRun(output: new string('x', BimTransactionScriptResult.MaxStreamLength + 10));
+            var flagged = HostRun(output: "short", outputTruncated: true);
+
+            Assert.Equal(BimTransactionScriptResult.MaxStreamLength, cut.Output.Length);
+            Assert.True(cut.OutputTruncated);
+            Assert.Equal("short", flagged.Output);
+            Assert.True(flagged.OutputTruncated);
+        }
+
+        [Fact]
+        public void ScriptResult_LongTracebackKeepsItsEnd()
+        {
+            var traceback = new string('t', BimTransactionScriptResult.MaxTracebackLength) + "ValueError: the cause";
+
+            var result = HostRun(
+                hostReturned: false, completed: false, stage: "run",
+                scriptError: "ValueError: the cause", traceback: traceback);
+
+            Assert.EndsWith("ValueError: the cause", result.Traceback);
+            Assert.StartsWith("[...truncated...]", result.Traceback);
         }
 
         [Fact]
         public void ScriptResult_OversizedResultIsOmittedWithAReasonButStaysSuccess()
         {
-            var payload = new JsonObject
-            {
-                ["success"] = true,
-                ["stage"] = "done",
-                ["result"] = new string('r', BimTransactionScriptResult.MaxResultJsonLength + 1)
-            };
+            var json = "\"" + new string('r', BimTransactionScriptResult.MaxResultJsonLength) + "\"";
 
-            var result = BimTransactionScriptResult.Parse(payload.ToJsonString());
+            var result = HostRun(resultJson: json);
 
             Assert.True(result.Success);
             Assert.Null(result.Result);
@@ -259,14 +247,38 @@ namespace Rook.Tests.Bim
         }
 
         [Fact]
-        public void ScriptResult_MissingCarriesTheReason()
+        public void ScriptResult_ADeeplyNestedResultIsOmittedAndDoesNotFailTheScript()
         {
-            var result = BimTransactionScriptResult.Missing("Rhino refused to start the script command.");
+            // Small, valid JSON, but deeper than the reader accepts. This must
+            // cost the caller the return value only, never the edit.
+            var json = new string('[', 80) + new string(']', 80);
 
-            Assert.False(result.Success);
-            Assert.False(result.PayloadPresent);
-            Assert.Equal("none", result.Stage);
-            Assert.Equal("Rhino refused to start the script command.", result.Error);
+            var result = HostRun(resultJson: json);
+
+            Assert.True(result.Success);
+            Assert.Null(result.Result);
+            Assert.Contains("could not be read back as JSON", result.ResultOmittedReason);
+            Assert.Contains("nested at most 32 deep", result.ResultOmittedReason);
+        }
+
+        [Fact]
+        public void ScriptResult_MalformedResultTextIsOmittedAndDoesNotFailTheScript()
+        {
+            var result = HostRun(resultJson: "{not json");
+
+            Assert.True(result.Success);
+            Assert.Null(result.Result);
+            Assert.NotNull(result.ResultOmittedReason);
+        }
+
+        [Fact]
+        public void ScriptResult_KeepsTheProducersOmissionReason()
+        {
+            var result = HostRun(resultOmittedReason: "result was not returned: result has a dict key of type int");
+
+            Assert.True(result.Success);
+            Assert.Null(result.Result);
+            Assert.Contains("dict key of type int", result.ResultOmittedReason);
         }
     }
 }

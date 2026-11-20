@@ -17,6 +17,8 @@ namespace Rook.Tests.Handlers
         [InlineData("{\"op\":\"run_transaction\",\"name\":\"Rename level\"}", "code is required")]
         [InlineData("{\"op\":\"run_transaction\",\"name\":\"Rename level\",\"code\":\"pass\",\"timeoutSeconds\":0}", "timeoutSeconds must be between 1 and 90")]
         [InlineData("{\"op\":\"run_transaction\",\"name\":\"Rename level\",\"code\":\"pass\",\"timeoutSeconds\":91}", "timeoutSeconds must be between 1 and 90")]
+        [InlineData("{\"op\":\"run_transaction\",\"name\":\"Rename level\",\"code\":\"pass\",\"documentKey\":\"\"}", "documentKey was given but is blank")]
+        [InlineData("{\"op\":\"run_transaction\",\"name\":\"Rename level\",\"code\":\"pass\",\"documentKey\":\"  \"}", "documentKey was given but is blank")]
         public void Dispatch_RunTransaction_RefusesInvalidRequestBeforeTheRuntimeIsReached(
             string body,
             string expectedMessage)
@@ -198,11 +200,101 @@ namespace Rook.Tests.Handlers
         [InlineData(BimErrorCode.TransactionRolledBack, "transaction_rolled_back")]
         [InlineData(BimErrorCode.TransactionTimeout, "transaction_timeout")]
         [InlineData(BimErrorCode.TransactionOutcomeUnknown, "transaction_outcome_unknown")]
+        [InlineData(BimErrorCode.TransactionReceiptNotFound, "transaction_receipt_not_found")]
         public void MapErrorCode_GivesEveryTransactionAndIdleFailureItsOwnWireCode(
             BimErrorCode code,
             string expected)
         {
             Assert.Equal(expected, BimHandler.MapErrorCode(code));
+        }
+
+        [Fact]
+        public void Dispatch_TransactionReceipt_AnswersFromMemoryWithoutTheRuntime()
+        {
+            // The runtime throws if touched: a receipt must be readable while
+            // the host API thread is busy with the very transaction asked about.
+            RookBimRuntimeRegistry.Install(new ThrowingRuntime(), "test-receipt");
+            try
+            {
+                var receipt = BimTransactionReceiptStore.Create("Rename level");
+                receipt.SetDocument(new BimDocumentIdentity { Title = "Tower.rvt", DocumentKey = "file-document-v1:abc" });
+                receipt.MarkOpen();
+                receipt.ProhibitCommit(BimErrorCode.TransactionTimeout, "The script did not finish within 5 s.");
+
+                var open = ToJsonElement(new BimHandler().Dispatch(
+                    "{\"op\":\"transaction_receipt\",\"transactionId\":\"" + receipt.Id + "\"}").Data);
+
+                Assert.Equal("open", open.GetProperty("transaction").GetProperty("status").GetString());
+                Assert.True(open.GetProperty("transaction").GetProperty("commitProhibited").GetBoolean());
+                Assert.False(open.GetProperty("final").GetBoolean());
+                Assert.Equal(JsonValueKind.Null, open.GetProperty("documentChanged").ValueKind);
+                Assert.Equal("transaction_timeout", open.GetProperty("errorCode").GetString());
+                Assert.Contains("will not be committed", open.GetProperty("message").GetString());
+                Assert.Equal("file-document-v1:abc", open.GetProperty("document").GetProperty("documentKey").GetString());
+
+                // The host thread finishes the rollback; the same id now reads final.
+                receipt.Settle(BimTransactionStatus.RolledBack);
+                var settled = ToJsonElement(new BimHandler().Dispatch(
+                    "{\"op\":\"transaction_receipt\",\"transactionId\":\"" + receipt.Id + "\"}").Data);
+
+                Assert.Equal("rolled_back", settled.GetProperty("transaction").GetProperty("status").GetString());
+                Assert.True(settled.GetProperty("final").GetBoolean());
+                Assert.False(settled.GetProperty("documentChanged").GetBoolean());
+                Assert.Contains("the Revit document is unchanged", settled.GetProperty("message").GetString());
+            }
+            finally
+            {
+                RookBimRuntimeRegistry.ResetForTests();
+            }
+        }
+
+        [Fact]
+        public void Dispatch_TransactionReceipt_CommittedReadsAsCommittedWithNoErrorCode()
+        {
+            var receipt = BimTransactionReceiptStore.Create("Rename level");
+            receipt.MarkOpen();
+            receipt.Settle(BimTransactionStatus.Committed);
+
+            var response = new BimHandler().Dispatch(
+                "{\"op\":\"transaction_receipt\",\"transactionId\":\"" + receipt.Id + "\"}");
+            var data = ToJsonElement(response.Data);
+
+            Assert.True(response.Success);
+            Assert.Equal("committed", data.GetProperty("transaction").GetProperty("status").GetString());
+            Assert.True(data.GetProperty("final").GetBoolean());
+            Assert.True(data.GetProperty("documentChanged").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, data.GetProperty("errorCode").ValueKind);
+        }
+
+        [Fact]
+        public void Dispatch_TransactionReceipt_UnknownIdIsRefusedWithWhatToDoInstead()
+        {
+            var response = new BimHandler().Dispatch(
+                "{\"op\":\"transaction_receipt\",\"transactionId\":\"tx-000000000000\"}");
+            var data = ToJsonElement(response.Data);
+
+            Assert.False(response.Success);
+            Assert.Equal(404, response.HttpStatus);
+            Assert.Equal("transaction_receipt_not_found", data.GetProperty("errorCode").GetString());
+            Assert.Contains("do not survive a restart of Revit", data.GetProperty("message").GetString());
+            Assert.Contains("read the model back", data.GetProperty("message").GetString());
+        }
+
+        [Fact]
+        public void Dispatch_TransactionReceipt_WithoutAnIdListsRecentReceiptsNewestFirst()
+        {
+            BimTransactionReceiptStore.Create("older");
+            BimTransactionReceiptStore.Create("newer");
+
+            var response = new BimHandler().Dispatch("{\"op\":\"transaction_receipt\"}");
+            var data = ToJsonElement(response.Data);
+            var receipts = data.GetProperty("receipts");
+
+            Assert.True(response.Success);
+            Assert.Equal(64, data.GetProperty("kept").GetInt32());
+            Assert.True(receipts.GetArrayLength() >= 2 && receipts.GetArrayLength() <= 10);
+            Assert.Equal("newer", receipts[0].GetProperty("transaction").GetProperty("name").GetString());
+            Assert.Equal("older", receipts[1].GetProperty("transaction").GetProperty("name").GetString());
         }
 
         [Fact]
@@ -224,6 +316,24 @@ namespace Rook.Tests.Handlers
             var json = JsonSerializer.Serialize(value);
             using var document = JsonDocument.Parse(json);
             return document.RootElement.Clone();
+        }
+
+        private sealed class ThrowingRuntime : IRookBimRuntime
+        {
+            private static InvalidOperationException Touched() =>
+                new InvalidOperationException("The receipt lookup must not reach the runtime.");
+
+            public BimStatusResponse Status(BimDiagnosticContext diagnostics) => throw Touched();
+            public BimApiResponse RunTransaction(BimDiagnosticContext diagnostics, BimRunTransactionRequest request) => throw Touched();
+            public BimApiResponse ActiveDocument(BimDiagnosticContext diagnostics) => throw Touched();
+            public BimApiResponse ListCategories(BimDiagnosticContext diagnostics) => throw Touched();
+            public BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request) => throw Touched();
+            public BimApiResponse ElementInfo(BimDiagnosticContext diagnostics, BimElementRequest request) => throw Touched();
+            public BimApiResponse ElementParameters(BimDiagnosticContext diagnostics, BimElementRequest request) => throw Touched();
+            public BimApiResponse SelectElements(BimDiagnosticContext diagnostics, BimSelectElementsRequest request) => throw Touched();
+            public BimApiResponse ClearSelection(BimDiagnosticContext diagnostics) => throw Touched();
+            public BimApiResponse ExportElements(BimDiagnosticContext diagnostics, BimExportElementsRequest request) => throw Touched();
+            public BimApiResponse ExportPreset(BimDiagnosticContext diagnostics, BimExportPresetRequest request) => throw Touched();
         }
 
         private sealed class RecordingRuntime : IRookBimRuntime

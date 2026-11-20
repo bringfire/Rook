@@ -36,6 +36,12 @@
       <HintPath>$(RhinoSystemDir)\RhinoCommon.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- Rhino 8's own script engine API (part of Rhino, like RhinoCommon).
+         RevitPythonScriptRunner calls it directly so the host observes the script's end. -->
+    <Reference Include="Rhino.Runtime.Code">
+      <HintPath>$(RhinoSystemDir)\Rhino.Runtime.Code.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
   <ItemGroup>

@@ -27,6 +27,7 @@ ROOKBIM_TOOL_ROUTES = {
     "rookbim_export_elements": ("/bim/export-elements", "POST"),
     "rookbim_export_preset": ("/bim/export-preset", "POST"),
     "rookbim_run_transaction": ("/bim/run-transaction", "POST"),
+    "rookbim_transaction_receipt": ("/bim/transaction-receipt", "POST"),
 }
 
 # Every rookbim_* tool except the one that writes the Revit model.
@@ -41,6 +42,7 @@ ROOKBIM_READONLY_TOOLS = [
     "rookbim_query_elements",
     "rookbim_element_info",
     "rookbim_element_parameters",
+    "rookbim_transaction_receipt",
 ]
 
 IDENTITY_FIELDS = {
@@ -252,6 +254,7 @@ async def test_rookbim_server_dispatches_to_expected_bridge_route(name, route):
             "name": "Rename Level 2",
             "code": "doc.GetElement(DB.ElementId(311)).Name = 'Level 02'",
         },
+        "rookbim_transaction_receipt": {"transactionId": "tx-0123456789ab"},
     }.get(name, {})
 
     with patch.object(server, "call_rhino", new_callable=AsyncMock) as mock:
@@ -337,6 +340,7 @@ async def test_rookbim_dispatcher_dispatches_to_expected_bridge_route(name, rout
             "name": "Rename Level 2",
             "code": "doc.GetElement(DB.ElementId(311)).Name = 'Level 02'",
         },
+        "rookbim_transaction_receipt": {"transactionId": "tx-0123456789ab"},
     }.get(name, {})
 
     with patch.object(tool_dispatcher, "call_rhino", new_callable=AsyncMock) as mock:
@@ -392,6 +396,9 @@ async def test_rookbim_run_transaction_schema_requires_name_and_code():
     # documentKey is optional: an unsaved document may have none to pass.
     assert schema["properties"]["documentKey"]["type"] == "string"
     assert schema["properties"]["documentKey"]["maxLength"] == 300
+    # A blank key must not pass as "guarded": only leaving it out is unguarded.
+    assert schema["properties"]["documentKey"]["minLength"] == 1
+    assert "do not send an empty string" in schema["properties"]["documentKey"]["description"]
     # The same limit the HTTP route enforces, so a schema-valid call is not
     # refused for length.
     assert schema["properties"]["code"]["maxLength"] == 200000
@@ -450,7 +457,14 @@ async def test_rookbim_run_transaction_description_states_contract_and_refusals(
     assert "Rhino.Inside.Revit" in description
     # Synchronous, atomic, one undo entry.
     assert "answers in this same call" in description
+    assert "committed only if the script runs to its end" in description
     assert "rolled back and the active document is unchanged" in description
+    # One vocabulary for the outcome, with what each value lets the caller do.
+    for status in ("committed", "rolled_back", "not_started", "open", "unresolved"):
+        assert status in description
+    assert "`transaction` {id, name, status} and `documentChanged`" in description
+    assert "on a refusal they are in data.details" in description
+    assert "call rookbim_transaction_receipt with transaction.id" in description
     assert "one entry called `name` in Revit's undo list" in description
     # Names bound for the script, and what the script must not do.
     for bound in ("doc", "uidoc", "uiapp", "app", "DB", "UI", "`result`"):
@@ -473,11 +487,14 @@ async def test_rookbim_run_transaction_description_states_contract_and_refusals(
     # outcome must not be described as "not committed".
     assert "Rook cannot stop a running script" in description
     assert "do not run the script again" in description
+    assert "transaction_timeout with status open" in description
     # What the rollback guarantee does not cover.
     assert "Do not edit another document" in description
     assert "do not schedule work for later" in description
     # How to use what comes back, exactly.
-    assert "pass an entry's `identity` to rookbim_element_info" in description
+    assert "rookbim_element_info {identity: entry.identity}" in description
+    assert "rookbim_select_elements {identities: [entry.identity]}" in description
+    assert "the transaction status is never left out" in description
     assert "identityOmittedReason" in description
     assert "resultOmittedReason" in description
     assert "Pass `documentKey`" in description
@@ -544,3 +561,52 @@ async def test_rhino_execute_points_revit_writes_at_rookbim_run_transaction():
     assert "To change the Revit model use rookbim_run_transaction." in description
     # The existing guidance for ordinary Rhino scripting is kept.
     assert "import rhinoscriptsyntax as rs" in description
+
+
+@pytest.mark.asyncio
+async def test_rookbim_transaction_receipt_schema_takes_an_optional_id():
+    schema = (await _tools_by_name())["rookbim_transaction_receipt"].inputSchema
+
+    assert schema["type"] == "object"
+    assert schema["required"] == []
+    assert schema["additionalProperties"] is False
+    assert set(schema["properties"]) == {"transactionId", "port"}
+    assert schema["properties"]["transactionId"]["type"] == "string"
+    assert schema["properties"]["transactionId"]["minLength"] == 1
+    assert schema["properties"]["port"] == PORT_SCHEMA
+
+
+def test_rookbim_transaction_receipt_is_a_read_available_in_the_readonly_profile():
+    from rook import mcp_tool_profiles
+
+    policy = targeting.policy_for_tool("rookbim_transaction_receipt")
+    assert policy.requires_rhino is True
+    assert policy.risk == "read"
+    assert "rookbim_transaction_receipt" in mcp_tool_profiles.PUBLIC_READONLY_TOOL_NAMES
+    assert "rookbim_transaction_receipt" in tool_groups.TOOL_GROUPS["rookbim_readonly"]
+
+
+@pytest.mark.asyncio
+async def test_rookbim_transaction_receipt_description_says_when_and_what():
+    description = (await _tools_by_name())["rookbim_transaction_receipt"].description
+
+    assert "transaction.status open or unresolved" in description
+    assert "works while Revit is busy" in description
+    for status in ("committed", "rolled_back", "not_started", "open", "unresolved"):
+        assert status in description
+    assert "final (true once the status can no longer change)" in description
+    # What it does not keep, and what to do then.
+    assert "do not survive a restart of Revit" in description
+    assert "transaction_receipt_not_found" in description
+    assert "read the model back" in description
+
+
+@pytest.mark.asyncio
+async def test_rookbim_transaction_receipt_without_id_lists_recent_receipts():
+    with patch.object(server, "call_rhino", new_callable=AsyncMock) as mock:
+        mock.return_value = {"success": True, "data": {"receipts": [], "kept": 64}}
+        await server.call_tool("rookbim_transaction_receipt", {})
+
+    endpoint, method, data, port = _normalize_call_rhino_args(mock.call_args)
+    assert (endpoint, method, port) == ("/bim/transaction-receipt", "POST", None)
+    assert not data
