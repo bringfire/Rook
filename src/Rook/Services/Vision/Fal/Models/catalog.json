@@ -1,1 +1,1 @@
-{ "schema_version": 1, "definitions": [] }
+{ "schema_version": 1, "definitions": ["acceptance-image.json", "acceptance-video.json"] }

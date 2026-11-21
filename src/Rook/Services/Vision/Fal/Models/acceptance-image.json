@@ -1,0 +1,196 @@
+{
+  "schema_version": 1,
+  "definition_id": "fal-flux-2",
+  "revision": "2026-11-21",
+  "model_id": "fal-ai/flux-2",
+  "display_name": "FLUX 2",
+  "provider": "fal",
+  "status": "experimental",
+  "operations": [
+    {
+      "operation_id": "text_to_image",
+      "endpoint_id": "fal-ai/flux-2",
+      "invocation": "sync",
+      "adapter": {
+        "id": "fal.image.declarative",
+        "version": 1
+      },
+      "fields": [
+        {
+          "key": "prompt",
+          "scope": "request",
+          "type": "string",
+          "required": true,
+          "max_length": 2000,
+          "label": "Prompt",
+          "description": "What the image should show.",
+          "ui": {
+            "group": "basic",
+            "order": 0
+          },
+          "payload": {
+            "pointer": "/prompt",
+            "conversion": "identity"
+          }
+        },
+        {
+          "key": "image_size",
+          "scope": "options",
+          "type": "enum",
+          "values": [
+            "square_hd",
+            "square",
+            "portrait_4_3",
+            "portrait_16_9",
+            "landscape_4_3",
+            "landscape_16_9"
+          ],
+          "default": "landscape_4_3",
+          "label": "Image size",
+          "description": "One of fal's named sizes. Custom pixel sizes are not offered.",
+          "ui": {
+            "group": "basic",
+            "order": 1
+          },
+          "payload": {
+            "pointer": "/image_size",
+            "conversion": "identity"
+          }
+        },
+        {
+          "key": "seed",
+          "scope": "request",
+          "type": "integer",
+          "min": 0,
+          "max": 2147483647,
+          "step": 1,
+          "label": "Seed",
+          "description": "Leave empty for a random seed.",
+          "ui": {
+            "group": "advanced",
+            "order": 0
+          },
+          "payload": {
+            "pointer": "/seed",
+            "conversion": "identity"
+          }
+        },
+        {
+          "key": "num_inference_steps",
+          "scope": "options",
+          "type": "integer",
+          "min": 4,
+          "max": 50,
+          "step": 1,
+          "default": 28,
+          "label": "Steps",
+          "description": "Number of inference steps.",
+          "ui": {
+            "group": "advanced",
+            "order": 1
+          },
+          "payload": {
+            "pointer": "/num_inference_steps",
+            "conversion": "identity"
+          }
+        },
+        {
+          "key": "guidance_scale",
+          "scope": "options",
+          "type": "number",
+          "min": 0,
+          "max": 20,
+          "step": 0.1,
+          "default": 2.5,
+          "label": "Guidance",
+          "description": "How closely the image follows the prompt.",
+          "ui": {
+            "group": "advanced",
+            "order": 2
+          },
+          "payload": {
+            "pointer": "/guidance_scale",
+            "conversion": "identity"
+          }
+        },
+        {
+          "key": "acceleration",
+          "scope": "options",
+          "type": "enum",
+          "values": [
+            "none",
+            "regular",
+            "high"
+          ],
+          "default": "regular",
+          "label": "Acceleration",
+          "description": "Faster generation at higher levels.",
+          "ui": {
+            "group": "advanced",
+            "order": 3
+          },
+          "payload": {
+            "pointer": "/acceleration",
+            "conversion": "identity"
+          }
+        },
+        {
+          "key": "output_format",
+          "scope": "options",
+          "type": "enum",
+          "values": [
+            "jpeg",
+            "png",
+            "webp"
+          ],
+          "default": "png",
+          "label": "Format",
+          "ui": {
+            "group": "advanced",
+            "order": 4
+          },
+          "payload": {
+            "pointer": "/output_format",
+            "conversion": "identity"
+          }
+        }
+      ],
+      "media": [],
+      "constraints": [],
+      "constants": [
+        {
+          "pointer": "/num_images",
+          "value": 1
+        }
+      ],
+      "result": {
+        "role": "generated_image",
+        "mime_family": "image",
+        "collection_pointer": "/images",
+        "cardinality": 1,
+        "url_pointer": "/images/0/url",
+        "mime_pointer": "/images/0/content_type"
+      },
+      "pricing": {
+        "strategy": "per_output_megapixel",
+        "unit": "megapixel",
+        "max_megapixels": 2,
+        "revision": "2026-11-21",
+        "rates": [
+          {
+            "selectors": {},
+            "rate_usd": 0.012
+          }
+        ],
+        "rounding": "none",
+        "source": "https://fal.ai/models/fal-ai/flux-2/llms.txt",
+        "reviewed_on": "2026-11-21"
+      },
+      "evidence": {
+        "url": "https://fal.ai/models/fal-ai/flux-2/llms.txt",
+        "reviewed_on": "2026-11-21",
+        "qualification": "qualified"
+      }
+    }
+  ]
+}
