@@ -78,14 +78,35 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tests\release-surfac
 if ($LASTEXITCODE -ne 0) { throw "Release-surface hygiene guard failed" }
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tests\release-installer-guards.tests.ps1 -SkipBuiltPayloadCheck
 if ($LASTEXITCODE -ne 0) { throw "Release-installer guard failed" }
-claude plugin validate --strict .
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\validate-claude-plugin.ps1
 if ($LASTEXITCODE -ne 0) { throw "Claude plugin validation failed" }
 uv lock --check --directory mcp_server
 if ($LASTEXITCODE -ne 0) { throw "Python lock metadata is stale" }
+
+# 6. The pinned pip bootstrap wheel is in place (Step 3A needs it before any package-index access).
+#    The wheelhouse builder names the exact file and checks its SHA256; read the name from it.
+$builder = Get-Content -LiteralPath 'scripts\python-runtime\build-rook-python-wheelhouse.ps1' -Raw
+if ($builder -notmatch "artifacts\\python-bootstrap\\(pip-[0-9.]+-py3-none-any\.whl)") { throw 'Cannot read the pinned pip bootstrap wheel name.' }
+$pipBootstrapWheel = Join-Path 'artifacts\python-bootstrap' $Matches[1]
+if (-not (Test-Path -LiteralPath $pipBootstrapWheel -PathType Leaf)) { throw "Missing pip bootstrap wheel: $pipBootstrapWheel" }
 ```
 
 If Rhino is running, tell the user to close it — DLL locks will cause build failures.
-If git is dirty, tell the user to commit or stash first.
+If git is dirty, tell the user to commit or stash first. Untracked files count: the
+wheelhouse builder in Step 3A refuses a checkout that has any.
+
+`scripts\validate-claude-plugin.ps1` runs `claude plugin validate --strict .` and reads
+its JSON report. It fails on every error and every warning except one: the validator's
+note that a `CLAUDE.md` at the plugin root is not loaded as plugin context. That file is
+contributor guidance for this repository and is not in the promotion inventory in Step 9,
+so the warning does not describe the released plugin. Do not widen the allowance; a new
+warning is a release finding.
+
+If the pip bootstrap wheel is missing, download exactly that file from the official
+files list for that pip version on PyPI (`https://pypi.org/project/pip/<version>/#files`)
+into `artifacts\python-bootstrap\`. Never fetch it with an older pip. The builder checks
+the file against its pinned SHA256 and refuses anything else, so a wrong or altered
+download cannot be used. The folder is git-ignored; a new pin needs a new download.
 
 ### Bundled FFmpeg
 
@@ -169,7 +190,7 @@ separately. Run the strict Claude and release-surface validations again before c
 uv lock --directory mcp_server
 git diff -- mcp_server\uv.lock
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tests\release-surface-hygiene.tests.ps1 -Area Metadata
-claude plugin validate --strict .
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\validate-claude-plugin.ps1
 ```
 
 Stop if the lock diff changes any third-party package or any field outside the local
@@ -281,7 +302,14 @@ Run from the exact release repository root:
 
 ```powershell
 $repoRoot = (Resolve-Path .).Path
-$OcctRuntimeRoot = (Resolve-Path -LiteralPath (Join-Path $repoRoot '..\OCCT\build-rook\win64\vc14\bin')).Path
+# The OCCT build root comes from OCCT_ROOT, the same variable the local deploy and the dev
+# doctor use. Without it, fall back to the sibling checkout the installer script defaults to.
+$occtBuildRoot = if (-not [string]::IsNullOrWhiteSpace($env:OCCT_ROOT)) { $env:OCCT_ROOT } else { Join-Path $repoRoot '..\OCCT\build-rook' }
+$occtBin = Join-Path $occtBuildRoot 'win64\vc14\bin'
+if (-not (Test-Path -LiteralPath (Join-Path $occtBin 'TKernel.dll') -PathType Leaf)) {
+  throw "No OCCT runtime DLLs at $occtBin. Set OCCT_ROOT to the OCCT build root (the folder that contains win64\vc14\bin)."
+}
+$OcctRuntimeRoot = (Resolve-Path -LiteralPath $occtBin).Path
 $bundlePython = Join-Path $repoRoot 'installer\runtime\python\cpython-3.11.9\python.exe'
 & $bundlePython -I scripts\occt\rook_occt_bundle.py build --occt-repo (Join-Path $repoRoot '..\OCCT')
 if ($LASTEXITCODE -ne 0) { throw 'OCCT source bundle build failed.' }
