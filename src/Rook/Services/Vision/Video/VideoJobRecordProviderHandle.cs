@@ -33,6 +33,11 @@ namespace Rook.Services.Vision.Video
             out ProviderJobHandle? handle)
         {
             handle = null;
+            if (record?.ConfiguredFalExecution is { } configured)
+            {
+                handle = configured.Snapshot?.Handle;
+                return handle != null;
+            }
             if (record is null || string.IsNullOrWhiteSpace(record.ProviderJobId))
                 return false;
 

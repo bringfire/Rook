@@ -15,7 +15,7 @@ namespace Rook.Services.Vision.Image
         public ImageSubmissionExecutor(IImageProviderRegistry registry) =>
             _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         public static bool UsesExecutionDeadline(ResolvedImageModel model) =>
-            ImageRoutingCodec.IsAffected(model.ProviderName, model.ModelId);
+            model.Provider is IConfiguredGenerationProvider || ImageRoutingCodec.IsAffected(model.ProviderName, model.ModelId);
         public async Task<ImageSubmissionResult> SubmitAsync(ImageGenerationRequest request, ResolvedImageModel model,
             IReadOnlyDictionary<MediaRef, ResolvedMedia> media, ImageExecutionContext context, CancellationToken ct,
             Func<ImageExecutionSnapshot, CancellationToken, Task<GenerationError?>>? prepareEffectiveRouteAsync = null,

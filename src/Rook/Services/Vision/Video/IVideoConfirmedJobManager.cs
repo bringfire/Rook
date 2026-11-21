@@ -3,6 +3,12 @@ using System.Threading;
 using System.Threading.Tasks;
 namespace Rook.Services.Vision.Video
 {
+    internal interface IConfiguredVideoJobManager
+    {
+        Task<JobSubmitResult> SubmitConfiguredAsync(VideoGenerationRequest request, Rook.Services.Vision.Fal.Models.FalNormalizedRequest normalized,
+            Rook.Services.Vision.Fal.FalMediaSnapshot media, Rook.Services.Vision.Fal.Models.FalPricingSnapshot? pricing,
+            CancellationToken ct, Rook.Services.Vision.Fal.Models.FalSubmitConfirmation? confirmation = null);
+    }
     internal interface IVideoConfirmedJobManager
     {
         bool ConfirmedRoutingAvailable { get; }

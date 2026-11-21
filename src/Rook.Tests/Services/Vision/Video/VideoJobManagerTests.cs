@@ -136,6 +136,24 @@ namespace Rook.Tests.Services.Vision.Video
         // ─── Submit happy path ────────────────────────────────────────
 
         [Fact]
+        public async Task Explicit_unknown_submit_retains_uncertainty_in_status_and_history()
+        {
+            _provider.OnSubmit = (_, _) => new FailedSubmitOutcome(new GenerationError(
+                GenErrorCode.ExecutionFailed, "response lost", true), SubmissionDisposition.Unknown);
+            using var manager = Manager();
+            var job = await manager.SubmitAsync(T2vRequest(), CancellationToken.None);
+            var final = await WaitForTerminalAsync(manager, job.JobId!.Value);
+            Assert.Equal(VideoJobState.Error, final.State); Assert.True(final.Error!.SubmissionOutcomeUnknown); Assert.False(final.Error.Retryable);
+            var persisted = _ledger.AllRecords.Last(r => r.JobId == job.JobId.Value);
+            Assert.Equal("fal_submission_unknown", persisted.Error!.ProviderErrorCode); Assert.False(persisted.Error.Retryable);
+            GenerationError converted = final.Error;
+            Assert.Equal("fal_submission_unknown", converted.ProviderErrorCode);
+            var jsonl = new JsonlVideoJobLedger(Path.Combine(_artifactRoot, "unknown.jsonl")); jsonl.Append(persisted);
+            Assert.Equal("fal_submission_unknown", Assert.Single(jsonl.ReadAll().Records).Error!.ProviderErrorCode);
+            Assert.Empty(_artifactStore.List());
+        }
+
+        [Fact]
         public async Task Submit_returns_jobId_immediately_with_Queued_state()
         {
             var preMintedJobId = Guid.NewGuid();

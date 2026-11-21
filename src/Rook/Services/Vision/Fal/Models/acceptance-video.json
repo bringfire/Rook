@@ -1,0 +1,277 @@
+{
+  "schema_version": 1,
+  "definition_id": "fal-pixverse-v6",
+  "revision": "2026-11-21",
+  "model_id": "fal-ai/pixverse/v6",
+  "display_name": "PixVerse V6",
+  "provider": "fal",
+  "status": "experimental",
+  "operations": [
+    {
+      "operation_id": "text_to_video",
+      "endpoint_id": "fal-ai/pixverse/v6/text-to-video",
+      "lifecycle_root": "fal-ai/pixverse",
+      "invocation": "queue",
+      "adapter": {
+        "id": "fal.video.declarative",
+        "version": 1
+      },
+      "fields": [
+        {
+          "key": "prompt",
+          "scope": "request",
+          "type": "string",
+          "required": true,
+          "max_length": 682,
+          "label": "Prompt",
+          "description": "What the video should show. fal limits this to 2048 bytes, so Rook allows 682 characters.",
+          "ui": {
+            "group": "basic",
+            "order": 0
+          },
+          "payload": {
+            "pointer": "/prompt",
+            "conversion": "identity"
+          }
+        },
+        {
+          "key": "duration_seconds",
+          "scope": "request",
+          "type": "integer",
+          "min": 1,
+          "max": 15,
+          "step": 1,
+          "default": 5,
+          "label": "Seconds",
+          "ui": {
+            "group": "basic",
+            "order": 1
+          },
+          "payload": {
+            "pointer": "/duration",
+            "conversion": "identity"
+          }
+        },
+        {
+          "key": "resolution",
+          "scope": "request",
+          "type": "enum",
+          "values": [
+            "360p",
+            "540p",
+            "720p",
+            "1080p"
+          ],
+          "default": "720p",
+          "label": "Resolution",
+          "ui": {
+            "group": "basic",
+            "order": 2
+          },
+          "payload": {
+            "pointer": "/resolution",
+            "conversion": "identity"
+          }
+        },
+        {
+          "key": "aspect_ratio",
+          "scope": "request",
+          "type": "enum",
+          "values": [
+            "16:9",
+            "4:3",
+            "1:1",
+            "3:4",
+            "9:16",
+            "2:3",
+            "3:2",
+            "21:9"
+          ],
+          "default": "16:9",
+          "label": "Aspect ratio",
+          "ui": {
+            "group": "basic",
+            "order": 3
+          },
+          "payload": {
+            "pointer": "/aspect_ratio",
+            "conversion": "identity"
+          }
+        },
+        {
+          "key": "generate_audio_switch",
+          "scope": "options",
+          "type": "boolean",
+          "default": false,
+          "label": "Audio",
+          "description": "Adds music, sound effects and dialogue. Costs more per second.",
+          "ui": {
+            "group": "basic",
+            "order": 4
+          },
+          "payload": {
+            "pointer": "/generate_audio_switch",
+            "conversion": "identity"
+          }
+        },
+        {
+          "key": "seed",
+          "scope": "request",
+          "type": "integer",
+          "min": 0,
+          "max": 2147483647,
+          "step": 1,
+          "label": "Seed",
+          "description": "Leave empty for a random seed.",
+          "ui": {
+            "group": "advanced",
+            "order": 0
+          },
+          "payload": {
+            "pointer": "/seed",
+            "conversion": "identity"
+          }
+        },
+        {
+          "key": "negative_prompt",
+          "scope": "options",
+          "type": "string",
+          "max_length": 682,
+          "label": "Negative prompt",
+          "description": "What the video should avoid.",
+          "ui": {
+            "group": "advanced",
+            "order": 1
+          },
+          "payload": {
+            "pointer": "/negative_prompt",
+            "conversion": "identity"
+          }
+        },
+        {
+          "key": "style",
+          "scope": "options",
+          "type": "enum",
+          "values": [
+            "anime",
+            "3d_animation",
+            "clay",
+            "comic",
+            "cyberpunk"
+          ],
+          "label": "Style",
+          "description": "Leave empty for no preset style.",
+          "ui": {
+            "group": "advanced",
+            "order": 2
+          },
+          "payload": {
+            "pointer": "/style",
+            "conversion": "identity"
+          }
+        },
+        {
+          "key": "thinking_type",
+          "scope": "options",
+          "type": "enum",
+          "values": [
+            "enabled",
+            "disabled",
+            "auto"
+          ],
+          "label": "Prompt optimization",
+          "description": "Whether PixVerse rewrites the prompt before generating. Leave empty for the provider default.",
+          "ui": {
+            "group": "advanced",
+            "order": 3
+          },
+          "payload": {
+            "pointer": "/thinking_type",
+            "conversion": "identity"
+          }
+        }
+      ],
+      "media": [],
+      "constraints": [],
+      "constants": [],
+      "result": {
+        "role": "generated_video",
+        "mime_family": "video",
+        "url_pointer": "/video/url",
+        "mime_pointer": "/video/content_type"
+      },
+      "pricing": {
+        "strategy": "per_output_second",
+        "unit": "second",
+        "quantity_field": "request.duration_seconds",
+        "revision": "2026-11-21",
+        "rates": [
+          {
+            "selectors": {
+              "request.resolution": "360p",
+              "options.generate_audio_switch": false
+            },
+            "rate_usd": 0.025
+          },
+          {
+            "selectors": {
+              "request.resolution": "360p",
+              "options.generate_audio_switch": true
+            },
+            "rate_usd": 0.035
+          },
+          {
+            "selectors": {
+              "request.resolution": "540p",
+              "options.generate_audio_switch": false
+            },
+            "rate_usd": 0.035
+          },
+          {
+            "selectors": {
+              "request.resolution": "540p",
+              "options.generate_audio_switch": true
+            },
+            "rate_usd": 0.045
+          },
+          {
+            "selectors": {
+              "request.resolution": "720p",
+              "options.generate_audio_switch": false
+            },
+            "rate_usd": 0.045
+          },
+          {
+            "selectors": {
+              "request.resolution": "720p",
+              "options.generate_audio_switch": true
+            },
+            "rate_usd": 0.06
+          },
+          {
+            "selectors": {
+              "request.resolution": "1080p",
+              "options.generate_audio_switch": false
+            },
+            "rate_usd": 0.09
+          },
+          {
+            "selectors": {
+              "request.resolution": "1080p",
+              "options.generate_audio_switch": true
+            },
+            "rate_usd": 0.115
+          }
+        ],
+        "rounding": "none",
+        "source": "https://fal.ai/models/fal-ai/pixverse/v6/text-to-video/llms.txt",
+        "reviewed_on": "2026-11-21"
+      },
+      "evidence": {
+        "url": "https://fal.ai/models/fal-ai/pixverse/v6/text-to-video/llms.txt",
+        "reviewed_on": "2026-11-21",
+        "qualification": "qualified"
+      }
+    }
+  ]
+}

@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json.Nodes;
+using System.Threading.Tasks;
 using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video;
 using Xunit;
@@ -12,6 +13,14 @@ namespace Rook.Tests.Services.Vision.Video
 {
     public class JsonlVideoJobLedgerTests : IDisposable
     {
+        [Theory]
+        [InlineData(false)] [InlineData(true)]
+        public async Task Cancelled_ledger_admission_does_not_read_or_append_after_contention(bool read)
+        {
+            _ledger.Append(MakeRecord());
+            await Rook.Tests.Services.Vision.Image.Jobs.LedgerAdmissionTest.CancelWhileHeld(_ledger, read ? "ReadAll" : "Append", read ? null : MakeRecord());
+            Assert.Single(_ledger.ReadAll().Records);
+        }
         private readonly string _filePath;
         private readonly JsonlVideoJobLedger _ledger;
         private static readonly DateTimeOffset T0 = new(2026, 4, 25, 12, 0, 0, TimeSpan.Zero);

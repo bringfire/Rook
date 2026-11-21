@@ -158,13 +158,9 @@ async def test_video_tool_required_fields_match_managed_contract():
     by_name = {t.name: t for t in tools}
 
     expected = {
-        # Submit + estimate share the same required-field set per
-        # ParseGenerationRequest (model/mode/duration/resolution/
-        # aspect_ratio/options).
-        "rhino_render_video":   {"model", "mode", "duration_seconds",
-                                 "resolution", "aspect_ratio", "options"},
-        "rhino_video_estimate": {"model", "mode", "duration_seconds",
-                                 "resolution", "aspect_ratio", "options"},
+        # Configured defaults and legacy requiredness belong to managed validation.
+        "rhino_render_video":   {"model"},
+        "rhino_video_estimate": {"model"},
         "rhino_video_status":   {"job_id"},
         "rhino_video_cancel":   {"job_id"},
         "rhino_video_result":   {"job_id"},

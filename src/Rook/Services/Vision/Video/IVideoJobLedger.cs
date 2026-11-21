@@ -1,3 +1,5 @@
+using System.Threading;
+
 namespace Rook.Services.Vision.Video
 {
     /// <summary>
@@ -16,5 +18,12 @@ namespace Rook.Services.Vision.Video
         void Append(VideoJobRecord record);
 
         VideoJobLedgerReadResult ReadAll();
+    }
+
+    /// <summary>Cancellation bounds admission to ledger I/O, never abandons admitted I/O.</summary>
+    public interface ICancellationAwareVideoJobLedger : IVideoJobLedger
+    {
+        void Append(VideoJobRecord record, CancellationToken ct);
+        VideoJobLedgerReadResult ReadAll(CancellationToken ct);
     }
 }

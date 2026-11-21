@@ -10,6 +10,7 @@ using Rook.Services.Reconstruction;
 using Rook.Services.Reconstruction.Fal;
 using Rook.Services.Vision;
 using Rook.Services.Vision.Fal;
+using Rook.Services.Vision.Fal.Models;
 using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Image;
 using Rook.Services.Vision.Image.Jobs;
@@ -95,6 +96,11 @@ namespace Rook
         private IVertexAccessTokenSource _vertexAccessTokenSource;
         private bool _vertexTokenSourceConfigured;
 
+        private readonly Lazy<FalCatalogLoadResult> _visionCatalog;
+        private readonly Lazy<FalConfiguredExecutor> _configuredExecutor;
+        private readonly Lazy<FalExecutionRecovery> _configuredRecovery;
+        private readonly FalAdapterRegistry _falAdapters = new();
+        internal FalCatalogLoadResult VisionCatalog => _visionCatalog.Value;
         private readonly Lazy<VideoSubsystemBundle> _video;
         private readonly Lazy<ImageJobSubsystemBundle> _imageJobs;
         private readonly Lazy<MediaImportJobManager> _mediaImports;
@@ -193,7 +199,8 @@ namespace Rook
             IImageJobLedger? imageLedger,
             IVideoSidecarBackfillService? sidecarBackfill = null,
             IVideoSidecarBackfillTaskScheduler? backfillScheduler = null,
-            IVertexAccessTokenSource? vertexAccessTokenSource = null)
+            IVertexAccessTokenSource? vertexAccessTokenSource = null,
+            string? visionCatalogAssemblyDirectory = null)
         {
             _vertexAccessTokenSource = vertexAccessTokenSource ?? UnavailableVertexAccessTokenSource.Instance;
             _vertexTokenSourceConfigured = vertexAccessTokenSource is not null;
@@ -201,13 +208,19 @@ namespace Rook
             SharedGenerationSecretStore = generationSecretStore
                 ?? new DpapiGenerationSecretStore();
             SharedSecretStore = new VisionSecretStore(SharedGenerationSecretStore);
+            _visionCatalog = new Lazy<FalCatalogLoadResult>(() => new FalCatalogLoader().Load(
+                visionCatalogAssemblyDirectory ?? System.IO.Path.GetDirectoryName(typeof(RookSubsystemRoot).Assembly.Location)!,
+                VisionProviderRegistrations.GetLegacyModelIds()), LazyThreadSafetyMode.ExecutionAndPublication);
+            _configuredExecutor = new Lazy<FalConfiguredExecutor>(() => new FalConfiguredExecutor(new FalApiClient(),
+                () => SharedGenerationSecretStore.GetSecret(GenerationSecretKeys.FalApiKey), adapters: _falAdapters), LazyThreadSafetyMode.ExecutionAndPublication);
+            _configuredRecovery = new Lazy<FalExecutionRecovery>(() => new FalExecutionRecovery(_configuredExecutor.Value), LazyThreadSafetyMode.ExecutionAndPublication);
             _video = new Lazy<VideoSubsystemBundle>(
                 () => VideoSubsystemFactory.Build(
                     SharedGenerationSecretStore,
                     SharedArtifactStore,
                     ledger,
                     sidecarBackfill,
-                    _vertexAccessTokenSource),
+                    _vertexAccessTokenSource, VisionCatalog.Catalog, _configuredExecutor.Value, _falAdapters, _configuredRecovery.Value, VisionCatalog.Diagnostics),
                 LazyThreadSafetyMode.ExecutionAndPublication);
             _backfillScheduler = backfillScheduler
                 ?? new ThreadPoolVideoSidecarBackfillTaskScheduler();
@@ -228,7 +241,7 @@ namespace Rook
                                 GenerationSecretKeys.FalApiKey),
                             () => SharedGenerationSecretStore.GetSecret(
                                 GenerationSecretKeys.ReplicateApiToken),
-                            _vertexAccessTokenSource));
+                            _vertexAccessTokenSource, VisionCatalog.Catalog, _configuredExecutor.Value, _falAdapters), VisionCatalog.Catalog, VisionCatalog.Diagnostics);
                     var selector = new ReplicateImageArtifactRequestFactorySelector(
                         () => SharedGenerationSecretStore.GetSecret(
                             GenerationSecretKeys.ReplicateApiToken));
@@ -243,7 +256,7 @@ namespace Rook
                         materializer: null,
                         requestFactorySelector: selector.Select,
                         ledger: imageLedger ?? new JsonlImageJobLedger(),
-                        submissionExecutor: executor);
+                        submissionExecutor: executor, configuredRecovery: _configuredRecovery.Value);
                     return new ImageJobSubsystemBundle(manager, registry, executor);
                 },
                 LazyThreadSafetyMode.ExecutionAndPublication);

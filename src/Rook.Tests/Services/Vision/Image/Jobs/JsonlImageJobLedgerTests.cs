@@ -1,5 +1,9 @@
 using System;
 using System.IO;
+using System.Reflection;
+using System.Runtime.ExceptionServices;
+using System.Threading;
+using System.Threading.Tasks;
 using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Image.Jobs;
 using Xunit;
@@ -8,6 +12,16 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
 {
     public class JsonlImageJobLedgerTests : IDisposable
     {
+        [Theory]
+        [InlineData(false)] [InlineData(true)]
+        public async Task Cancelled_ledger_admission_does_not_read_or_append_after_contention(bool read)
+        {
+            var ledger = Ledger();
+            ledger.Append(Initial(Guid.NewGuid(), ImageJobState.Queued));
+            await LedgerAdmissionTest.CancelWhileHeld(ledger, read ? "ReadAll" : "Append",
+                read ? null : Initial(Guid.NewGuid(), ImageJobState.Queued));
+            Assert.Single(ledger.ReadAll().Records);
+        }
         private readonly string _root = Path.Combine(
             Path.GetTempPath(),
             $"rook-image-ledger-{Guid.NewGuid():N}");
@@ -112,5 +126,54 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
                 "black-forest-labs/flux-schnell",
                 state,
                 DateTimeOffset.Parse("2026-05-04T12:00:00Z"));
+    }
+
+    internal static class LedgerAdmissionTest
+    {
+        internal static async Task CancelWhileHeld(object ledger, string method, object? record)
+        {
+            using var held = await Hold(ledger);
+            using var cancellation = new CancellationTokenSource();
+            var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var operation = Task.Run(() =>
+            {
+                entered.TrySetResult(true);
+                var types = record == null ? new[] { typeof(CancellationToken) } : new[] { record.GetType(), typeof(CancellationToken) };
+                var member = ledger.GetType().GetMethod(method, types);
+                // The legacy fallback makes the pre-fix test fail behaviorally, not at compilation.
+                var args = member != null ? (record == null ? new object[] { cancellation.Token } : new[] { record, cancellation.Token }) : (record == null ? Array.Empty<object>() : new[] { record });
+                member ??= ledger.GetType().GetMethod(method, record == null ? Type.EmptyTypes : new[] { record.GetType() });
+                try { member!.Invoke(ledger, args); }
+                catch (TargetInvocationException ex) { ExceptionDispatchInfo.Capture(ex.InnerException!).Throw(); }
+            });
+            await entered.Task; cancellation.Cancel();
+            try
+            {
+                Assert.Same(operation, await Task.WhenAny(operation, Task.Delay(TimeSpan.FromSeconds(2))));
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => operation);
+            }
+            finally { held.Dispose(); try { await operation; } catch (OperationCanceledException) { } }
+        }
+
+        internal static async Task<IDisposable> Hold(object ledger)
+        {
+            var gate = ledger.GetType().GetField("_lock", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(ledger)!;
+            var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var release = new ManualResetEventSlim();
+            _ = Task.Run(() =>
+            {
+                if (gate is SemaphoreSlim semaphore) semaphore.Wait(); else Monitor.Enter(gate);
+                try { entered.TrySetResult(true); release.Wait(); }
+                finally { if (gate is SemaphoreSlim semaphore2) semaphore2.Release(); else Monitor.Exit(gate); }
+            });
+            await entered.Task;
+            return new Release(release);
+        }
+        private sealed class Release : IDisposable
+        {
+            private readonly ManualResetEventSlim _release;
+            internal Release(ManualResetEventSlim release) => _release = release;
+            public void Dispose() => _release.Set();
+        }
     }
 }

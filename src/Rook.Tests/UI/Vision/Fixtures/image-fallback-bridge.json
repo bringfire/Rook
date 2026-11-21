@@ -237,7 +237,8 @@
             "supports_text_to_image": false
           }
         }
-      ]
+      ],
+      "catalog_diagnostics": []
     }
   },
   "fallback_success": {
@@ -522,7 +523,8 @@
             "supports_text_to_image": false
           }
         }
-      ]
+      ],
+      "catalog_diagnostics": []
     }
   },
   "fallback_missing": {
@@ -789,7 +791,8 @@
             "supports_text_to_image": false
           }
         }
-      ]
+      ],
+      "catalog_diagnostics": []
     }
   },
   "primary_success": {

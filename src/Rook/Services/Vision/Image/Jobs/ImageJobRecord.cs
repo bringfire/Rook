@@ -1,5 +1,6 @@
 using System;
 using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Fal;
 
 namespace Rook.Services.Vision.Image.Jobs
 {
@@ -16,7 +17,8 @@ namespace Rook.Services.Vision.Image.Jobs
             Guid? resultArtifactId = null,
             GenerationError? error = null,
             ImageRoutingContext? routing = null,
-            ImageFalDispatchState? falDispatchState = null)
+            ImageFalDispatchState? falDispatchState = null,
+            FalExecutionSnapshotReadResult? configuredFalExecution = null)
         {
             if (jobId == Guid.Empty)
                 throw new ArgumentException(
@@ -33,6 +35,7 @@ namespace Rook.Services.Vision.Image.Jobs
             Error = error;
             Routing = routing;
             FalDispatchState = falDispatchState;
+            ConfiguredFalExecution = configuredFalExecution;
         }
 
         public Guid JobId { get; }
@@ -46,5 +49,6 @@ namespace Rook.Services.Vision.Image.Jobs
         public GenerationError? Error { get; }
         public ImageRoutingContext? Routing { get; }
         public ImageFalDispatchState? FalDispatchState { get; }
+        public FalExecutionSnapshotReadResult? ConfiguredFalExecution { get; }
     }
 }

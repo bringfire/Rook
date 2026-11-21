@@ -69,6 +69,20 @@ namespace Rook.Tests.Services.Vision.Video
         }
 
         [Fact]
+        public async Task Nonblocking_admission_shares_capacity_and_releases_after_queued_cancellation()
+        {
+            var resources = new VideoPreparationResources(maxBundles: 1);
+            Assert.True(resources.TryAcquire(out var first));
+            using var held = first!;
+            using var stop = new CancellationTokenSource();
+            var pending = resources.AcquireAsync(stop.Token); Assert.False(pending.IsCompleted);
+            Assert.False(resources.TryAcquire(out var denied)); Assert.Null(denied);
+            stop.Cancel(); await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending);
+            first!.Dispose(); Assert.Equal(0, resources.ActiveBundles);
+            Assert.True(resources.TryAcquire(out var replacement)); replacement!.Dispose(); Assert.Equal(0, resources.ActiveBundles);
+        }
+
+        [Fact]
         public async Task Read_QueuedCancellationReleasesPermit()
         {
             var resources = new VideoPreparationResources();

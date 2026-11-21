@@ -1,4 +1,7 @@
 using System;
+using System.Collections.Generic;
+using Rook.Services.Vision.Fal;
+using Rook.Services.Vision.Fal.Models;
 using Rook.Artifacts;
 using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Image.Vertex;
@@ -17,7 +20,8 @@ namespace Rook.Services.Vision.Video
         IVideoProviderRegistry Registry,
         IVideoCostEstimator Estimator,
         IVideoSidecarBackfillService SidecarBackfill,
-        VideoFramingPreparationService Framing);
+        VideoFramingPreparationService Framing,
+        IMediaResolver MediaResolver);
 
     /// <summary>
     /// Pure composition for the video subsystem. Stateless; the same
@@ -49,7 +53,10 @@ namespace Rook.Services.Vision.Video
             ArtifactStore artifactStore,
             IVideoJobLedger? ledger = null,
             IVideoSidecarBackfillService? sidecarBackfill = null,
-            IVertexAccessTokenSource? vertexAccessTokenSource = null)
+            IVertexAccessTokenSource? vertexAccessTokenSource = null,
+            FalCatalogSnapshot? catalog = null, FalConfiguredExecutor? configuredExecutor = null,
+            FalAdapterRegistry? adapters = null, FalExecutionRecovery? configuredRecovery = null,
+            IReadOnlyList<FalCatalogDiagnostic>? catalogDiagnostics = null)
         {
             if (generationSecrets is null)
                 throw new ArgumentNullException(nameof(generationSecrets));
@@ -59,7 +66,7 @@ namespace Rook.Services.Vision.Video
                 VisionProviderRegistrations.CreateVideoRegistrations(
                     () => generationSecrets.GetSecret(GenerationSecretKeys.GeminiApiKey),
                     () => generationSecrets.GetSecret(GenerationSecretKeys.FalApiKey),
-                    vertexAccessTokenSource));
+                    vertexAccessTokenSource, catalog, configuredExecutor, adapters), catalog, catalogDiagnostics);
 
             VideoJobManager? manager = null;
             var mediaResolver = new ArtifactOnlyVideoMediaResolver(artifactStore, VideoPreparationResources.Shared,
@@ -78,7 +85,7 @@ namespace Rook.Services.Vision.Video
                 estimator: estimator,
                 artifactStore: artifactStore,
                 clock: clock, idGenerator: null, pollInterval: null, maxConcurrentJobs: VideoJobManager.DefaultMaxConcurrentJobs,
-                materializer: null, coordinator: coordinator, routeQuotes: routeQuotes);
+                materializer: null, coordinator: coordinator, routeQuotes: routeQuotes, configuredRecovery: configuredRecovery);
 
             var actualSidecarBackfill = sidecarBackfill
                 ?? new VideoSidecarBackfillService(
@@ -92,7 +99,7 @@ namespace Rook.Services.Vision.Video
                 registry,
                 estimator,
                 actualSidecarBackfill,
-                framing);
+                framing, mediaResolver);
         }
     }
 }

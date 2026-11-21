@@ -1,5 +1,6 @@
 using System;
 using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Fal;
 
 namespace Rook.Services.Vision.Image.Jobs
 {
@@ -7,6 +8,10 @@ namespace Rook.Services.Vision.Image.Jobs
     {
         public ImageJobState State { get; }
         public GenerationError? Error { get; }
+        /// <summary>Remote evidence is independent of State, which describes the local job.</summary>
+        public FalCancellationSnapshot? ConfiguredCancellation { get; private init; }
+        public static ImageJobCancelResult Configured(ImageJobState localState, FalCancellationSnapshot evidence, GenerationError? error = null)
+            => new(localState, error) { ConfiguredCancellation = evidence };
 
         public string? Provider { get; private init; }
         public string? Model { get; private init; }

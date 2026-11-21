@@ -893,6 +893,13 @@ function Test-PrimeIncomingPromotionConsumers {
 
 Test-PrimeIncomingPromotionConsumers
 Test-InstallerPackagesBundledPythonRuntime
+function Test-InstallerIncludesExternalVisionCatalogs {
+    $text = Get-Content -LiteralPath (Join-Path $RepoRoot 'installer/RookSetup.iss') -Raw
+    foreach ($runtime in @('8', '7', '48')) {
+        Assert-Contains -Text $text -Expected ('{#CompanionNet' + $runtime + 'Dir}\vision-models\fal\*.json') -Message 'Installer must package generic fal JSON for every runtime.'
+    }
+}
+Test-InstallerIncludesExternalVisionCatalogs
 Test-PublicInstallerDoesNotRequireUserPython
 Test-InstallerDoesNotCollectApiKey
 Test-InstallerFailsWhenPostInstallFails

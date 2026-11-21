@@ -21,6 +21,7 @@ Does NOT cover:
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import sys
@@ -427,17 +428,17 @@ async def test_port_extracted_and_forwarded_to_call_rhino():
 # ─── tool_groups.py catalog contract ──────────────────────────────────
 
 
-def test_tool_groups_vision_group_contains_all_eight():
+def test_tool_groups_vision_group_contains_legacy_and_image_job_tools():
     assert "vision" in tool_groups.TOOL_GROUPS
     got = set(tool_groups.TOOL_GROUPS["vision"])
-    want = set(VISION_TOOL_NAMES)
+    want = set(VISION_TOOL_NAMES) | {"rhino_image_models", "rhino_image_estimate", "rhino_generate_image", "rhino_image_status", "rhino_image_result", "rhino_image_cancel", "rhino_image_jobs"}
     assert got == want, f"vision group = {got}, expected {want}"
 
 
 def test_tool_groups_vision_readonly_excludes_mutators():
     assert "vision_readonly" in tool_groups.TOOL_GROUPS
     got = set(tool_groups.TOOL_GROUPS["vision_readonly"])
-    want = set(VISION_READONLY_TOOL_NAMES)
+    want = set(VISION_READONLY_TOOL_NAMES) | {"rhino_image_models", "rhino_image_estimate", "rhino_image_status", "rhino_image_result", "rhino_image_jobs"}
     assert got == want, f"vision_readonly = {got}, expected {want}"
     # Sanity: readonly is a proper subset of the full group.
     assert got.issubset(set(tool_groups.TOOL_GROUPS["vision"]))
@@ -445,6 +446,7 @@ def test_tool_groups_vision_readonly_excludes_mutators():
     mutators = {
         "rhino_render_view", "rhino_enhance_prompt", "rhino_capture_depth",
         "rhino_vision_approve", "rhino_vision_delete_artifact",
+        "rhino_generate_image", "rhino_image_cancel",
     }
     assert not (got & mutators), (
         f"vision_readonly leaked mutators: {got & mutators}"
@@ -453,8 +455,8 @@ def test_tool_groups_vision_readonly_excludes_mutators():
 
 def test_tool_groups_vision_is_mcp_only():
     """Agents don't dispatch through the MCP path — they use the HTTP
-    bridge directly per CLAUDE.md. Vision tools don't have
-    BRIDGE_ROUTES entries in tool_dispatcher.py, so the groups must
+    bridge directly per CLAUDE.md. Legacy Vision tools lack
+    complete dispatcher routes, so the groups must
     be blocked from agent request. This test fails if someone moves
     vision out of MCP_ONLY_GROUPS without adding the dispatcher
     routes — the regression gate demanded by Codex PR-6 scope review.
@@ -475,3 +477,18 @@ def test_tool_groups_vision_entries_match_list_tools():
                 f"tool_groups['{group}'] references {name!r} which is "
                 f"not registered in list_tools()"
             )
+
+
+@pytest.mark.asyncio
+async def test_legacy_render_view_schema_and_response_remain_compatible():
+    tool = next(t for t in await server.list_tools() if t.name == "rhino_render_view")
+    assert tool.inputSchema["required"] == ["prompt", "input_image_path"]
+    assert {key: value["type"] for key, value in tool.inputSchema["properties"].items()} == {
+        "prompt": "string", "input_image_path": "string", "reference_image_paths": "array",
+        "model": "string", "resolution": "string", "aspect_ratio": "string", "port": "integer",
+    }
+    baseline = {"artifact_id": "12345678-1234-1234-1234-123456789abc", "file_path": "C:/renders/result.png"}
+    with patch.object(server, "call_rhino", new_callable=AsyncMock) as call:
+        call.return_value = {"success": True, "data": baseline}
+        result = await server.call_tool("rhino_render_view", {"prompt": "stone facade", "input_image_path": "C:/renders/input.png"})
+        assert json.loads(result[0].text) == baseline

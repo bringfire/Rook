@@ -10,6 +10,7 @@ namespace Rook.Services.Vision.Video
 {
     internal static class VideoEstimateFingerprint
     {
+        internal static string ComputeConfigured(JsonObject canonicalSnapshot) => "fal1:" + Rook.Services.Vision.Fal.Models.FalCanonicalJson.Hash(canonicalSnapshot);
         public static string Compute(JsonObject canonicalSnapshot)
         {
             using var stream = new MemoryStream();

@@ -1,6 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
+using System.Text.Json.Nodes;
+using Rook.Services.Vision.Fal;
+using Rook.Services.Vision.Fal.Models;
+using Rook.Services.Vision.Video.Framing;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,12 +17,12 @@ using Rook.Services.Vision.Image;
 namespace Rook.Handlers
 {
     /// <summary>
-    /// Managed bridge handler for asynchronous image generation jobs.
-    /// Routing remains bridge-only for Task 6; native HTTP route wiring is
-    /// handled separately at the boundary scan.
+    /// Shared managed handler for asynchronous image jobs and configured estimates.
+    /// Estimate/status/result/history run off the UI thread; submit/cancel are asynchronous.
     /// </summary>
     public class ImageJobOpHandler
     {
+        public const string OpEstimate = "image_estimate";
         public const string OpStart = "image_generate_start";
         public const string OpStatus = "image_job_status";
         public const string OpCancel = "image_job_cancel";
@@ -25,13 +30,17 @@ namespace Rook.Handlers
         public const string OpList = "image_jobs";
         public const int DefaultListLimit = 50;
 
+        private readonly VideoPreparationResources _configuredResources;
         private readonly IImageJobManager _manager;
         private readonly VisionHandler _visionHandler;
 
         public ImageJobOpHandler(
             IImageJobManager manager,
-            VisionHandler visionHandler)
+            VisionHandler visionHandler) : this(manager, visionHandler, VideoPreparationResources.Shared) { }
+
+        internal ImageJobOpHandler(IImageJobManager manager, VisionHandler visionHandler, VideoPreparationResources configuredResources)
         {
+            _configuredResources = configuredResources;
             _manager = manager ?? throw new ArgumentNullException(nameof(manager));
             _visionHandler = visionHandler
                 ?? throw new ArgumentNullException(nameof(visionHandler));
@@ -61,7 +70,7 @@ namespace Rook.Handlers
                         .ConfigureAwait(false),
                     OpCancel => await CancelAsync(args, cancellationToken)
                         .ConfigureAwait(false),
-                    OpStatus or OpResult or OpList => FailInvalidRequest(
+                    OpStatus or OpResult or OpList or OpEstimate => FailInvalidRequest(
                         $"op '{op}' must be routed through the off-UI dispatcher, not the async dispatcher."),
                     _ => FailInvalidRequest($"Unknown image job op '{op}'."),
                 };
@@ -105,6 +114,7 @@ namespace Rook.Handlers
             {
                 return op switch
                 {
+                    OpEstimate => EstimateConfigured(args),
                     OpStatus => Status(args),
                     OpResult => Result(args),
                     OpList => List(args),
@@ -126,6 +136,7 @@ namespace Rook.Handlers
             Dictionary<string, JsonElement> args,
             CancellationToken ct)
         {
+            if (IsConfigured(args)) return await StartConfiguredAsync(args, ct).ConfigureAwait(false);
             var workResult = _visionHandler.BuildImageGenerationWorkItem(
                 args,
                 VisionHandler.ImageGenerationWorkItemOptions.AsyncImageJob);
@@ -152,6 +163,62 @@ namespace Rook.Handlers
             }, result.Provider, result.Model, result.Routing, result.FalDispatchState));
         }
 
+        private bool IsConfigured(Dictionary<string, JsonElement> args) =>
+            _visionHandler.ImageRegistry.TryResolve(GetStringArg(args, "model") ?? "", out var model) && model.Provider is IConfiguredGenerationProvider;
+
+        private FalRequestParseResult? ParseConfigured(Dictionary<string, JsonElement> args)
+        {
+            var catalog = (_visionHandler.ImageRegistry as DefaultImageProviderRegistry)?.Catalog;
+            return catalog == null ? null : FalConfiguredRequestParser.Parse(FalConfiguredRequestParser.ToJson(args), catalog, "image");
+        }
+        private static ApiResponse Unavailable() => new() { Success = false, HttpStatus = 400,
+            Data = new Dictionary<string, object?> { ["code"] = "model_unavailable", ["field"] = "model", ["message"] = "Configured model is unavailable." } };
+        private ApiResponse EstimateConfigured(Dictionary<string, JsonElement> args)
+        {
+            if (!IsConfigured(args)) return Unavailable();
+            var parsed = ParseConfigured(args);
+            if (parsed == null) return Unavailable();
+            if (!parsed.Success) return FalConfiguredRequestParser.Failure(parsed);
+            var request = parsed.Request!;
+            FalMediaSnapshot snapshot;
+            using (var resolved = _visionHandler.ResolveConfiguredImageMedia(request.Media.Select(m => m.Input.Source).Distinct().ToArray()))
+            {
+                if (!resolved.Success) return Fail(resolved.Error!);
+                snapshot = FalMediaSnapshot.Capture(request, resolved.Resolved!, _configuredResources);
+            }
+            using (snapshot)
+            {
+                var quote = new FalQuoteService().Estimate(request, snapshot);
+                return quote.Success ? Ok(quote.Quote!.ToJson()) : Fail(quote.Error!);
+            }
+        }
+        private async Task<ApiResponse> StartConfiguredAsync(Dictionary<string, JsonElement> args, CancellationToken ct)
+        {
+            var parsed = ParseConfigured(args);
+            if (parsed == null) return Unavailable();
+            if (!parsed.Success) return FalConfiguredRequestParser.Failure(parsed);
+            if (FalSubmitConfirmation.TryParse(FalConfiguredRequestParser.ToJson(args), out var confirmation) is { } error) return Fail(error);
+            var normalized = parsed.Request!;
+            var refs = normalized.Media.Select(m => m.Input.Source).Distinct().ToArray();
+            FalMediaSnapshot snapshot;
+            using (var resolved = _visionHandler.ResolveConfiguredImageMedia(refs))
+            {
+                if (!resolved.Success) return Fail(resolved.Error!);
+                snapshot = FalMediaSnapshot.Capture(normalized, resolved.Resolved!, _configuredResources);
+            }
+            if (snapshot.ValidationError is { } invalid) { snapshot.Dispose(); return Fail(invalid); }
+            var fields = normalized.EffectiveRequestFields;
+            var shell = new ImageGenerationRequest(normalized.Binding.ModelId,
+                FalConfiguredRequestParser.String(fields["prompt"]) ?? "", FalConfiguredRequestParser.String(fields["resolution"]) ?? "",
+                FalConfiguredRequestParser.String(fields["aspect_ratio"]) ?? "", 1, refs, new FalModelOptions(parsed.Input!, normalized.Binding.OperationId));
+            _visionHandler.ImageRegistry.TryResolve(normalized.Binding.ModelId, out var model);
+            // SubmitAsync takes ownership, including rejection. No handler-scoped using may end a running job's media lifetime.
+            var result = await _manager.SubmitAsync(new ImageJobStartRequest(shell, new Dictionary<MediaRef, ResolvedMedia>(),
+                refs.Select(r => r.ArtifactId!.Value).Distinct().ToArray(), model, configuredRequest: normalized, configuredMedia: snapshot, configuredConfirmation: confirmation), ct).ConfigureAwait(false);
+            if (result.Error != null) return Fail(result.Error, result.Provider, result.Model, result.Routing, result.FalDispatchState);
+            return Ok(new Dictionary<string, object?> { ["job_id"] = result.JobId!.Value.ToString("D"), ["state"] = StateToString(result.State) });
+        }
+
         private async Task<ApiResponse> CancelAsync(
             Dictionary<string, JsonElement> args,
             CancellationToken ct)
@@ -162,14 +229,12 @@ namespace Rook.Handlers
             var result = await _manager.CancelAsync(jobId, ct)
                 .ConfigureAwait(false);
 
-            if (result.Error is not null)
-                return Fail(result.Error, result.Provider, result.Model, result.Routing, result.FalDispatchState);
-
-            return Ok(WithRouting(new Dictionary<string, object?>
-            {
-                ["job_id"] = jobId.ToString("D"),
-                ["state"] = StateToString(result.State),
-            }, result.Provider, result.Model, result.Routing, result.FalDispatchState));
+            var response = result.Error != null ? Fail(result.Error, result.Provider, result.Model, result.Routing, result.FalDispatchState)
+                : Ok(WithRouting(new Dictionary<string, object?> { ["job_id"] = jobId.ToString("D"), ["state"] = StateToString(result.State) }, result.Provider, result.Model, result.Routing, result.FalDispatchState));
+            var data = (Dictionary<string, object?>)response.Data!;
+            if (result.ConfiguredCancellation != null) { data["job_id"] = jobId.ToString("D"); data["state"] = StateToString(result.State); }
+            FalConfiguredRequestParser.AddCancellation(data, result.ConfiguredCancellation);
+            return response;
         }
 
         private ApiResponse Status(Dictionary<string, JsonElement> args)
@@ -238,7 +303,17 @@ namespace Rook.Handlers
             var jobs = new List<Dictionary<string, object?>>(
                 result.Jobs.Count);
             foreach (var job in result.Jobs)
-                jobs.Add(JobToObj(job));
+            {
+                var row = JobToObj(job);
+                if (job.ConfiguredFalExecution is { } read)
+                {
+                    row[FalExecutionSnapshot.ExtensionKey] = read.PublicJson;
+                    var summary = read.Snapshot?.Request.EffectiveRequestFields;
+                    if (summary != null) { summary["model"] = job.Model; summary["operation"] = read.Snapshot!.Binding.OperationId; }
+                    row["request_summary"] = summary;
+                }
+                jobs.Add(row);
+            }
 
             return Ok(new Dictionary<string, object?>
             {
@@ -331,16 +406,21 @@ namespace Rook.Handlers
             GenerationError error, string? provider = null, string? model = null,
             ImageRoutingContext? routing = null, ImageFalDispatchState? dispatch = null)
         {
-            if (provider != null && model != null) return ImageFailureProjection.Build(error, provider, model, routing, dispatch);
+            if (provider != null && model != null)
+            {
+                var projected = ImageFailureProjection.Build(error, provider, model, routing, dispatch);
+                FalConfiguredRequestParser.AddErrorDetail(projected, error); return projected;
+            }
             var safe = ImageJobLedgerRecordFactory.SanitizeError(error)
                 ?? error;
-            return new Dictionary<string, object?>
+            var data = new Dictionary<string, object?>
             {
                 ["code"] = ErrorCodeToString(safe.Code),
                 ["message"] = safe.Message,
                 ["retryable"] = safe.Retryable,
                 ["field"] = safe.Field,
             };
+            FalConfiguredRequestParser.AddErrorDetail(data, error); return data;
         }
 
         internal static int MapStatusFromCode(GenerationErrorCode code) =>
