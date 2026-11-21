@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using Rook.Services.Vision.Fal.Models;
 namespace Rook.Services.Vision.Video
 {
     /// <summary>
@@ -14,5 +16,6 @@ namespace Rook.Services.Vision.Video
         string ProviderName,
         VideoCapability Capability,
         PricingKind PricingKind,
-        string PricingSource);
+        string PricingSource,
+        IReadOnlyList<FalOperationDescriptor>? Operations = null);
 }

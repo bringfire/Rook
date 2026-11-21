@@ -15,6 +15,30 @@ namespace Rook.Tests.Services.Vision.Video
 {
     public class VideoRouteQuoteTests
     {
+        [Fact]
+        public void Configured_fractional_duration_bypasses_legacy_capabilities_and_integer_quantity()
+        {
+            using var files = Rook.Tests.Services.Vision.Fal.FalDeclarativePricingTests.Seconds();
+            var normalized = Rook.Tests.Services.Vision.Fal.FalDeclarativePricingTests.Normalize(files, new JsonObject());
+            var model = files.Compile().Catalog!.Definitions[0];
+            var strategy = new Rook.Services.Vision.Fal.Models.FalDeclarativePricing();
+            var registry = new DefaultVideoProviderRegistry(new[] { new ConfiguredFalVideoRegistration(model,
+                new Rook.Services.Vision.Fal.FalConfiguredExecutor(new Rook.Services.Vision.Fal.FalApiClient(), () => null),
+                new Rook.Services.Vision.Fal.Models.FalAdapterRegistry(), strategy.ForVideo(model, new Rook.Services.Vision.Fal.Models.FalAdapterRegistry())) });
+            Assert.True(registry.TryResolve(model.ModelId, out var resolved));
+            var shell = new VideoGenerationRequest(model.ModelId, VideoMode.T2V, 0, "placeholder", "placeholder", null, null, null, null, null,
+                new Rook.Services.Vision.Fal.Models.FalModelOptions(normalized.SuppliedInput, "text_to_video"), 1);
+            var estimate = new VideoCostEstimator().Estimate(resolved!, shell);
+            Assert.True(estimate.Success, estimate.Error?.Message); Assert.Equal(.30m, estimate.Estimate!.DollarsUsd);
+            Assert.Equal(PricingKind.External, estimate.Estimate.Pricing.Kind);
+            Assert.Null(estimate.Estimate.Pricing.UnitPriceUsd);
+            Assert.Null(estimate.Estimate.DurationSeconds);
+            Assert.Equal(1.5m, estimate.Estimate.ConfiguredRequest!.EffectiveRequestFields["duration_seconds"]!.GetValue<decimal>());
+            var conflicting = shell.With(options: new Rook.Services.Vision.Fal.Models.FalModelOptions(
+                new Rook.Services.Vision.Fal.Models.FalModelInput(operationId: "image_to_video"), "text_to_video"));
+            Assert.False(new VideoCostEstimator().Estimate(resolved!, conflicting).Success);
+            Assert.False(resolved!.PricingModel.Estimate(conflicting, resolved.Capability).Success);
+        }
         internal sealed class Secrets : IGenerationSecretStore
         {
             public string? Google = "google";
@@ -40,6 +64,18 @@ namespace Rook.Tests.Services.Vision.Video
         }
         internal static VideoRequestIntent Intent() => VideoRequestIntent.Normalize(TestVideoFixtures.DefaultT2vRequest(model: "veo-3.1-generate-preview", resolution: "1080p"), new JsonObject());
 
+        [Fact]
+        public void Configured_direct_quote_has_one_candidate_and_does_not_select_Google_fallback()
+        {
+            using var files = Rook.Tests.Services.Vision.Fal.FalDeclarativePricingTests.Seconds();
+            var request = Rook.Tests.Services.Vision.Fal.FalDeclarativePricingTests.Normalize(files, new JsonObject());
+            using var media = Rook.Tests.Services.Vision.Fal.FalQuoteServiceTests.Capture(request);
+            var secrets = new Secrets { ThrowFal = true };
+            var result = Service(secrets).QuoteConfigured(request, media);
+            Assert.Null(result.Error); Assert.Equal(.30m, result.Quote!.MaximumEstimatedCostUsd);
+            Assert.Single(result.Quote.ToJson()["candidates"]!.AsArray()); Assert.Equal(0, secrets.FalReads);
+        }
+
         [Theory]
         [InlineData("image-to-video")]
         [InlineData("first-last-frame-to-video")]
@@ -63,6 +99,7 @@ namespace Rook.Tests.Services.Vision.Video
             var quote = (await service.QuoteAsync(VideoRequestIntent.Normalize(request, new JsonObject()), default)).Quote!;
             Assert.NotNull(quote);
             Assert.Equal(7.20m, quote.PrimaryEstimate.DollarsUsd);
+            Assert.Equal(8, quote.PrimaryEstimate.DurationSeconds);
             Assert.Equal(7.20m, quote.MaximumEstimatedCostUsd);
             Assert.Equal(.90m, quote.PrimaryEstimate.Pricing.UnitPriceUsd);
             Assert.Equal(PricingKind.PerSecond, quote.PrimaryEstimate.Pricing.Kind);

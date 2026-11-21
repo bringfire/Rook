@@ -172,13 +172,13 @@ public sealed class ReconstructionJobLedgerTests
             Guid.NewGuid(),
             "old",
             Guid.NewGuid(),
-            "image"));
+            "image") with { CreatedAt = DateTimeOffset.Parse("2026-01-01T00:00:00Z"), UpdatedAt = DateTimeOffset.Parse("2026-01-01T00:00:00Z") });
         var newest = Guid.NewGuid();
         ledger.Append(ReconstructionJobLedgerRecord.Queued(
             newest,
             "new",
             Guid.NewGuid(),
-            "image"));
+            "image") with { CreatedAt = DateTimeOffset.Parse("2026-01-01T00:00:01Z"), UpdatedAt = DateTimeOffset.Parse("2026-01-01T00:00:01Z") });
 
         var jobs = ledger.List(limit: 1);
 

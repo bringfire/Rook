@@ -10,6 +10,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$SmokeManifestPath,
     [string]$OutputManifestPath = '',
+    [string]$VisionCatalogValidatorPath = '',
     [long]$MinInstallerBytes = 5242880,
     [string]$BuildStartedAt = '',
     [switch]$RequireInstallerNewerThanScript
@@ -53,6 +54,27 @@ function Require-JsonField {
 function Get-Sha256 {
     param([string]$Path)
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToUpperInvariant()
+}
+
+function Test-PackagedVisionCatalogs {
+    param(
+        [string]$SourceRoot,
+        [string]$PackageRoot,
+        [string]$ValidatorPath,
+        [scriptblock]$ValidateCatalog = { param($root,$validator) Invoke-VisionCatalogValidation $root $validator }
+    )
+    & $ValidateCatalog $SourceRoot $ValidatorPath | Out-Null
+    $sourceFiles = @(Get-VisionCatalogFileManifest $SourceRoot)
+    $sourceManifest = ConvertTo-Json -InputObject $sourceFiles -Depth 4 -Compress
+    foreach ($runtime in @('net48','net7.0','net8.0')) {
+        $root = Assert-VisionContainedPath (Join-Path $PackageRoot "$runtime/vision-models/fal") $PackageRoot
+        & $ValidateCatalog $root $ValidatorPath | Out-Null
+        $files = @(Get-VisionCatalogFileManifest $root)
+        if ($sourceManifest -cne (ConvertTo-Json -InputObject $files -Depth 4 -Compress)) {
+            throw "Catalog source/package hash parity failed: $runtime"
+        }
+        [ordered]@{ runtime = $runtime; root = $root; semantic_validation = 'passed'; files = $files }
+    }
 }
 
 function Assert-FileNewerThanBuildStart {
@@ -678,6 +700,16 @@ Assert-SmokeHostSuccess -HostManifest $smokeManifest.standalone_rhino -Label 're
 Assert-SmokeHostSuccess -HostManifest $smokeManifest.rhino_inside_revit -Label 'release smoke manifest rhino_inside_revit' -RequiredVersionFields @('rhino_version', 'revit_version', 'rhino_inside_version') -ExpectedRhinoInside $true -SmokeStartedAt $smokeStartedAt
 $pythonRuntimeEvidence = Assert-PythonRuntimeEvidence -SmokeManifest $smokeManifest
 
+# Use the frozen verification host and production compiler, never another schema.
+. (Join-Path $PSScriptRoot 'deploy-vision-model-catalog.ps1')
+if ([string]::IsNullOrWhiteSpace($VisionCatalogValidatorPath)) {
+    $VisionCatalogValidatorPath = Join-Path $RepoRoot 'src/Rook.Vision.Qualification/bin/Release/net48/Rook.Vision.Qualification.exe'
+}
+$visionCatalogs = @(Test-PackagedVisionCatalogs `
+    -SourceRoot (Join-Path $RepoRoot 'src/Rook/Services/Vision/Fal/Models') `
+    -PackageRoot (Join-Path $RepoRoot 'src/Rook/bin/Release') `
+    -ValidatorPath $VisionCatalogValidatorPath)
+
 $outputManifestParent = Split-Path -Parent $OutputManifestPath
 if ($outputManifestParent) {
     New-Item -ItemType Directory -Path $outputManifestParent -Force | Out-Null
@@ -700,6 +732,7 @@ $releaseManifest = [ordered]@{
     smoke_manifest_path = $smokeManifestPathResolved
     smoke = $smokeManifest
     python_runtime = $pythonRuntimeEvidence
+    vision_catalogs = $visionCatalogs
     native = [ordered]@{
         path = $nativePath
         file_version = $expectedFileVersion

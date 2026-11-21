@@ -1,6 +1,6 @@
 # Current Architecture
 
-Updated: 2026-09-05
+Updated: 2026-10-25
 
 This file is the short canonical description of the live runtime architecture.
 
@@ -17,7 +17,7 @@ Rook MCP Server (Python)          ← lifecycle-admitted MCP tools, knowledge gr
   │
   │ HTTP (127.0.0.1, OS-assigned port via bridge.py instance discovery)
   ▼
-RookNative (C++ plugin)           ← sole HTTP server, 263 routes, 42 handlers
+RookNative (C++ plugin)           ← sole HTTP server, 340 route paths, 46 handlers
        │
        │ P/Invoke callbacks
        ▼
@@ -47,7 +47,7 @@ Bundled Prime runtime            ← reasoning, transcript, goals, compaction, m
 
 | Fact | Value |
 |------|-------|
-| HTTP routes | 292 registrations (263 unique paths) across 42 handler files |
+| HTTP routes | 361 source registrations (340 unique paths) across 46 handler files |
 | HTTP library | cpp-httplib, port 0 (OS-assigned) |
 | Thread pool | 8 threads (capped) |
 | Thread dispatch | CMainThreadDispatcher — all Rhino API calls serialize through UI thread |
@@ -74,7 +74,25 @@ The companion is **internal** — not a separate public plugin surface.
 **By explicit exception** (native port crashed Rhino for block-definition internals):
 - `/block/set-layers`, `/block/set-materials`, `/block/set-object-colors`, `/block/set-object-names`, `/block/set-object-user-strings`, `/block/replace-object-geometry`, `/block/transform-object`
 
-Everything else is native-owned.
+Vision routes use the existing `vision_dispatch` callback: native owns HTTP transport
+and the companion owns model discovery, validation, pricing and image/video jobs.
+The seven image endpoints are `GET /vision/image/models`, `POST /vision/image/estimate`,
+`POST /vision/image/jobs`, `GET /vision/image/jobs`, `GET /vision/image/jobs/{job_id}`,
+`GET /vision/image/jobs/{job_id}/result`, and `POST /vision/image/jobs/{job_id}/cancel`.
+These native handlers and their managed admission/dispatch wiring ship together.
+The callback readiness evidence in `/capabilities` applies to these routes as well.
+
+MCP exposes seven stable image tools (`rhino_image_models`, `rhino_image_estimate`,
+`rhino_generate_image`, `rhino_image_status`, `rhino_image_result`, `rhino_image_cancel`,
+`rhino_image_jobs`). Full includes all seven; readonly includes discovery, estimate,
+status, result and history; lean retains its curated list and discovers them through
+the capability gateway. Image/video configured estimate and submit schemas require
+only `model`; managed operation descriptors own other required fields and defaults.
+Typed options, ordered artifact media, configured quote confirmation, fractional
+durations and safe integer seeds pass through without default synthesis. The legacy
+`rhino_render_view` entry point and response contract remain available.
+
+Other domain behavior is native-owned, subject to the managed exceptions above.
 
 ### Grasshopper component discovery and identity
 

@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace Rook.Tests.Handlers
@@ -83,6 +84,80 @@ namespace Rook.Tests.Handlers
             Assert.DoesNotContain(
                 $"DispatchVisionOpWithPathId(req, res, \"{routeTemplate}\", \"{op}\", \"artifact_id\");",
                 handler);
+        }
+
+        [Theory]
+        [InlineData("HandleVisionImageModelsList", "GET /vision/image/models", "list_image_models")]
+        [InlineData("HandleVisionImageEstimate", "POST /vision/image/estimate", "image_estimate")]
+        [InlineData("HandleVisionImageSubmit", "POST /vision/image/jobs", "image_generate_start")]
+        [InlineData("HandleVisionImageStatus", "GET /vision/image/jobs/{job_id}", "image_job_status")]
+        [InlineData("HandleVisionImageResult", "GET /vision/image/jobs/{job_id}/result", "image_job_result")]
+        [InlineData("HandleVisionImageCancel", "POST /vision/image/jobs/{job_id}/cancel", "image_job_cancel")]
+        [InlineData("HandleVisionImageJobsList", "GET /vision/image/jobs", "image_jobs")]
+        public void ImageRoutes_ForwardThroughExistingVisionBoundary(string handlerName, string route, string op)
+        {
+            var native = ReadSourceFile("src", "RookNative", "Handlers", "VisionHandler.cpp");
+            var handler = ExtractFunction(native, handlerName);
+            Assert.Contains("\"" + route + "\"", handler);
+            Assert.Contains("\"" + op + "\"", handler);
+            Assert.DoesNotContain("CMainThreadDispatcher", handler);
+            if (route.Contains("{job_id}"))
+                Assert.Contains("\"job_id\"", handler);
+        }
+
+        [Fact]
+        public void ImageBridgeAdmission_MatchesSharedHandlerDispatchAndPreservesResolver()
+        {
+            var source = ReadSourceFile("src", "Rook", "InternalBridge", "NativeGhBridgeRegistrar.cs");
+            var admissionStart = source.IndexOf("ExpectedVisionOps =", StringComparison.Ordinal);
+            var admissionEnd = source.IndexOf("};", admissionStart, StringComparison.Ordinal);
+            var admission = source.Substring(admissionStart, admissionEnd - admissionStart);
+            Assert.Contains("\"list_image_models\"", admission);
+            foreach (var name in new[] { "OpEstimate", "OpStart", "OpStatus", "OpResult", "OpCancel", "OpList" })
+            {
+                Assert.Contains("ImageJobOpHandler." + name, admission);
+                Assert.Contains("case ImageJobOpHandler." + name + ":", source);
+            }
+            Assert.Contains("new ImageJobOpHandler(RookSubsystemRoot.Instance.ImageJobs.Manager, Vision)", source);
+            Assert.Contains("_imageJobOpHandler.Value.DispatchAsync(reqJson, ct)", source);
+            Assert.Contains("_imageJobOpHandler.Value.DispatchOffUi(reqJson)", source);
+            Assert.Contains("bundle.Framing, bundle.MediaResolver", source);
+            Assert.DoesNotContain("\"image_job_wait\"", admission);
+        }
+
+        [Theory]
+        [InlineData("Get", "/vision/image/models", "HandleVisionImageModelsList")]
+        [InlineData("Post", "/vision/image/estimate", "HandleVisionImageEstimate")]
+        [InlineData("Post", "/vision/image/jobs", "HandleVisionImageSubmit")]
+        [InlineData("Get", "/vision/image/jobs", "HandleVisionImageJobsList")]
+        [InlineData("Get", "/vision/image/jobs/([^/]+)", "HandleVisionImageStatus")]
+        [InlineData("Get", "/vision/image/jobs/([^/]+)/result", "HandleVisionImageResult")]
+        [InlineData("Post", "/vision/image/jobs/([^/]+)/cancel", "HandleVisionImageCancel")]
+        public void ImageRouteRegistrations_PreserveHttpMethodAndHandler(string method, string path, string handler)
+        {
+            var source = ReadSourceFile("src", "RookNative", "RookServer.cpp");
+            var literal = path.Contains("([^/]+)") ? "R\"(" + path + ")\"" : "\"" + path + "\"";
+            var registration = Regex.Match(source,
+                "m_server->" + method + @"\(" + Regex.Escape(literal) + @",[^}]+\}");
+            Assert.True(registration.Success, "Missing route registration: " + method + " " + path);
+            Assert.Contains(handler + "(req, res)", registration.Value);
+        }
+
+        [Fact]
+        public void ImageCapabilities_UseExistingVisionCallbackReadiness()
+        {
+            var source = ReadSourceFile("src", "RookNative", "RookServer.cpp");
+            var start = source.IndexOf("domains.push_back(Domain(\"vision.media\"", StringComparison.Ordinal);
+            const string boundary = "CompanionEvidenceFor(companionStatus, \"vision.media\")));";
+            var end = source.IndexOf(boundary, start, StringComparison.Ordinal) + boundary.Length;
+            var capability = source.Substring(start, end - start);
+            Assert.Contains("visionReady", capability);
+            Assert.Contains("managed_bridge_callback_not_registered", capability);
+            foreach (var route in new[] {
+                "GET /vision/image/models", "POST /vision/image/estimate", "POST /vision/image/jobs",
+                "GET /vision/image/jobs", "GET /vision/image/jobs/{job_id}",
+                "GET /vision/image/jobs/{job_id}/result", "POST /vision/image/jobs/{job_id}/cancel" })
+                Assert.Contains("\"" + route + "\"", capability);
         }
 
         [Fact]

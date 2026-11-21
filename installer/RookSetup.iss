@@ -158,16 +158,19 @@ Source: "{#CompanionNet8Dir}\Rook.deps.json"; DestDir: "{userappdata}\McNeel\Rhi
 Source: "{#CompanionNet8Dir}\Rook.runtimeconfig.json"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0"; Components: plugins; Flags: ignoreversion
 Source: "{#CompanionNet8Dir}\*.dll"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0"; Components: plugins; Flags: ignoreversion
 Source: "{#CompanionNet8Dir}\runtimes\*"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0\runtimes"; Components: plugins; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#CompanionNet8Dir}\vision-models\fal\*.json"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0\vision-models\fal"; Components: plugins; Flags: ignoreversion recursesubdirs createallsubdirs
 
 Source: "{#CompanionNet7Dir}\Rook.rhp"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0"; Components: plugins; Flags: ignoreversion
 Source: "{#CompanionNet7Dir}\Rook.deps.json"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0"; Components: plugins; Flags: ignoreversion
 Source: "{#CompanionNet7Dir}\Rook.runtimeconfig.json"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0"; Components: plugins; Flags: ignoreversion
 Source: "{#CompanionNet7Dir}\*.dll"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0"; Components: plugins; Flags: ignoreversion
 Source: "{#CompanionNet7Dir}\runtimes\*"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0\runtimes"; Components: plugins; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#CompanionNet7Dir}\vision-models\fal\*.json"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0\vision-models\fal"; Components: plugins; Flags: ignoreversion recursesubdirs createallsubdirs
 
 Source: "{#CompanionNet48Dir}\Rook.rhp"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net48"; Components: plugins; Flags: ignoreversion
 Source: "{#CompanionNet48Dir}\*.dll"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net48"; Components: plugins; Flags: ignoreversion
 Source: "{#CompanionNet48Dir}\runtimes\*"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net48\runtimes"; Components: plugins; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#CompanionNet48Dir}\vision-models\fal\*.json"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net48\vision-models\fal"; Components: plugins; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; Bundled LGPL-only FFmpeg for video sidecar extraction
 Source: "{#FfmpegDir}\ffmpeg.exe"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\ffmpeg"; Components: plugins; Flags: ignoreversion

@@ -12,6 +12,16 @@ namespace Rook.Tests.Services.Vision.Image
 {
     public class ImageSubmissionExecutorTests
     {
+        [Fact]
+        public void Configured_models_use_execution_deadlines_without_model_name_cases()
+        {
+            using var run = new Rook.Tests.Services.Vision.Fal.ConfiguredRun();
+            var registration = Rook.Tests.Services.Vision.Fal.ConfiguredFalRegistrationTests.ImageRegistration(
+                Rook.Tests.Services.Vision.Fal.ConfiguredFalRegistrationTests.ImageModel(), run.Executor);
+            var registry = new DefaultImageProviderRegistry(new[] { registration });
+            Assert.True(registry.TryResolve("synthetic/image", out var model));
+            Assert.True(ImageSubmissionExecutor.UsesExecutionDeadline(model));
+        }
         private static async Task<ImageSubmissionResult> Submit(ImageFallbackFixture f, string model,
             string resolution = "1K", string aspect = "")
         {

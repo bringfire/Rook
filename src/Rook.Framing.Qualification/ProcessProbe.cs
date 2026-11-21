@@ -31,11 +31,12 @@ namespace Rook.Framing.Qualification
             if (args.Contains("--probe-wait")) Thread.Sleep(Timeout.Infinite);
             if (args.Contains("--probe-soft"))
             {
-                using var self = Process.GetCurrentProcess();
-                while (true)
+                // Query the counter governed by the Job Object notification directly.
+                // Process.Refresh + PrivateMemorySize64 performs expensive process-info
+                // queries for every MiB and can exhaust the test deadline before the
+                // workload reaches the notification threshold on a busy Windows host.
+                while (CurrentJobValue(136) < 490L * 1024 * 1024)
                 {
-                    self.Refresh();
-                    if (self.PrivateMemorySize64 >= 490L * 1024 * 1024) break;
                     if (VirtualAlloc(IntPtr.Zero, new UIntPtr(1024 * 1024), 0x3000, 4) == IntPtr.Zero)
                     { Console.Error.WriteLine("Unexpected hard allocation denial before soft notification."); return 43; }
                 }
@@ -68,13 +69,15 @@ namespace Rook.Framing.Qualification
             }
             finally { foreach (var block in allocations) VirtualFree(block, UIntPtr.Zero, 0x8000); }
         }
-        private static long CurrentLimit()
+        private static long CurrentLimit() => CurrentJobValue(120);
+        private static long CurrentJobValue(int offset)
         {
-            // Windows SDK x64 JOBOBJECT_EXTENDED_LIMIT_INFORMATION: JobMemoryLimit
-            // follows Basic(64), IO_COUNTERS(48), ProcessMemoryLimit(8).
+            // Existing x64 JOBOBJECT_EXTENDED_LIMIT_INFORMATION layout:
+            // JobMemoryLimit at120, PeakJobMemoryUsed at136; sizeof144.
             var data = new byte[144];
-            return QueryInformationJobObject(IntPtr.Zero, 9, data, data.Length, IntPtr.Zero)
-                ? checked((long)BitConverter.ToUInt64(data, 120)) : 0;
+            if (!QueryInformationJobObject(IntPtr.Zero, 9, data, data.Length, IntPtr.Zero))
+                throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+            return checked((long)BitConverter.ToUInt64(data, offset));
         }
         [DllImport("kernel32", SetLastError = true)] private static extern bool QueryInformationJobObject(IntPtr job, int type, [Out] byte[] data, int size, IntPtr returned);
         [DllImport("kernel32", SetLastError = true)] private static extern IntPtr VirtualAlloc(IntPtr address, UIntPtr size, uint allocation, uint protection);

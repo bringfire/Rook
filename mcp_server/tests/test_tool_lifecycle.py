@@ -63,3 +63,8 @@ def test_denial_payload_is_stable_and_contains_no_caller_data() -> None:
         "disposition": "suspended",
         "recovery": entry.recovery,
     }
+
+
+def test_configured_image_surface_is_active_not_a_retired_alias():
+    for name in ("rhino_image_models", "rhino_image_estimate", "rhino_generate_image", "rhino_image_status", "rhino_image_result", "rhino_image_cancel", "rhino_image_jobs"):
+        assert resolve_contained_tool(name) is None

@@ -1,4 +1,6 @@
 using System;
+using System.Linq;
+using Rook.Services.Vision.Fal.Models;
 using System.Collections.Generic;
 
 namespace Rook.Services.Vision.Video
@@ -27,8 +29,14 @@ namespace Rook.Services.Vision.Video
         private readonly Dictionary<string, IVideoProvider> _providerByName;
         private readonly List<ResolvedVideoModel> _ordered;
 
-        public DefaultVideoProviderRegistry(IEnumerable<IVideoProviderRegistration> registrations)
+        public FalCatalogSnapshot? Catalog { get; }
+        public IReadOnlyList<FalCatalogDiagnostic> CatalogDiagnostics { get; }
+
+        public DefaultVideoProviderRegistry(IEnumerable<IVideoProviderRegistration> registrations, FalCatalogSnapshot? catalog = null,
+            IReadOnlyList<FalCatalogDiagnostic>? catalogDiagnostics = null)
         {
+            Catalog = catalog;
+            CatalogDiagnostics = Array.AsReadOnly((catalogDiagnostics ?? Array.Empty<FalCatalogDiagnostic>()).ToArray());
             if (registrations is null)
                 throw new ArgumentNullException(nameof(registrations));
 
@@ -149,7 +157,8 @@ namespace Rook.Services.Vision.Video
                     ProviderName: m.ProviderName,
                     Capability: m.Capability,
                     PricingKind: VideoJobPricingTranslator.PricingKindFor(m.PricingModel),
-                    PricingSource: m.PricingModel.PricingSource));
+                    PricingSource: m.PricingModel.PricingSource,
+                    Operations: Catalog?.Definitions.FirstOrDefault(d => d.ModelId == m.ModelId)?.Operations.Select(o => new FalDescriptorProjector().Describe(o, null)).ToArray()));
             }
             return list;
         }

@@ -1,0 +1,2319 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "sync-image-panel-defaults",
+      "surface": "panel",
+      "request": {
+        "model": "qualification/sync-image",
+        "operation": "text_to_image"
+      },
+      "panel_values": {},
+      "protocol": [
+        {
+          "method": "POST",
+          "url": "https://fal.run/fal-ai/synthetic/render",
+          "status": 200,
+          "body": {
+            "images": [
+              {
+                "url": "https://fal.media/result.png",
+                "content_type": "image/png"
+              }
+            ]
+          }
+        }
+      ],
+      "actions": [],
+      "expected": {
+        "outcome": "SuccessResultOutcome",
+        "provider_payload": {
+          "prompt": "default rook",
+          "audio": false,
+          "count": "1",
+          "seed": 0,
+          "strength": 0.1,
+          "size": "L",
+          "num_images": 1
+        },
+        "calls": 1,
+        "result_role": "image",
+        "result_mime": "image/png"
+      },
+      "covers": [
+        "review-2",
+        "user-1",
+        "user-2"
+      ]
+    },
+    {
+      "id": "sync-image-panel-controls",
+      "surface": "panel",
+      "request": {
+        "model": "qualification/sync-image",
+        "seed": 9007199254740991,
+        "options": {
+          "strength": 0.123456,
+          "audio": false
+        },
+        "operation": "text_to_image"
+      },
+      "panel_values": {
+        "request.seed": "9007199254740991",
+        "options.strength": "0.1234560000",
+        "options.audio": "false"
+      },
+      "protocol": [
+        {
+          "method": "POST",
+          "url": "https://fal.run/fal-ai/synthetic/render",
+          "status": 200,
+          "body": {
+            "images": [
+              {
+                "url": "https://fal.media/result.png",
+                "content_type": "image/png"
+              }
+            ]
+          }
+        }
+      ],
+      "actions": [],
+      "expected": {
+        "outcome": "SuccessResultOutcome",
+        "provider_payload": {
+          "prompt": "default rook",
+          "audio": false,
+          "count": "1",
+          "seed": 9007199254740991,
+          "strength": 0.123456,
+          "size": "L",
+          "num_images": 1
+        },
+        "calls": 1,
+        "result_role": "image",
+        "result_mime": "image/png"
+      },
+      "covers": [
+        "review-2",
+        "user-1",
+        "user-2"
+      ]
+    },
+    {
+      "id": "sync-image-mcp-defaults",
+      "surface": "mcp",
+      "request": {
+        "model": "qualification/sync-image",
+        "operation": "text_to_image"
+      },
+      "panel_values": {},
+      "protocol": [
+        {
+          "method": "POST",
+          "url": "https://fal.run/fal-ai/synthetic/render",
+          "status": 200,
+          "body": {
+            "images": [
+              {
+                "url": "https://fal.media/result.png",
+                "content_type": "image/png"
+              }
+            ]
+          }
+        }
+      ],
+      "actions": [],
+      "expected": {
+        "outcome": "SuccessResultOutcome",
+        "provider_payload": {
+          "prompt": "default rook",
+          "audio": false,
+          "count": "1",
+          "seed": 0,
+          "strength": 0.1,
+          "size": "L",
+          "num_images": 1
+        },
+        "calls": 1,
+        "result_role": "image",
+        "result_mime": "image/png"
+      },
+      "covers": [
+        "review-2",
+        "user-1",
+        "user-2"
+      ]
+    },
+    {
+      "id": "sync-image-mcp-controls",
+      "surface": "mcp",
+      "request": {
+        "model": "qualification/sync-image",
+        "seed": 9007199254740991,
+        "options": {
+          "strength": 0.123456,
+          "audio": false
+        },
+        "operation": "text_to_image"
+      },
+      "panel_values": {
+        "request.seed": "9007199254740991",
+        "options.strength": "0.1234560000",
+        "options.audio": "false"
+      },
+      "protocol": [
+        {
+          "method": "POST",
+          "url": "https://fal.run/fal-ai/synthetic/render",
+          "status": 200,
+          "body": {
+            "images": [
+              {
+                "url": "https://fal.media/result.png",
+                "content_type": "image/png"
+              }
+            ]
+          }
+        }
+      ],
+      "actions": [],
+      "expected": {
+        "outcome": "SuccessResultOutcome",
+        "provider_payload": {
+          "prompt": "default rook",
+          "audio": false,
+          "count": "1",
+          "seed": 9007199254740991,
+          "strength": 0.123456,
+          "size": "L",
+          "num_images": 1
+        },
+        "calls": 1,
+        "result_role": "image",
+        "result_mime": "image/png"
+      },
+      "covers": [
+        "review-2",
+        "user-1",
+        "user-2"
+      ]
+    },
+    {
+      "id": "sync-image-managed-defaults",
+      "surface": "managed",
+      "request": {
+        "model": "qualification/sync-image",
+        "operation": "text_to_image"
+      },
+      "panel_values": {},
+      "protocol": [
+        {
+          "method": "POST",
+          "url": "https://fal.run/fal-ai/synthetic/render",
+          "status": 200,
+          "body": {
+            "images": [
+              {
+                "url": "https://fal.media/result.png",
+                "content_type": "image/png"
+              }
+            ]
+          }
+        }
+      ],
+      "actions": [],
+      "expected": {
+        "outcome": "SuccessResultOutcome",
+        "provider_payload": {
+          "prompt": "default rook",
+          "audio": false,
+          "count": "1",
+          "seed": 0,
+          "strength": 0.1,
+          "size": "L",
+          "num_images": 1
+        },
+        "calls": 1,
+        "result_role": "image",
+        "result_mime": "image/png"
+      },
+      "covers": [
+        "review-2",
+        "user-1",
+        "user-2"
+      ]
+    },
+    {
+      "id": "sync-image-managed-controls",
+      "surface": "managed",
+      "request": {
+        "model": "qualification/sync-image",
+        "seed": 9007199254740991,
+        "options": {
+          "strength": 0.123456,
+          "audio": false
+        },
+        "operation": "text_to_image"
+      },
+      "panel_values": {
+        "request.seed": "9007199254740991",
+        "options.strength": "0.1234560000",
+        "options.audio": "false"
+      },
+      "protocol": [
+        {
+          "method": "POST",
+          "url": "https://fal.run/fal-ai/synthetic/render",
+          "status": 200,
+          "body": {
+            "images": [
+              {
+                "url": "https://fal.media/result.png",
+                "content_type": "image/png"
+              }
+            ]
+          }
+        }
+      ],
+      "actions": [],
+      "expected": {
+        "outcome": "SuccessResultOutcome",
+        "provider_payload": {
+          "prompt": "default rook",
+          "audio": false,
+          "count": "1",
+          "seed": 9007199254740991,
+          "strength": 0.123456,
+          "size": "L",
+          "num_images": 1
+        },
+        "calls": 1,
+        "result_role": "image",
+        "result_mime": "image/png"
+      },
+      "covers": [
+        "review-2",
+        "user-1",
+        "user-2"
+      ]
+    },
+    {
+      "id": "queue-image-panel-defaults",
+      "surface": "panel",
+      "request": {
+        "model": "qualification/queue-image",
+        "operation": "text_to_image"
+      },
+      "panel_values": {},
+      "protocol": [
+        {
+          "method": "POST",
+          "url": "https://queue.fal.run/fal-ai/synthetic/render",
+          "status": 200,
+          "body": {
+            "request_id": "fixture-job",
+            "status_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+            "response_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+            "cancel_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/cancel"
+          }
+        },
+        {
+          "method": "GET",
+          "url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+          "status": 200,
+          "body": {
+            "status": "COMPLETED"
+          }
+        },
+        {
+          "method": "GET",
+          "url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+          "status": 200,
+          "body": {
+            "images": [
+              {
+                "url": "https://fal.media/result.png",
+                "content_type": "image/png"
+              }
+            ]
+          }
+        }
+      ],
+      "actions": [
+        "status",
+        "result"
+      ],
+      "expected": {
+        "outcome": "SuccessResultOutcome",
+        "provider_payload": {
+          "prompt": "default rook",
+          "audio": false,
+          "count": "1",
+          "seed": 0,
+          "strength": 0.1,
+          "size": "L",
+          "num_images": 1
+        },
+        "calls": 3,
+        "result_role": "image",
+        "result_mime": "image/png"
+      },
+      "covers": [
+        "review-2",
+        "user-1",
+        "user-2"
+      ]
+    },
+    {
+      "id": "queue-image-panel-controls",
+      "surface": "panel",
+      "request": {
+        "model": "qualification/queue-image",
+        "seed": 9007199254740991,
+        "options": {
+          "strength": 0.123456,
+          "audio": false
+        },
+        "operation": "text_to_image"
+      },
+      "panel_values": {
+        "request.seed": "9007199254740991",
+        "options.strength": "0.1234560000",
+        "options.audio": "false"
+      },
+      "protocol": [
+        {
+          "method": "POST",
+          "url": "https://queue.fal.run/fal-ai/synthetic/render",
+          "status": 200,
+          "body": {
+            "request_id": "fixture-job",
+            "status_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+            "response_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+            "cancel_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/cancel"
+          }
+        },
+        {
+          "method": "GET",
+          "url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+          "status": 200,
+          "body": {
+            "status": "COMPLETED"
+          }
+        },
+        {
+          "method": "GET",
+          "url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+          "status": 200,
+          "body": {
+            "images": [
+              {
+                "url": "https://fal.media/result.png",
+                "content_type": "image/png"
+              }
+            ]
+          }
+        }
+      ],
+      "actions": [
+        "status",
+        "result"
+      ],
+      "expected": {
+        "outcome": "SuccessResultOutcome",
+        "provider_payload": {
+          "prompt": "default rook",
+          "audio": false,
+          "count": "1",
+          "seed": 9007199254740991,
+          "strength": 0.123456,
+          "size": "L",
+          "num_images": 1
+        },
+        "calls": 3,
+        "result_role": "image",
+        "result_mime": "image/png"
+      },
+      "covers": [
+        "review-2",
+        "user-1",
+        "user-2"
+      ]
+    },
+    {
+      "id": "queue-image-mcp-defaults",
+      "surface": "mcp",
+      "request": {
+        "model": "qualification/queue-image",
+        "operation": "text_to_image"
+      },
+      "panel_values": {},
+      "protocol": [
+        {
+          "method": "POST",
+          "url": "https://queue.fal.run/fal-ai/synthetic/render",
+          "status": 200,
+          "body": {
+            "request_id": "fixture-job",
+            "status_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+            "response_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+            "cancel_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/cancel"
+          }
+        },
+        {
+          "method": "GET",
+          "url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+          "status": 200,
+          "body": {
+            "status": "COMPLETED"
+          }
+        },
+        {
+          "method": "GET",
+          "url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+          "status": 200,
+          "body": {
+            "images": [
+              {
+                "url": "https://fal.media/result.png",
+                "content_type": "image/png"
+              }
+            ]
+          }
+        }
+      ],
+      "actions": [
+        "status",
+        "result"
+      ],
+      "expected": {
+        "outcome": "SuccessResultOutcome",
+        "provider_payload": {
+          "prompt": "default rook",
+          "audio": false,
+          "count": "1",
+          "seed": 0,
+          "strength": 0.1,
+          "size": "L",
+          "num_images": 1
+        },
+        "calls": 3,
+        "result_role": "image",
+        "result_mime": "image/png"
+      },
+      "covers": [
+        "review-2",
+        "user-1",
+        "user-2"
+      ]
+    },
+    {
+      "id": "queue-image-mcp-controls",
+      "surface": "mcp",
+      "request": {
+        "model": "qualification/queue-image",
+        "seed": 9007199254740991,
+        "options": {
+          "strength": 0.123456,
+          "audio": false
+        },
+        "operation": "text_to_image"
+      },
+      "panel_values": {
+        "request.seed": "9007199254740991",
+        "options.strength": "0.1234560000",
+        "options.audio": "false"
+      },
+      "protocol": [
+        {
+          "method": "POST",
+          "url": "https://queue.fal.run/fal-ai/synthetic/render",
+          "status": 200,
+          "body": {
+            "request_id": "fixture-job",
+            "status_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+            "response_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+            "cancel_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/cancel"
+          }
+        },
+        {
+          "method": "GET",
+          "url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+          "status": 200,
+          "body": {
+            "status": "COMPLETED"
+          }
+        },
+        {
+          "method": "GET",
+          "url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+          "status": 200,
+          "body": {
+            "images": [
+              {
+                "url": "https://fal.media/result.png",
+                "content_type": "image/png"
+              }
+            ]
+          }
+        }
+      ],
+      "actions": [
+        "status",
+        "result"
+      ],
+      "expected": {
+        "outcome": "SuccessResultOutcome",
+        "provider_payload": {
+          "prompt": "default rook",
+          "audio": false,
+          "count": "1",
+          "seed": 9007199254740991,
+          "strength": 0.123456,
+          "size": "L",
+          "num_images": 1
+        },
+        "calls": 3,
+        "result_role": "image",
+        "result_mime": "image/png"
+      },
+      "covers": [
+        "review-2",
+        "user-1",
+        "user-2"
+      ]
+    },
+    {
+      "id": "queue-image-managed-defaults",
+      "surface": "managed",
+      "request": {
+        "model": "qualification/queue-image",
+        "operation": "text_to_image"
+      },
+      "panel_values": {},
+      "protocol": [
+        {
+          "method": "POST",
+          "url": "https://queue.fal.run/fal-ai/synthetic/render",
+          "status": 200,
+          "body": {
+            "request_id": "fixture-job",
+            "status_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+            "response_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+            "cancel_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/cancel"
+          }
+        },
+        {
+          "method": "GET",
+          "url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+          "status": 200,
+          "body": {
+            "status": "COMPLETED"
+          }
+        },
+        {
+          "method": "GET",
+          "url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+          "status": 200,
+          "body": {
+            "images": [
+              {
+                "url": "https://fal.media/result.png",
+                "content_type": "image/png"
+              }
+            ]
+          }
+        }
+      ],
+      "actions": [
+        "status",
+        "result"
+      ],
+      "expected": {
+        "outcome": "SuccessResultOutcome",
+        "provider_payload": {
+          "prompt": "default rook",
+          "audio": false,
+          "count": "1",
+          "seed": 0,
+          "strength": 0.1,
+          "size": "L",
+          "num_images": 1
+        },
+        "calls": 3,
+        "result_role": "image",
+        "result_mime": "image/png"
+      },
+      "covers": [
+        "review-2",
+        "user-1",
+        "user-2"
+      ]
+    },
+    {
+      "id": "queue-image-managed-controls",
+      "surface": "managed",
+      "request": {
+        "model": "qualification/queue-image",
+        "seed": 9007199254740991,
+        "options": {
+          "strength": 0.123456,
+          "audio": false
+        },
+        "operation": "text_to_image"
+      },
+      "panel_values": {
+        "request.seed": "9007199254740991",
+        "options.strength": "0.1234560000",
+        "options.audio": "false"
+      },
+      "protocol": [
+        {
+          "method": "POST",
+          "url": "https://queue.fal.run/fal-ai/synthetic/render",
+          "status": 200,
+          "body": {
+            "request_id": "fixture-job",
+            "status_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+            "response_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+            "cancel_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/cancel"
+          }
+        },
+        {
+          "method": "GET",
+          "url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+          "status": 200,
+          "body": {
+            "status": "COMPLETED"
+          }
+        },
+        {
+          "method": "GET",
+          "url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+          "status": 200,
+          "body": {
+            "images": [
+              {
+                "url": "https://fal.media/result.png",
+                "content_type": "image/png"
+              }
+            ]
+          }
+        }
+      ],
+      "actions": [
+        "status",
+        "result"
+      ],
+      "expected": {
+        "outcome": "SuccessResultOutcome",
+        "provider_payload": {
+          "prompt": "default rook",
+          "audio": false,
+          "count": "1",
+          "seed": 9007199254740991,
+          "strength": 0.123456,
+          "size": "L",
+          "num_images": 1
+        },
+        "calls": 3,
+        "result_role": "image",
+        "result_mime": "image/png"
+      },
+      "covers": [
+        "review-2",
+        "user-1",
+        "user-2"
+      ]
+    },
+    {
+      "id": "queue-video-panel-defaults",
+      "surface": "panel",
+      "request": {
+        "model": "qualification/queue-video",
+        "operation": "text_to_video"
+      },
+      "panel_values": {},
+      "protocol": [
+        {
+          "method": "POST",
+          "url": "https://queue.fal.run/fal-ai/synthetic/video/frames",
+          "status": 200,
+          "body": {
+            "request_id": "fixture-job",
+            "status_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+            "response_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+            "cancel_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/cancel"
+          }
+        },
+        {
+          "method": "GET",
+          "url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+          "status": 200,
+          "body": {
+            "status": "COMPLETED"
+          }
+        },
+        {
+          "method": "GET",
+          "url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+          "status": 200,
+          "body": {
+            "video": {
+              "url": "https://fal.media/result.mp4",
+              "content_type": "video/mp4"
+            }
+          }
+        }
+      ],
+      "actions": [
+        "status",
+        "result"
+      ],
+      "expected": {
+        "outcome": "SuccessResultOutcome",
+        "provider_payload": {
+          "duration": 5,
+          "seed": 0,
+          "strength": 0.1,
+          "audio": false
+        },
+        "calls": 3,
+        "result_role": "video",
+        "result_mime": "video/mp4"
+      },
+      "covers": [
+        "review-2",
+        "user-1",
+        "user-2"
+      ]
+    },
+    {
+      "id": "queue-video-panel-controls",
+      "surface": "panel",
+      "request": {
+        "model": "qualification/queue-video",
+        "seed": 9007199254740991,
+        "options": {
+          "strength": 0.123456,
+          "audio": false
+        },
+        "duration_seconds": 6.5,
+        "operation": "text_to_video"
+      },
+      "panel_values": {
+        "request.seed": "9007199254740991",
+        "options.strength": "0.1234560000",
+        "options.audio": "false",
+        "request.duration_seconds": "6.5"
+      },
+      "protocol": [
+        {
+          "method": "POST",
+          "url": "https://queue.fal.run/fal-ai/synthetic/video/frames",
+          "status": 200,
+          "body": {
+            "request_id": "fixture-job",
+            "status_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+            "response_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+            "cancel_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/cancel"
+          }
+        },
+        {
+          "method": "GET",
+          "url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+          "status": 200,
+          "body": {
+            "status": "COMPLETED"
+          }
+        },
+        {
+          "method": "GET",
+          "url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+          "status": 200,
+          "body": {
+            "video": {
+              "url": "https://fal.media/result.mp4",
+              "content_type": "video/mp4"
+            }
+          }
+        }
+      ],
+      "actions": [
+        "status",
+        "result"
+      ],
+      "expected": {
+        "outcome": "SuccessResultOutcome",
+        "provider_payload": {
+          "duration": 6.5,
+          "seed": 9007199254740991,
+          "strength": 0.123456,
+          "audio": false
+        },
+        "calls": 3,
+        "result_role": "video",
+        "result_mime": "video/mp4"
+      },
+      "covers": [
+        "review-2",
+        "user-1",
+        "user-2"
+      ]
+    },
+    {
+      "id": "queue-video-mcp-defaults",
+      "surface": "mcp",
+      "request": {
+        "model": "qualification/queue-video",
+        "operation": "text_to_video"
+      },
+      "panel_values": {},
+      "protocol": [
+        {
+          "method": "POST",
+          "url": "https://queue.fal.run/fal-ai/synthetic/video/frames",
+          "status": 200,
+          "body": {
+            "request_id": "fixture-job",
+            "status_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+            "response_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+            "cancel_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/cancel"
+          }
+        },
+        {
+          "method": "GET",
+          "url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+          "status": 200,
+          "body": {
+            "status": "COMPLETED"
+          }
+        },
+        {
+          "method": "GET",
+          "url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+          "status": 200,
+          "body": {
+            "video": {
+              "url": "https://fal.media/result.mp4",
+              "content_type": "video/mp4"
+            }
+          }
+        }
+      ],
+      "actions": [
+        "status",
+        "result"
+      ],
+      "expected": {
+        "outcome": "SuccessResultOutcome",
+        "provider_payload": {
+          "duration": 5,
+          "seed": 0,
+          "strength": 0.1,
+          "audio": false
+        },
+        "calls": 3,
+        "result_role": "video",
+        "result_mime": "video/mp4"
+      },
+      "covers": [
+        "review-2",
+        "user-1",
+        "user-2"
+      ]
+    },
+    {
+      "id": "queue-video-mcp-controls",
+      "surface": "mcp",
+      "request": {
+        "model": "qualification/queue-video",
+        "seed": 9007199254740991,
+        "options": {
+          "strength": 0.123456,
+          "audio": false
+        },
+        "duration_seconds": 6.5,
+        "operation": "text_to_video"
+      },
+      "panel_values": {
+        "request.seed": "9007199254740991",
+        "options.strength": "0.1234560000",
+        "options.audio": "false",
+        "request.duration_seconds": "6.5"
+      },
+      "protocol": [
+        {
+          "method": "POST",
+          "url": "https://queue.fal.run/fal-ai/synthetic/video/frames",
+          "status": 200,
+          "body": {
+            "request_id": "fixture-job",
+            "status_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+            "response_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+            "cancel_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/cancel"
+          }
+        },
+        {
+          "method": "GET",
+          "url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+          "status": 200,
+          "body": {
+            "status": "COMPLETED"
+          }
+        },
+        {
+          "method": "GET",
+          "url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+          "status": 200,
+          "body": {
+            "video": {
+              "url": "https://fal.media/result.mp4",
+              "content_type": "video/mp4"
+            }
+          }
+        }
+      ],
+      "actions": [
+        "status",
+        "result"
+      ],
+      "expected": {
+        "outcome": "SuccessResultOutcome",
+        "provider_payload": {
+          "duration": 6.5,
+          "seed": 9007199254740991,
+          "strength": 0.123456,
+          "audio": false
+        },
+        "calls": 3,
+        "result_role": "video",
+        "result_mime": "video/mp4"
+      },
+      "covers": [
+        "review-2",
+        "user-1",
+        "user-2"
+      ]
+    },
+    {
+      "id": "queue-video-managed-defaults",
+      "surface": "managed",
+      "request": {
+        "model": "qualification/queue-video",
+        "operation": "text_to_video"
+      },
+      "panel_values": {},
+      "protocol": [
+        {
+          "method": "POST",
+          "url": "https://queue.fal.run/fal-ai/synthetic/video/frames",
+          "status": 200,
+          "body": {
+            "request_id": "fixture-job",
+            "status_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+            "response_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+            "cancel_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/cancel"
+          }
+        },
+        {
+          "method": "GET",
+          "url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+          "status": 200,
+          "body": {
+            "status": "COMPLETED"
+          }
+        },
+        {
+          "method": "GET",
+          "url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+          "status": 200,
+          "body": {
+            "video": {
+              "url": "https://fal.media/result.mp4",
+              "content_type": "video/mp4"
+            }
+          }
+        }
+      ],
+      "actions": [
+        "status",
+        "result"
+      ],
+      "expected": {
+        "outcome": "SuccessResultOutcome",
+        "provider_payload": {
+          "duration": 5,
+          "seed": 0,
+          "strength": 0.1,
+          "audio": false
+        },
+        "calls": 3,
+        "result_role": "video",
+        "result_mime": "video/mp4"
+      },
+      "covers": [
+        "review-2",
+        "user-1",
+        "user-2"
+      ]
+    },
+    {
+      "id": "queue-video-managed-controls",
+      "surface": "managed",
+      "request": {
+        "model": "qualification/queue-video",
+        "seed": 9007199254740991,
+        "options": {
+          "strength": 0.123456,
+          "audio": false
+        },
+        "duration_seconds": 6.5,
+        "operation": "text_to_video"
+      },
+      "panel_values": {
+        "request.seed": "9007199254740991",
+        "options.strength": "0.1234560000",
+        "options.audio": "false",
+        "request.duration_seconds": "6.5"
+      },
+      "protocol": [
+        {
+          "method": "POST",
+          "url": "https://queue.fal.run/fal-ai/synthetic/video/frames",
+          "status": 200,
+          "body": {
+            "request_id": "fixture-job",
+            "status_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+            "response_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+            "cancel_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/cancel"
+          }
+        },
+        {
+          "method": "GET",
+          "url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+          "status": 200,
+          "body": {
+            "status": "COMPLETED"
+          }
+        },
+        {
+          "method": "GET",
+          "url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+          "status": 200,
+          "body": {
+            "video": {
+              "url": "https://fal.media/result.mp4",
+              "content_type": "video/mp4"
+            }
+          }
+        }
+      ],
+      "actions": [
+        "status",
+        "result"
+      ],
+      "expected": {
+        "outcome": "SuccessResultOutcome",
+        "provider_payload": {
+          "duration": 6.5,
+          "seed": 9007199254740991,
+          "strength": 0.123456,
+          "audio": false
+        },
+        "calls": 3,
+        "result_role": "video",
+        "result_mime": "video/mp4"
+      },
+      "covers": [
+        "review-2",
+        "user-1",
+        "user-2"
+      ]
+    },
+    {
+      "id": "null-options",
+      "surface": "managed",
+      "request": {
+        "model": "qualification/sync-image",
+        "options": null,
+        "operation": "text_to_image"
+      },
+      "protocol": [],
+      "expected": {
+        "outcome": "invalid_request",
+        "field": "options",
+        "calls": 0
+      },
+      "covers": [
+        "review-2"
+      ]
+    },
+    {
+      "id": "array-options",
+      "surface": "managed",
+      "request": {
+        "model": "qualification/sync-image",
+        "options": [],
+        "operation": "text_to_image"
+      },
+      "protocol": [],
+      "expected": {
+        "outcome": "invalid_request",
+        "field": "options",
+        "calls": 0
+      },
+      "covers": [
+        "review-2"
+      ]
+    },
+    {
+      "id": "unknown",
+      "surface": "managed",
+      "request": {
+        "model": "qualification/sync-image",
+        "options": {
+          "unknown": 1
+        },
+        "operation": "text_to_image"
+      },
+      "protocol": [],
+      "expected": {
+        "outcome": "invalid_request",
+        "field": "options.unknown",
+        "calls": 0
+      },
+      "covers": [
+        "review-2"
+      ]
+    },
+    {
+      "id": "wrong-type",
+      "surface": "managed",
+      "request": {
+        "model": "qualification/sync-image",
+        "options": {
+          "strength": "0.1"
+        },
+        "operation": "text_to_image"
+      },
+      "protocol": [],
+      "expected": {
+        "outcome": "invalid_request",
+        "field": "options.strength",
+        "calls": 0
+      },
+      "covers": [
+        "review-2"
+      ]
+    },
+    {
+      "id": "bounds",
+      "surface": "managed",
+      "request": {
+        "model": "qualification/sync-image",
+        "options": {
+          "strength": 2
+        },
+        "operation": "text_to_image"
+      },
+      "protocol": [],
+      "expected": {
+        "outcome": "invalid_request",
+        "field": "options.strength",
+        "calls": 0
+      },
+      "covers": [
+        "review-2"
+      ]
+    },
+    {
+      "id": "precision",
+      "surface": "managed",
+      "request": {
+        "model": "qualification/sync-image",
+        "options": {
+          "strength": 0.1234567
+        },
+        "operation": "text_to_image"
+      },
+      "protocol": [],
+      "expected": {
+        "outcome": "invalid_request",
+        "field": "options.strength",
+        "calls": 0
+      },
+      "covers": [
+        "review-2"
+      ]
+    },
+    {
+      "id": "network",
+      "surface": "managed",
+      "request": {
+        "model": "qualification/queue-image",
+        "operation": "text_to_image"
+      },
+      "protocol": [
+        {
+          "method": "POST",
+          "url": "https://queue.fal.run/fal-ai/synthetic/render",
+          "status": 200,
+          "body": {
+            "request_id": "fixture-job",
+            "status_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+            "response_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+            "cancel_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/cancel"
+          },
+          "exception": "network"
+        }
+      ],
+      "expected": {
+        "outcome": "FailedSubmitOutcome",
+        "disposition": "Unknown",
+        "calls": 1
+      },
+      "covers": [
+        "review-4"
+      ]
+    },
+    {
+      "id": "timeout",
+      "surface": "managed",
+      "request": {
+        "model": "qualification/queue-image",
+        "operation": "text_to_image"
+      },
+      "protocol": [
+        {
+          "method": "POST",
+          "url": "https://queue.fal.run/fal-ai/synthetic/render",
+          "status": 200,
+          "body": {
+            "request_id": "fixture-job",
+            "status_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+            "response_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+            "cancel_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/cancel"
+          },
+          "exception": "timeout"
+        }
+      ],
+      "expected": {
+        "outcome": "FailedSubmitOutcome",
+        "disposition": "Unknown",
+        "calls": 1
+      },
+      "covers": [
+        "review-4"
+      ]
+    },
+    {
+      "id": "accepted_write",
+      "surface": "managed",
+      "request": {
+        "model": "qualification/queue-image",
+        "operation": "text_to_image"
+      },
+      "observer": "accepted_write",
+      "protocol": [
+        {
+          "method": "POST",
+          "url": "https://queue.fal.run/fal-ai/synthetic/render",
+          "status": 200,
+          "body": {
+            "request_id": "fixture-job",
+            "status_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+            "response_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+            "cancel_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/cancel"
+          }
+        }
+      ],
+      "expected": {
+        "outcome": "FailedSubmitOutcome",
+        "disposition": "Unknown",
+        "calls": 1
+      },
+      "covers": [
+        "review-3",
+        "review-4"
+      ]
+    },
+    {
+      "id": "before_upload",
+      "surface": "managed",
+      "request": {
+        "model": "qualification/queue-image",
+        "operation": "text_to_image"
+      },
+      "observer": "before_upload",
+      "protocol": [],
+      "expected": {
+        "outcome": "FailedSubmitOutcome",
+        "disposition": "NotAccepted",
+        "calls": 0
+      },
+      "covers": [
+        "review-3",
+        "review-4"
+      ]
+    },
+    {
+      "id": "before_dispatch",
+      "surface": "managed",
+      "request": {
+        "model": "qualification/queue-image",
+        "operation": "text_to_image"
+      },
+      "observer": "before_dispatch",
+      "protocol": [],
+      "expected": {
+        "outcome": "FailedSubmitOutcome",
+        "disposition": "NotAccepted",
+        "calls": 0
+      },
+      "covers": [
+        "review-3",
+        "review-4"
+      ]
+    },
+    {
+      "id": "cardinality",
+      "surface": "managed",
+      "request": {
+        "model": "qualification/sync-image",
+        "operation": "text_to_image"
+      },
+      "protocol": [
+        {
+          "method": "POST",
+          "url": "https://fal.run/fal-ai/synthetic/render",
+          "status": 200,
+          "body": {
+            "images": []
+          }
+        }
+      ],
+      "expected": {
+        "outcome": "FailedResultOutcome",
+        "calls": 1
+      },
+      "covers": [
+        "result-validation"
+      ]
+    },
+    {
+      "id": "mime",
+      "surface": "managed",
+      "request": {
+        "model": "qualification/sync-image",
+        "operation": "text_to_image"
+      },
+      "protocol": [
+        {
+          "method": "POST",
+          "url": "https://fal.run/fal-ai/synthetic/render",
+          "status": 200,
+          "body": {
+            "images": [
+              {
+                "url": "https://fal.media/result.png",
+                "content_type": "video/mp4"
+              }
+            ]
+          }
+        }
+      ],
+      "expected": {
+        "outcome": "FailedResultOutcome",
+        "calls": 1
+      },
+      "covers": [
+        "result-validation"
+      ]
+    },
+    {
+      "id": "sync-image-panel-media",
+      "surface": "panel",
+      "request": {
+        "model": "qualification/sync-image",
+        "seed": 9007199254740991,
+        "options": {
+          "strength": 0.123456,
+          "audio": false
+        },
+        "operation": "image_to_image",
+        "media": [
+          {
+            "semantic_role": "primary_image",
+            "artifact_id": "00000000-0000-0000-0000-000000000001",
+            "artifact_role": "input_image"
+          },
+          {
+            "semantic_role": "reference_image",
+            "artifact_id": "00000000-0000-0000-0000-000000000001",
+            "artifact_role": "input_image"
+          },
+          {
+            "semantic_role": "reference_image",
+            "artifact_id": "00000000-0000-0000-0000-000000000002",
+            "artifact_role": "input_image"
+          }
+        ]
+      },
+      "panel_values": {
+        "request.seed": "9007199254740991",
+        "options.strength": "0.1234560000",
+        "options.audio": "false"
+      },
+      "protocol": [
+        {
+          "method": "POST",
+          "url": "https://fal.run/fal-ai/synthetic/render",
+          "status": 200,
+          "body": {
+            "images": [
+              {
+                "url": "https://fal.media/result.png",
+                "content_type": "image/png"
+              }
+            ]
+          }
+        }
+      ],
+      "actions": [],
+      "expected": {
+        "outcome": "SuccessResultOutcome",
+        "provider_payload": {
+          "prompt": "default rook",
+          "audio": false,
+          "count": "1",
+          "seed": 9007199254740991,
+          "strength": 0.123456,
+          "size": "L",
+          "num_images": 1,
+          "image_url": {
+            "redacted_sha256": "38415f7bc00e213b5a00a93eb944f7db3fdc9b9cee9c21629138ddebdb65ea9a"
+          },
+          "references": [
+            {
+              "redacted_sha256": "38415f7bc00e213b5a00a93eb944f7db3fdc9b9cee9c21629138ddebdb65ea9a"
+            },
+            {
+              "redacted_sha256": "38415f7bc00e213b5a00a93eb944f7db3fdc9b9cee9c21629138ddebdb65ea9a"
+            }
+          ]
+        },
+        "calls": 1,
+        "result_role": "image",
+        "result_mime": "image/png"
+      },
+      "covers": [
+        "review-2",
+        "user-1",
+        "user-2"
+      ],
+      "media_bytes": [
+        {
+          "artifact_id": "00000000-0000-0000-0000-000000000001",
+          "artifact_role": "input_image",
+          "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAA=",
+          "mime": "image/png"
+        },
+        {
+          "artifact_id": "00000000-0000-0000-0000-000000000002",
+          "artifact_role": "input_image",
+          "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAA=",
+          "mime": "image/png"
+        }
+      ],
+      "panel_config": {
+        "media": [
+          {
+            "semantic_role": "primary_image",
+            "artifact_id": "00000000-0000-0000-0000-000000000001",
+            "artifact_role": "input_image"
+          },
+          {
+            "semantic_role": "reference_image",
+            "artifact_id": "00000000-0000-0000-0000-000000000001",
+            "artifact_role": "input_image"
+          },
+          {
+            "semantic_role": "reference_image",
+            "artifact_id": "00000000-0000-0000-0000-000000000002",
+            "artifact_role": "input_image"
+          }
+        ],
+        "artifacts": [
+          {
+            "artifact_id": "00000000-0000-0000-0000-000000000001",
+            "files": [
+              {
+                "role": "input_image",
+                "path": "input.png"
+              }
+            ]
+          },
+          {
+            "artifact_id": "00000000-0000-0000-0000-000000000002",
+            "files": [
+              {
+                "role": "input_image",
+                "path": "input.png"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "sync-image-mcp-media",
+      "surface": "mcp",
+      "request": {
+        "model": "qualification/sync-image",
+        "seed": 9007199254740991,
+        "options": {
+          "strength": 0.123456,
+          "audio": false
+        },
+        "operation": "image_to_image",
+        "media": [
+          {
+            "semantic_role": "primary_image",
+            "artifact_id": "00000000-0000-0000-0000-000000000001",
+            "artifact_role": "input_image"
+          },
+          {
+            "semantic_role": "reference_image",
+            "artifact_id": "00000000-0000-0000-0000-000000000001",
+            "artifact_role": "input_image"
+          },
+          {
+            "semantic_role": "reference_image",
+            "artifact_id": "00000000-0000-0000-0000-000000000002",
+            "artifact_role": "input_image"
+          }
+        ]
+      },
+      "panel_values": {
+        "request.seed": "9007199254740991",
+        "options.strength": "0.1234560000",
+        "options.audio": "false"
+      },
+      "protocol": [
+        {
+          "method": "POST",
+          "url": "https://fal.run/fal-ai/synthetic/render",
+          "status": 200,
+          "body": {
+            "images": [
+              {
+                "url": "https://fal.media/result.png",
+                "content_type": "image/png"
+              }
+            ]
+          }
+        }
+      ],
+      "actions": [],
+      "expected": {
+        "outcome": "SuccessResultOutcome",
+        "provider_payload": {
+          "prompt": "default rook",
+          "audio": false,
+          "count": "1",
+          "seed": 9007199254740991,
+          "strength": 0.123456,
+          "size": "L",
+          "num_images": 1,
+          "image_url": {
+            "redacted_sha256": "38415f7bc00e213b5a00a93eb944f7db3fdc9b9cee9c21629138ddebdb65ea9a"
+          },
+          "references": [
+            {
+              "redacted_sha256": "38415f7bc00e213b5a00a93eb944f7db3fdc9b9cee9c21629138ddebdb65ea9a"
+            },
+            {
+              "redacted_sha256": "38415f7bc00e213b5a00a93eb944f7db3fdc9b9cee9c21629138ddebdb65ea9a"
+            }
+          ]
+        },
+        "calls": 1,
+        "result_role": "image",
+        "result_mime": "image/png"
+      },
+      "covers": [
+        "review-2",
+        "user-1",
+        "user-2"
+      ],
+      "media_bytes": [
+        {
+          "artifact_id": "00000000-0000-0000-0000-000000000001",
+          "artifact_role": "input_image",
+          "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAA=",
+          "mime": "image/png"
+        },
+        {
+          "artifact_id": "00000000-0000-0000-0000-000000000002",
+          "artifact_role": "input_image",
+          "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAA=",
+          "mime": "image/png"
+        }
+      ],
+      "panel_config": {
+        "media": [
+          {
+            "semantic_role": "primary_image",
+            "artifact_id": "00000000-0000-0000-0000-000000000001",
+            "artifact_role": "input_image"
+          },
+          {
+            "semantic_role": "reference_image",
+            "artifact_id": "00000000-0000-0000-0000-000000000001",
+            "artifact_role": "input_image"
+          },
+          {
+            "semantic_role": "reference_image",
+            "artifact_id": "00000000-0000-0000-0000-000000000002",
+            "artifact_role": "input_image"
+          }
+        ],
+        "artifacts": [
+          {
+            "artifact_id": "00000000-0000-0000-0000-000000000001",
+            "files": [
+              {
+                "role": "input_image",
+                "path": "input.png"
+              }
+            ]
+          },
+          {
+            "artifact_id": "00000000-0000-0000-0000-000000000002",
+            "files": [
+              {
+                "role": "input_image",
+                "path": "input.png"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "queue-video-panel-media",
+      "surface": "panel",
+      "request": {
+        "model": "qualification/queue-video",
+        "seed": 9007199254740991,
+        "options": {
+          "strength": 0.123456,
+          "audio": false
+        },
+        "duration_seconds": 6.5,
+        "operation": "image_to_video",
+        "media": [
+          {
+            "semantic_role": "primary_image",
+            "artifact_id": "00000000-0000-0000-0000-000000000001",
+            "artifact_role": "input_image"
+          }
+        ]
+      },
+      "panel_values": {
+        "request.seed": "9007199254740991",
+        "options.strength": "0.1234560000",
+        "options.audio": "false",
+        "request.duration_seconds": "6.5"
+      },
+      "protocol": [
+        {
+          "method": "POST",
+          "url": "https://rest.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3",
+          "status": 200,
+          "body": {
+            "upload_url": "https://upload.example/signed",
+            "file_url": "https://v3.fal.media/files/fixture-source.png"
+          }
+        },
+        {
+          "method": "PUT",
+          "url": "https://upload.example/signed",
+          "status": 200,
+          "body": {},
+          "request_bytes_sha256": "71fde3856a298a052c6edb5155638d8422114e55bf0e28374d90dea8be99ef6c"
+        },
+        {
+          "method": "POST",
+          "url": "https://queue.fal.run/fal-ai/synthetic/video/frames",
+          "status": 200,
+          "body": {
+            "request_id": "fixture-job",
+            "status_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+            "response_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+            "cancel_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/cancel"
+          }
+        },
+        {
+          "method": "GET",
+          "url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+          "status": 200,
+          "body": {
+            "status": "COMPLETED"
+          }
+        },
+        {
+          "method": "GET",
+          "url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+          "status": 200,
+          "body": {
+            "video": {
+              "url": "https://fal.media/result.mp4",
+              "content_type": "video/mp4"
+            }
+          }
+        }
+      ],
+      "actions": [
+        "status",
+        "result"
+      ],
+      "expected": {
+        "outcome": "SuccessResultOutcome",
+        "provider_payload": {
+          "duration": 6.5,
+          "seed": 9007199254740991,
+          "strength": 0.123456,
+          "audio": false,
+          "image_url": {
+            "redacted_sha256": "e4985b068ab3bcd998ebee7ff9f9139128074129485caa864e3beee632288194"
+          }
+        },
+        "calls": 5,
+        "result_role": "video",
+        "result_mime": "video/mp4"
+      },
+      "covers": [
+        "review-2",
+        "user-1",
+        "user-2"
+      ],
+      "media_bytes": [
+        {
+          "artifact_id": "00000000-0000-0000-0000-000000000001",
+          "artifact_role": "input_image",
+          "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAA=",
+          "mime": "image/png"
+        }
+      ],
+      "panel_config": {
+        "media": [
+          {
+            "semantic_role": "primary_image",
+            "artifact_id": "00000000-0000-0000-0000-000000000001",
+            "artifact_role": "input_image"
+          }
+        ],
+        "artifacts": [
+          {
+            "artifact_id": "00000000-0000-0000-0000-000000000001",
+            "files": [
+              {
+                "role": "input_image",
+                "path": "input.png"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "queue-video-mcp-media",
+      "surface": "mcp",
+      "request": {
+        "model": "qualification/queue-video",
+        "seed": 9007199254740991,
+        "options": {
+          "strength": 0.123456,
+          "audio": false
+        },
+        "duration_seconds": 6.5,
+        "operation": "image_to_video",
+        "media": [
+          {
+            "semantic_role": "primary_image",
+            "artifact_id": "00000000-0000-0000-0000-000000000001",
+            "artifact_role": "input_image"
+          }
+        ]
+      },
+      "panel_values": {
+        "request.seed": "9007199254740991",
+        "options.strength": "0.1234560000",
+        "options.audio": "false",
+        "request.duration_seconds": "6.5"
+      },
+      "protocol": [
+        {
+          "method": "POST",
+          "url": "https://rest.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3",
+          "status": 200,
+          "body": {
+            "upload_url": "https://upload.example/signed",
+            "file_url": "https://v3.fal.media/files/fixture-source.png"
+          }
+        },
+        {
+          "method": "PUT",
+          "url": "https://upload.example/signed",
+          "status": 200,
+          "body": {},
+          "request_bytes_sha256": "71fde3856a298a052c6edb5155638d8422114e55bf0e28374d90dea8be99ef6c"
+        },
+        {
+          "method": "POST",
+          "url": "https://queue.fal.run/fal-ai/synthetic/video/frames",
+          "status": 200,
+          "body": {
+            "request_id": "fixture-job",
+            "status_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+            "response_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+            "cancel_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/cancel"
+          }
+        },
+        {
+          "method": "GET",
+          "url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+          "status": 200,
+          "body": {
+            "status": "COMPLETED"
+          }
+        },
+        {
+          "method": "GET",
+          "url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+          "status": 200,
+          "body": {
+            "video": {
+              "url": "https://fal.media/result.mp4",
+              "content_type": "video/mp4"
+            }
+          }
+        }
+      ],
+      "actions": [
+        "status",
+        "result"
+      ],
+      "expected": {
+        "outcome": "SuccessResultOutcome",
+        "provider_payload": {
+          "duration": 6.5,
+          "seed": 9007199254740991,
+          "strength": 0.123456,
+          "audio": false,
+          "image_url": {
+            "redacted_sha256": "e4985b068ab3bcd998ebee7ff9f9139128074129485caa864e3beee632288194"
+          }
+        },
+        "calls": 5,
+        "result_role": "video",
+        "result_mime": "video/mp4"
+      },
+      "covers": [
+        "review-2",
+        "user-1",
+        "user-2"
+      ],
+      "media_bytes": [
+        {
+          "artifact_id": "00000000-0000-0000-0000-000000000001",
+          "artifact_role": "input_image",
+          "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAA=",
+          "mime": "image/png"
+        }
+      ],
+      "panel_config": {
+        "media": [
+          {
+            "semantic_role": "primary_image",
+            "artifact_id": "00000000-0000-0000-0000-000000000001",
+            "artifact_role": "input_image"
+          }
+        ],
+        "artifacts": [
+          {
+            "artifact_id": "00000000-0000-0000-0000-000000000001",
+            "files": [
+              {
+                "role": "input_image",
+                "path": "input.png"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "removed-catalog-pinned-cleanup",
+      "surface": "managed",
+      "request": {
+        "model": "qualification/queue-image",
+        "operation": "text_to_image"
+      },
+      "panel_values": {},
+      "protocol": [
+        {
+          "method": "POST",
+          "url": "https://queue.fal.run/fal-ai/synthetic/render",
+          "status": 200,
+          "body": {
+            "request_id": "fixture-job",
+            "status_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+            "response_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+            "cancel_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/cancel"
+          }
+        },
+        {
+          "method": "PUT",
+          "url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/cancel",
+          "status": 400,
+          "body": {
+            "status": "ALREADY_COMPLETED"
+          }
+        }
+      ],
+      "actions": [
+        "restore_cancel",
+        "unsupported_snapshot"
+      ],
+      "expected": {
+        "outcome": "QueuedSubmitOutcome",
+        "cancel_outcome": "AlreadyTerminalOutcome",
+        "cleanup_available": false,
+        "calls": 2
+      },
+      "covers": [
+        "review-4",
+        "review-5",
+        "user-3"
+      ]
+    },
+    {
+      "id": "lossy-request.seed",
+      "surface": "panel",
+      "request": {
+        "model": "qualification/sync-image",
+        "operation": "text_to_image"
+      },
+      "panel_values": {
+        "request.seed": "9007199254740993"
+      },
+      "protocol": [],
+      "actions": [],
+      "expected": {
+        "outcome": "surface_rejected",
+        "calls": 0
+      },
+      "covers": [
+        "review-2",
+        "user-1",
+        "user-2"
+      ]
+    },
+    {
+      "id": "lossy-options.strength",
+      "surface": "panel",
+      "request": {
+        "model": "qualification/sync-image",
+        "operation": "text_to_image"
+      },
+      "panel_values": {
+        "options.strength": "0.1234567890123456789012345678"
+      },
+      "protocol": [],
+      "actions": [],
+      "expected": {
+        "outcome": "surface_rejected",
+        "calls": 0
+      },
+      "covers": [
+        "review-2",
+        "user-1",
+        "user-2"
+      ]
+    },
+    {
+      "id": "inactive-explicit-false",
+      "surface": "managed",
+      "request": {
+        "model": "qualification/sync-image",
+        "operation": "text_to_image",
+        "resolution": "small",
+        "options": {
+          "audio": false
+        }
+      },
+      "panel_values": {
+        "request.seed": "9007199254740991",
+        "options.strength": "0.1234560000",
+        "options.audio": "false"
+      },
+      "protocol": [],
+      "actions": [],
+      "expected": {
+        "outcome": "invalid_request",
+        "field": "options.audio",
+        "calls": 0
+      },
+      "covers": [
+        "review-2",
+        "user-1",
+        "user-2"
+      ]
+    },
+    {
+      "id": "legacy-image-wire",
+      "surface": "managed",
+      "request": {
+        "model": "qualification/reference-image",
+        "operation": "text_to_image",
+        "prompt": "sunlit massing study",
+        "aspect_ratio": "16:9"
+      },
+      "panel_values": {},
+      "protocol": [
+        {
+          "method": "POST",
+          "url": "https://fal.run/fal-ai/synthetic/render",
+          "status": 200,
+          "body": {
+            "images": [
+              {
+                "url": "https://fal.media/result.png",
+                "content_type": "image/png"
+              }
+            ]
+          }
+        }
+      ],
+      "actions": [],
+      "expected": {
+        "outcome": "SuccessResultOutcome",
+        "calls": 1,
+        "provider_payload": {
+          "prompt": "sunlit massing study",
+          "image_size": "landscape_16_9",
+          "num_images": 1,
+          "enable_safety_checker": true,
+          "output_format": "jpeg",
+          "sync_mode": false
+        }
+      },
+      "covers": [
+        "review-2",
+        "user-1",
+        "user-2"
+      ]
+    },
+    {
+      "id": "stale-audio-option",
+      "surface": "managed",
+      "request": {
+        "model": "qualification/sync-image",
+        "seed": 9007199254740991,
+        "options": {
+          "strength": 0.123456,
+          "audio": false
+        },
+        "operation": "text_to_image"
+      },
+      "panel_values": {
+        "request.seed": "9007199254740991",
+        "options.strength": "0.1234560000",
+        "options.audio": "false"
+      },
+      "protocol": [],
+      "actions": [],
+      "expected": {
+        "outcome": "quote_stale",
+        "calls": 0
+      },
+      "covers": [
+        "review-3"
+      ],
+      "quote_changes": {
+        "options": {
+          "strength": 0.123456,
+          "audio": true
+        }
+      }
+    },
+    {
+      "id": "legacy-video-wire",
+      "surface": "managed",
+      "request": {
+        "model": "qualification/reference-video",
+        "operation": "image_to_video",
+        "prompt": "animate this source",
+        "duration_seconds": 5,
+        "media": [
+          {
+            "semantic_role": "primary_image",
+            "artifact_id": "00000000-0000-0000-0000-000000000001",
+            "artifact_role": "input_image"
+          }
+        ]
+      },
+      "panel_values": {
+        "request.seed": "9007199254740991",
+        "options.strength": "0.1234560000",
+        "options.audio": "false",
+        "request.duration_seconds": "6.5"
+      },
+      "protocol": [
+        {
+          "method": "POST",
+          "url": "https://rest.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3",
+          "status": 200,
+          "body": {
+            "upload_url": "https://upload.example/signed",
+            "file_url": "https://v3.fal.media/files/fixture-source.png"
+          }
+        },
+        {
+          "method": "PUT",
+          "url": "https://upload.example/signed",
+          "status": 200,
+          "body": {},
+          "request_bytes_sha256": "71fde3856a298a052c6edb5155638d8422114e55bf0e28374d90dea8be99ef6c"
+        },
+        {
+          "method": "POST",
+          "url": "https://queue.fal.run/fal-ai/synthetic/video/frames",
+          "status": 200,
+          "body": {
+            "request_id": "fixture-job",
+            "status_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+            "response_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+            "cancel_url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/cancel"
+          }
+        },
+        {
+          "method": "GET",
+          "url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job/status",
+          "status": 200,
+          "body": {
+            "status": "COMPLETED"
+          }
+        },
+        {
+          "method": "GET",
+          "url": "https://queue.fal.run/fal-ai/synthetic/requests/fixture-job",
+          "status": 200,
+          "body": {
+            "video": {
+              "url": "https://fal.media/result.mp4",
+              "content_type": "video/mp4"
+            }
+          }
+        }
+      ],
+      "actions": [
+        "status",
+        "result"
+      ],
+      "expected": {
+        "outcome": "SuccessResultOutcome",
+        "provider_payload": {
+          "prompt": "animate this source",
+          "duration": "5",
+          "generate_audio": false,
+          "start_image_url": {
+            "redacted_sha256": "e4985b068ab3bcd998ebee7ff9f9139128074129485caa864e3beee632288194"
+          }
+        },
+        "calls": 5,
+        "result_role": "video",
+        "result_mime": "video/mp4"
+      },
+      "covers": [
+        "review-2",
+        "user-1",
+        "user-2"
+      ],
+      "media_bytes": [
+        {
+          "artifact_id": "00000000-0000-0000-0000-000000000001",
+          "artifact_role": "input_image",
+          "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAA=",
+          "mime": "image/png"
+        }
+      ],
+      "panel_config": {
+        "media": [
+          {
+            "semantic_role": "primary_image",
+            "artifact_id": "00000000-0000-0000-0000-000000000001",
+            "artifact_role": "input_image"
+          }
+        ],
+        "artifacts": [
+          {
+            "artifact_id": "00000000-0000-0000-0000-000000000001",
+            "files": [
+              {
+                "role": "input_image",
+                "path": "input.png"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "required_regressions": [
+    {
+      "focus": "review-1",
+      "suite": "FalCatalogCompilerTests",
+      "invariant": "Traversal, absolute paths, junctions and legacy collisions reject whole catalog; legacy registrations remain."
+    },
+    {
+      "focus": "review-2",
+      "suite": "FalModelNormalizerTests",
+      "invariant": "False, zero, null, exact decimal steps, overlapping predicates and suppliedness."
+    },
+    {
+      "focus": "review-3",
+      "suite": "FalQuoteServiceTests",
+      "invariant": "Changed media bytes/audio/pricing/definition plus dispatch admission race reject before upload/inference."
+    },
+    {
+      "focus": "review-4",
+      "suite": "FalConfiguredJobLifecycleTests",
+      "invariant": "Accepted handle write failure remains unknown, never replay; cancellation stop fence forbids publication."
+    },
+    {
+      "focus": "review-5",
+      "suite": "FalExecutionSnapshotTests",
+      "invariant": "Removed catalog and unsupported snapshot preserve history and pinned cleanup."
+    },
+    {
+      "focus": "user-1",
+      "suite": "Mcp_gateway_capture_reaches_managed_defaults_and_fake_fal",
+      "invariant": "Real gateway forwards model-only default and fractional duration requests; legacy omission rejects."
+    },
+    {
+      "focus": "user-2",
+      "suite": "FalConfiguredConformanceTests",
+      "invariant": "Actual panel/gateway captures preserve safe-large integers, six decimal numbers, media roles/order and omitted defaults at fake fal HTTP boundary."
+    },
+    {
+      "focus": "user-3",
+      "suite": "ConfiguredFalHandlerIntegrationTests",
+      "invariant": "Formerly configured IDs reject both image entry points for missing/removed/invalid catalog before secrets/media/provider."
+    }
+  ]
+}

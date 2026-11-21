@@ -210,6 +210,7 @@ p { margin: 8px 0; line-height: 1.4; }
                 [ImageJobOpHandler.OpStatus] = VisionOpRoute.OffUi,
                 [ImageJobOpHandler.OpResult] = VisionOpRoute.OffUi,
                 [ImageJobOpHandler.OpList] = VisionOpRoute.OffUi,
+                [ImageJobOpHandler.OpEstimate] = VisionOpRoute.OffUi,
 
                 // Media gallery import ops — bridge-only v1. The picker
                 // is UI-thread work; job status/list reads are off-UI.
@@ -246,6 +247,7 @@ p { margin: 8px 0; line-height: 1.4; }
                 ImageJobOpHandler.OpStatus,
                 ImageJobOpHandler.OpResult,
                 ImageJobOpHandler.OpList,
+                ImageJobOpHandler.OpEstimate,
             };
 
         internal static readonly HashSet<string> MediaImportOps =
@@ -384,7 +386,7 @@ p { margin: 8px 0; line-height: 1.4; }
         private static VideoOpHandler BuildSharedVideoHandler()
         {
             var bundle = RookSubsystemRoot.Instance.Video;
-            return new VideoOpHandler(bundle.Manager, bundle.Registry, bundle.Estimator, bundle.Framing);
+            return new VideoOpHandler(bundle.Manager, bundle.Registry, bundle.Estimator, bundle.Framing, bundle.MediaResolver);
         }
 
         private readonly Func<Artifact, bool>? _videoArtifactIsVisible;
