@@ -48,70 +48,127 @@ window.RookModelControls = (() => {
             return c.operator === 'eq' ? value === c.value : c.operator === 'in' && (c.values || []).includes(value);
         });
     }
+    // Display text only. The value submitted for a choice is always the definition's own spelling.
+    function displayName(value, type) {
+        if (type === 'boolean') return value === true || value === 'true' ? 'On' : 'Off';
+        const text = String(value).replace(/_/g, ' ');
+        return text.charAt(0).toUpperCase() + text.slice(1);
+    }
+    function formatExact(units) {
+        const negative = units < 0n, magnitude = negative ? -units : units;
+        const fraction = (magnitude % scale).toString().padStart(6, '0').replace(/0+$/, '');
+        return `${negative ? '-' : ''}${magnitude / scale}${fraction ? '.' + fraction : ''}`;
+    }
+    // Next value on the declared step grid, by exact arithmetic, kept inside the declared bounds.
+    function steppedValue(raw, f, direction) {
+        const step = exactNumeric(String(f.step), f), origin = own(f, 'min') ? exactNumeric(String(f.min), f) : 0n;
+        let current = null;
+        try { if (String(raw).trim() !== '') current = exactNumeric(raw, f); } catch (_) { }
+        let next;
+        if (current === null) next = own(f, 'default') ? exactNumeric(String(f.default), f) : origin;
+        else if (current < origin) next = origin;
+        else {
+            const offset = current - origin;
+            next = direction > 0 ? origin + (offset / step) * step + step : origin + ((offset + step - 1n) / step) * step - step;
+        }
+        if (own(f, 'max')) { const max = exactNumeric(String(f.max), f); if (next > max) next = origin + ((max - origin) / step) * step; }
+        if (next < origin) next = origin;
+        return formatExact(next);
+    }
+    function rangeText(f) {
+        if (f.type !== 'integer' && f.type !== 'number') return '';
+        const range = own(f, 'min') && own(f, 'max') ? `${f.min} to ${f.max}` : own(f, 'min') ? `At least ${f.min}` : own(f, 'max') ? `At most ${f.max}` : '';
+        const steps = own(f, 'step') && !(f.type === 'integer' && Number(f.step) === 1) ? `in steps of ${f.step}` : '';
+        return range && steps ? `${range}, ${steps}.` : range ? `${range}.` : steps ? `${steps.charAt(0).toUpperCase()}${steps.slice(1)}.` : '';
+    }
     function create(container, descriptor, onChange) {
         const rows = [], listeners = []; let disposed = false;
+        const make = (tag, className) => { const node = document.createElement(tag); if (className) node.className = className; return node; };
         container.replaceChildren();
-        const basic = document.createElement('div'); basic.className = 'model-controls-basic';
-        const advanced = document.createElement('details'); advanced.className = 'model-controls-advanced';
-        const summary = document.createElement('summary'); summary.textContent = 'Advanced'; advanced.appendChild(summary);
+        const basic = make('div', 'model-controls-basic');
+        const advanced = make('details', 'model-controls-advanced');
+        const summary = make('summary'); summary.textContent = 'Advanced'; advanced.appendChild(summary);
         container.appendChild(basic);
         function listen(node, name, fn) { node.addEventListener(name, fn); listeners.push(() => node.removeEventListener(name, fn)); }
         const fields = [...(descriptor.options || [])].sort((a,b) =>
             (a.ui?.group === 'advanced') - (b.ui?.group === 'advanced') || (a.ui?.order || 0) - (b.ui?.order || 0));
         for (const f of fields) {
             const key = `${f.scope || 'options'}.${f.key}`;
-            const row = document.createElement('div'); row.className = 'model-control'; row.dataset.fieldRow = key;
-            const label = document.createElement('label'); label.textContent = f.label || f.key;
+            const row = make('div', 'model-control'); row.dataset.fieldRow = key;
+            const label = make('label');
+            const name = make('span', 'select-label model-control-name'); name.textContent = f.label || f.key; label.appendChild(name);
             const input = document.createElement(f.type === 'boolean' || f.type === 'enum' ? 'select' : f.type === 'string' ? 'textarea' : 'input');
             input.dataset.field = key; input.dataset.control = 'value'; input.dataset.type = f.type;
-            if (input.tagName === 'INPUT') { input.type = 'text'; input.inputMode = f.type === 'integer' ? 'numeric' : 'decimal'; }
+            if (input.tagName === 'INPUT') { input.type = 'text'; input.inputMode = f.type === 'integer' ? 'numeric' : 'decimal'; if (!own(f, 'default')) input.placeholder = 'Not set'; }
+            if (input.tagName === 'TEXTAREA') input.rows = f.key === 'prompt' ? 4 : 2;
             if (input.tagName === 'SELECT') {
-                const absent = document.createElement('option'); absent.value = ''; absent.textContent = own(f, 'default') ? `Default: ${f.default}` : 'Unset'; input.appendChild(absent);
+                const absent = document.createElement('option'); absent.value = ''; absent.textContent = own(f, 'default') ? `Default (${displayName(f.default, f.type)})` : 'Not set'; input.appendChild(absent);
                 for (const value of f.type === 'boolean' ? ['true', 'false'] : f.values || []) {
-                    const option = document.createElement('option'); option.value = value; option.textContent = value; input.appendChild(option);
+                    const option = document.createElement('option'); option.value = value; option.textContent = displayName(value, f.type); input.appendChild(option);
                 }
             }
-            const reset = document.createElement('button'); reset.type = 'button'; reset.className = 'btn-text'; reset.dataset.clear = key;
-            reset.textContent = own(f, 'default') ? 'Use default' : 'Unset';
-            const hint = document.createElement('span'); hint.className = 'field-hint';
-            const error = document.createElement('span'); error.className = 'model-field-error'; error.setAttribute('aria-live', 'polite');
-            const record = { f, key, row, label, input, reset, hint, error, supplied: false };
-            function resetValue() { record.supplied = false; input.value = input.tagName === 'SELECT' ? '' : own(f, 'default') ? String(f.default) : ''; }
+            const reset = make('button', 'btn-text model-control-reset'); reset.type = 'button'; reset.dataset.clear = key;
+            reset.textContent = own(f, 'default') ? 'Reset' : 'Clear';
+            const hint = make('span', 'option-hint field-hint');
+            const error = make('span', 'model-field-error'); error.setAttribute('aria-live', 'polite');
+            const record = { f, key, row, label, name, input, reset, hint, error, supplied: false };
+            // Reset is offered only where it changes something: a control the user has set.
+            function sync() { reset.hidden = !record.supplied || (f.required === true && !own(f, 'default')); }
+            function resetValue() { record.supplied = false; input.value = input.tagName === 'SELECT' ? '' : own(f, 'default') ? String(f.default) : ''; sync(); }
             function changed() { if (disposed) return; error.textContent = ''; input.removeAttribute('aria-invalid'); onChange(); }
             resetValue();
             listen(input, input.tagName === 'SELECT' ? 'change' : 'input', () => {
                 record.supplied = input.tagName === 'SELECT' || f.type === 'integer' || f.type === 'number' ? input.value !== '' : true;
-                changed();
+                sync(); changed();
             });
             listen(reset, 'click', () => { resetValue(); changed(); });
-            label.appendChild(input); row.appendChild(label); row.appendChild(reset); row.appendChild(hint); row.appendChild(error);
+            label.appendChild(input);
+            if (input.tagName === 'INPUT' && own(f, 'step')) {
+                for (const [direction, text, title] of [[-1, '−', 'Decrease'], [1, '+', 'Increase']]) {
+                    const button = make('button', 'model-control-step'); button.type = 'button'; button.textContent = text;
+                    button.dataset.step = key; button.dataset.direction = direction > 0 ? 'up' : 'down'; button.setAttribute('aria-label', `${title} ${f.label || f.key}`);
+                    listen(button, 'click', () => {
+                        try { input.value = steppedValue(input.value, f, direction); } catch (_) { return; }
+                        record.supplied = true; sync(); changed();
+                    });
+                    label.appendChild(button);
+                }
+            }
+            const foot = make('div', 'model-control-foot'); foot.appendChild(hint); foot.appendChild(reset);
+            row.appendChild(label); row.appendChild(foot); row.appendChild(error);
             (f.ui?.group === 'advanced' ? advanced : basic).appendChild(row); rows.push(record);
         }
         if (fields.some(f => f.ui?.group === 'advanced')) container.appendChild(advanced);
-        function setValidation(errors) {
-            for (const r of rows) {
+        const every = () => true;
+        function setValidation(errors, include = every) {
+            for (const r of rows.filter(include)) {
                 const messages = (errors || []).filter(e => e.field === r.key || e.field === r.f.key).map(e => e.message);
                 r.error.textContent = messages.join(' ');
                 if (messages.length) { r.input.setAttribute('aria-invalid', 'true'); r.row.hidden = false; if(r.f.ui?.group === 'advanced') advanced.open = true; }
                 else r.input.removeAttribute('aria-invalid');
             }
         }
-        function readOptions() {
+        function readOptions(include = every) {
             const values = {}, errors = [];
-            for (const r of rows) if (r.supplied) {
+            for (const r of rows.filter(include)) if (r.supplied) {
                 try { values[r.f.key] = parseValue(r.input.value, r.f); }
                 catch (e) { errors.push({field:r.key, message:e.message}); }
             }
-            if (errors.length) { setValidation(errors); const e = new Error(errors.map(e => `${e.field}: ${e.message}`).join(' ')); e.field_errors = errors; throw e; }
+            if (errors.length) { setValidation(errors, include); const e = new Error(errors.map(e => `${e.field}: ${e.message}`).join(' ')); e.field_errors = errors; throw e; }
             return values;
         }
-        function effectiveValues() {
+        function effectiveValues(include = every) {
             const result = {};
-            for (const r of rows) {
+            for (const r of rows.filter(include)) {
                 if (!r.supplied && own(r.f, 'default')) result[r.key] = r.f.default;
                 else if (r.supplied) { try { result[r.key] = parseValue(r.input.value, r.f); } catch (_) { } }
             }
             return result;
+        }
+        // One rendered list can hold common request fields and provider options; callers read each scope separately.
+        function scope(name) {
+            const include = r => (r.f.scope || 'options') === name;
+            return { readOptions: () => readOptions(include), effectiveValues: () => effectiveValues(include) };
         }
         function updateContext(context) {
             for (const r of rows) {
@@ -124,12 +181,17 @@ window.RookModelControls = (() => {
                 const restrictions = active.filter(c => c.kind === 'allowed_values');
                 if (r.f.type === 'enum') for (const item of r.input.options)
                     item.disabled = !!item.value && restrictions.some(c => !(c.values || []).includes(item.value));
-                r.label.dataset.required = String(r.f.required || active.some(c => c.kind === 'required_when'));
-                r.hint.textContent = [r.f.description || '', own(r.f,'min') ? `Minimum: ${r.f.min}` : '', own(r.f,'max') ? `Maximum: ${r.f.max}` : '', own(r.f,'step') ? `Step: ${r.f.step}` : '', restrictions.length ? 'Choices restricted by current settings.' : '', inactive ? r.supplied ? 'Inactive for these settings. Unset this explicit value to use managed defaults.' : 'Inactive default; managed normalization will omit it.' : '', own(r.f,'default') && !r.supplied ? `Default: ${r.f.default} (not explicitly supplied)` : ''].filter(Boolean).join(' ');
+                r.label.dataset.required = r.name.dataset.required = String(r.f.required || active.some(c => c.kind === 'required_when'));
+                r.reset.hidden = !r.supplied || (r.f.required === true && !own(r.f, 'default'));
+                r.hint.textContent = [r.f.description || '', rangeText(r.f),
+                    restrictions.length ? 'Some choices are unavailable with the current settings.' : '',
+                    inactive ? r.supplied ? 'Not used with the current settings. Reset it to continue.' : 'Not used with the current settings.' : '',
+                    own(r.f,'default') && r.supplied ? `Default ${r.f.type === 'boolean' || r.f.type === 'enum' ? displayName(r.f.default, r.f.type) : r.f.default}.` : ''].filter(Boolean).join(' ');
             }
         }
         updateContext({values:effectiveValues(),media:[]});
-        return {readOptions, setValidation, effectiveValues, updateContext, dispose() { disposed = true; listeners.forEach(f => f()); container.replaceChildren(); }};
+        return {readOptions: () => readOptions(), setValidation: errors => setValidation(errors), effectiveValues: () => effectiveValues(), updateContext, scope,
+            dispose() { disposed = true; listeners.forEach(f => f()); container.replaceChildren(); }};
     }
-    return {create};
+    return {create, displayName};
 })();

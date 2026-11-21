@@ -122,6 +122,8 @@ function syncConfiguredImageForms() {
             }
         }
         container.classList.toggle('hidden', !descriptors.length);
+        // The paid-tier note describes the built-in models only.
+        if (!studio) document.getElementById('model-paid-hint')?.classList.toggle('configured-legacy-hidden', !!descriptors.length);
         toggleConfiguredLegacy([`${prefix}prompt`,`${prefix}resolution-select`,`${prefix}aspect-select`,`${prefix}add-reference-btn`], !!descriptors.length);
     }
 }
@@ -149,6 +151,9 @@ async function generateConfiguredImage(form, studio) {
     } finally {form.setJob(null);setGenerating(btn,text,spinner,false);}
 }
 
+// Display names for the closed operation and media-role vocabularies of configured models.
+const CONFIGURED_OPERATION_NAMES = {text_to_image:'Text to image', image_to_image:'Image to image', text_to_video:'Text to video', image_to_video:'Image to video', first_last_frame_to_video:'First and last frame to video'};
+const CONFIGURED_MEDIA_NAMES = {primary_image:'Image', start_frame:'Start image', end_frame:'End image', reference_image:'Reference images'};
 function configuredOperations(model) {
     return Array.isArray(model?.operations) ? model.operations.filter(d => d && typeof d === 'object' && d.operation_id && d.submission_contract) : [];
 }
@@ -165,28 +170,31 @@ function configuredCancellationNotice(data) {
     return `${c.local_stopped ? 'Local work stopped. ' : ''}${labels[c.remote_disposition] || 'Remote cancellation not confirmed.'}`;
 }
 function createConfiguredModelForm(container, model, onChange) {
-    let revision = 0, disposed = false, quote = null, common, options, descriptor, mediaSlots = [], mediaRevision = 0;
+    let revision = 0, disposed = false, quote = null, controls, common, options, descriptor, mediaSlots = [], mediaRevision = 0;
     const listeners = [], mediaListeners = [];
     const state = {get descriptor(){return descriptor;},get common(){return common;},get options(){return options;},readMedia};
+    const named = (text) => { const span = document.createElement('span'); span.className = 'select-label'; span.textContent = text; return span; };
     const operation = document.createElement('select'); operation.dataset.configuredOperation = 'true';
-    const title = document.createElement('label'); title.textContent = 'Operation'; title.appendChild(operation);
+    const title = document.createElement('label'); title.appendChild(named('Operation')); title.appendChild(operation);
     for (const d of configuredOperations(model)) {
-        const item = document.createElement('option'); item.value = d.operation_id; item.textContent = d.operation_id; operation.appendChild(item);
+        const item = document.createElement('option'); item.value = d.operation_id; item.textContent = CONFIGURED_OPERATION_NAMES[d.operation_id] || window.RookModelControls.displayName(d.operation_id); operation.appendChild(item);
     }
-    const fields = document.createElement('div'), provider = document.createElement('div'), media = document.createElement('div');
+    // A model with one operation has nothing to pick; the control stays in the form for its value.
+    title.hidden = configuredOperations(model).length < 2;
+    const fields = document.createElement('div'), media = document.createElement('div');
     const errors = document.createElement('div'); errors.className = 'model-field-error'; errors.setAttribute('aria-live','polite');
     const price = document.createElement('div'); price.className = 'configured-price'; price.setAttribute('aria-live','polite');
     const estimateButton = document.createElement('button'); estimateButton.type = 'button'; estimateButton.className = 'btn btn-secondary'; estimateButton.textContent = 'Estimate cost';
     const cancelButton = document.createElement('button'); cancelButton.type = 'button'; cancelButton.className = 'btn btn-secondary'; cancelButton.textContent = 'Stop image job'; cancelButton.hidden = true;
     let jobId = null;
-    container.replaceChildren(title,fields,provider,media,errors,price,estimateButton,cancelButton);
+    container.replaceChildren(title,fields,media,errors,price,estimateButton,cancelButton);
     function listen(node,event,fn,list = listeners){node.addEventListener(event,fn);list.push(()=>node.removeEventListener(event,fn));}
     function identity(){return `${descriptor.model_id}/${descriptor.operation_id}/${descriptor.definition_hash}/${descriptor.revision}`;}
     function invalidate(){revision++;quote=null;price.textContent='Obtain a fresh estimate before generation.';}
     function readMedia(){return mediaSlots.filter(s=>s.input.value).map(s=>({semantic_role:s.role,...JSON.parse(s.input.value)}));}
-    function context(){const c={values:{...common.effectiveValues(),...options.effectiveValues()},media:readMedia()};common.updateContext(c);options.updateContext(c);}
+    function context(){controls.updateContext({values:controls.effectiveValues(),media:readMedia()});}
     function changed(){if(disposed)return;invalidate();errors.textContent='';context();onChange();}
-    function setValidation(values){const list=Array.isArray(values)?values:[];common.setValidation(list);options.setValidation(list);errors.textContent=list.map(e=>`${e.field}: ${e.message}`).join(' ');}
+    function setValidation(values){const list=Array.isArray(values)?values:[];controls.setValidation(list);errors.textContent=list.map(e=>`${e.field}: ${e.message}`).join(' ');}
     async function refreshMedia(){
         const token=++mediaRevision;
         try {
@@ -210,16 +218,22 @@ function createConfiguredModelForm(container, model, onChange) {
         }catch(e){if(!disposed && token===mediaRevision)errors.textContent=errorToText(e);}
     }
     function render(){
-        common?.dispose();options?.dispose();mediaListeners.splice(0).forEach(f=>f());mediaRevision++;mediaSlots=[];media.replaceChildren();
+        controls?.dispose();mediaListeners.splice(0).forEach(f=>f());mediaRevision++;mediaSlots=[];media.replaceChildren();
         descriptor=configuredOperations(model).find(d=>d.operation_id===operation.value) || configuredOperations(model)[0];
         operation.value=descriptor.operation_id;
         estimateButton.hidden=descriptor.submission_contract==='video_job';
-        common=window.RookModelControls.create(fields,{...descriptor,options:descriptor.request_fields||[]},changed);
-        options=window.RookModelControls.create(provider,descriptor,changed);
+        // Common request fields and provider options are drawn as one list, in the definition's order,
+        // and read back separately so the request keeps its two scopes.
+        controls=window.RookModelControls.create(fields,{...descriptor,options:[
+            ...(descriptor.request_fields||[]).map(f=>({...f,scope:'request'})),
+            ...(descriptor.options||[]).map(f=>({...f,scope:f.scope||'options'}))]},changed);
+        common=controls.scope('request');options=controls.scope('options');
         for(const role of descriptor.media||[]) {
-            const group=document.createElement('fieldset'),legend=document.createElement('legend');legend.textContent=`${role.role} (${role.min_count}–${role.max_count}${role.ordered ? ', in order' : ''})`;group.appendChild(legend);
+            const roleName=CONFIGURED_MEDIA_NAMES[role.role] || window.RookModelControls.displayName(role.role);
+            const count=role.max_count>1 ? `up to ${role.max_count}${role.ordered ? ', in order' : ''}` : role.min_count>0 ? 'required' : 'optional';
+            const group=document.createElement('fieldset'),legend=document.createElement('legend');legend.textContent=`${roleName} (${count})`;group.appendChild(legend);
             for(let index=0;index<role.max_count;index++){
-                const label=document.createElement('label');label.textContent=`${role.role} ${index+1}`;
+                const label=document.createElement('label');label.appendChild(named(role.max_count>1 ? `${roleName} ${index+1}` : 'Choose from saved images'));
                 const input=document.createElement('select');input.dataset.mediaRole=role.role;
                 const empty=document.createElement('option');empty.value='';empty.textContent='None';input.appendChild(empty);
                 label.appendChild(input);group.appendChild(label);mediaSlots.push({role:role.role,input});listen(input,'change',changed,mediaListeners);
@@ -260,7 +274,7 @@ function createConfiguredModelForm(container, model, onChange) {
     return {request:()=>buildConfiguredModelRequest(state),estimate,confirmedRequest,setValidation,refreshMedia,invalidate,
         setJob(id){jobId=id;cancelButton.hidden=!id;},
         get descriptor(){return descriptor;},
-        dispose(){disposed=true;invalidate();mediaRevision++;common.dispose();options.dispose();mediaListeners.forEach(f=>f());listeners.forEach(f=>f());container.replaceChildren();}};
+        dispose(){disposed=true;invalidate();mediaRevision++;controls.dispose();mediaListeners.forEach(f=>f());listeners.forEach(f=>f());container.replaceChildren();}};
 }
 
 // ─── State ────────────────────────────────────────────────────────
