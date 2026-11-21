@@ -2994,19 +2994,54 @@ body {
 .video-preflight-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 @media (max-width: 440px) { .video-framing-cards { gap: 7px; } .video-framing-card { padding: 8px; } .video-framing-card[aria-checked="true"] { padding: 7px; } }
 
-/* Descriptor controls share a scalar presentation for common/provider fields. */
+/* Controls generated from a model definition. One list for common and provider fields,
+   dressed like the built-in controls: display-face labels, mono values, mono hints. */
 .configured-legacy-hidden, .model-control[hidden], .configured-model-controls [hidden] { display: none !important; }
-.configured-model-controls { display: grid; gap: 12px; margin: 12px 0; }
-.configured-model-controls label { display: grid; gap: 6px; font-size: 12px; }
+.configured-model-controls { display: grid; gap: var(--space-2); margin: var(--space-2) 0; font-feature-settings: normal; }
+/* The image views place this block in an unpadded card; align it with the built-in option groups. */
+#generate-configured-controls, #studio-configured-controls { padding: 0 var(--space-5); }
+/* Name on its own line; the value takes the width, with step buttons beside it when present. */
+.configured-model-controls label { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; }
+.configured-model-controls label > .select-label { grid-column: 1 / -1; }
 .configured-model-controls input, .configured-model-controls select, .configured-model-controls textarea {
-    width: 100%; box-sizing: border-box; padding: 8px; color: inherit; background: var(--paper-card); border: 1px solid var(--rule); border-radius: 4px;
+    width: 100%; min-width: 0; box-sizing: border-box; padding: 9px 10px; color: var(--ink); background: var(--paper);
+    border: 1px solid var(--rule); border-radius: 0; font-family: var(--type-mono); font-size: 13px;
 }
-.configured-model-controls textarea { min-height: 70px; resize: vertical; }
-.model-controls-basic, .model-controls-advanced, .model-control { display: grid; gap: 6px; }
-.model-control { margin: 10px 0; }
-.model-control-inactive { opacity: .75; }
-.model-control [data-required="true"]::before { content: 'Required'; font-size: 10px; }
-.model-field-error { color: var(--accent-red); white-space: pre-wrap; font-size: 12px; }
+.configured-model-controls input:focus, .configured-model-controls select:focus, .configured-model-controls textarea:focus {
+    outline: none; background: var(--paper-bright); box-shadow: inset 0 0 0 1px var(--accent-brass), 0 0 0 1px var(--accent-brass);
+}
+.configured-model-controls input::placeholder { color: var(--ink-soft); opacity: 0.5; }
+.configured-model-controls select {
+    appearance: none; cursor: pointer; padding-right: 28px; background-repeat: no-repeat; background-size: 5px 5px, 5px 5px;
+    background-position: right 14px top 50%, right 9px top 50%;
+    background-image: linear-gradient(45deg, transparent 50%, var(--ink) 50%), linear-gradient(135deg, var(--ink) 50%, transparent 50%);
+}
+.configured-model-controls textarea { min-height: 44px; resize: vertical; line-height: 1.5; }
+/* Rows are spaced by margin: a details element does not lay its content out as a grid. */
+.model-control + .model-control, .model-controls-advanced > summary + .model-control { margin-top: var(--space-2); }
+.model-controls-advanced { border-top: 1px solid var(--rule); padding-top: var(--space-1); }
+.model-controls-advanced > summary {
+    cursor: pointer; padding: var(--space-1) 0; font-family: var(--type-display); font-size: 10px; font-weight: 700;
+    letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-soft);
+}
+.model-control { display: grid; gap: 4px; }
+.model-control-inactive { opacity: .6; }
+.model-control-name[data-required="true"]::after { content: ' · required'; }
+.model-control-step {
+    width: 34px; border: 1px solid var(--rule); border-left: none; background: var(--paper); color: var(--ink);
+    font-family: var(--type-mono); font-size: 14px; line-height: 1; cursor: pointer;
+}
+.model-control-step:hover { background: var(--ink); color: var(--paper); }
+.model-control-foot { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-2); }
+.model-control-foot .field-hint { margin-top: 0; font-size: 11px; letter-spacing: 0.02em; line-height: 1.5; }
+.field-hint:empty { display: none; }
+.model-control-reset { margin-left: auto; white-space: nowrap; }
+.configured-model-controls fieldset { border: 1px solid var(--rule); padding: var(--space-1) var(--space-2) var(--space-2); margin: 0; display: grid; gap: var(--space-1); }
+.configured-model-controls legend {
+    padding: 0 var(--space-1); font-family: var(--type-display); font-size: 10px; font-weight: 700; letter-spacing: 0.22em;
+    text-transform: uppercase; color: var(--ink-soft);
+}
+.model-field-error { color: var(--accent-red); white-space: pre-wrap; font-family: var(--type-mono); font-size: 11px; }
 .model-field-error:empty { display: none; }
-.configured-price { font-size: 13px; }
+.configured-price { font-family: var(--type-mono); font-size: 12px; }
 .configured-model-controls [aria-invalid="true"] { border-color: var(--accent-red); }
