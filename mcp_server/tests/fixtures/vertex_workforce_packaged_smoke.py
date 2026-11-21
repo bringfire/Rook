@@ -22,7 +22,7 @@ from rook.providers.vertex_workforce_store import VertexWorkforceStore
 from rook.providers.vertex_workforce_exchange import exchange_assertion
 from rook.providers import vertex_backend as backend
 
-expected={'msal':'1.39.0','google-auth':'2.56.3','PyJWT':'2.15.0','litellm':'1.89.7','requests':'2.34.2','cryptography':'50.0.1','multidict':'6.9.1'}
+expected={'msal':'1.39.0','google-auth':'2.56.3','PyJWT':'2.15.0','litellm':'1.100.4','requests':'2.34.2','cryptography':'50.0.1','multidict':'6.9.1'}
 assert sys.version_info[:3]==(3,11,9) and all(version(key)==value for key,value in expected.items())
 
 # Guard the admitted C-extension correction for GHSA-54p9-h82j-f925.
