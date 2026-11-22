@@ -28,9 +28,10 @@ HARNESS_SHA256 = "2A74120496C0B65AE4A9FBDDFAD056D65F7976B2E597500ADF8AF7F8F7E920
 CONFIGURATION_PATH = (
     ROOK_ROOT
     / "docs/superpowers/experiments/inputs/"
-    "2026-08-30-rookchat-prime-gate-7c-broker-v1/config.json"
+    "2026-08-30-rookchat-prime-gate-7c-broker-v2/config.json"
 )
-CONFIGURATION_SHA256 = "7AFBFCA08C970C0B87CF05717886A63F45D069FFF104694648A8166FF22B3BE4"
+CONFIGURATION_SHA256 = "98C910A238D21011A6AA76E88E91D73D4E52D2723625822E9B239235A9D9AC11"
+EXPECTED_RUNTIME_PREPARATION_TIMEOUT_SECONDS = 150.0
 ADMITTED_ENVIRONMENT_KEYS = {
     "APPDATA",
     "COMSPEC",
@@ -70,10 +71,13 @@ class Gate7CAdmission:
 @dataclass(frozen=True)
 class FrozenGate7CConfiguration:
     evidence_root: Path
+    kernel_root: Path
     approved_prime_commit: str
     host_python_interpreter: Path
     source_root: Path
     admitted_environment: Mapping[str, str]
+    runtime_preparation_timeout_seconds: float
+    outer_wrapper_timeout_seconds: None
     harness_arguments: tuple[str, ...]
 
     @property
@@ -90,6 +94,7 @@ class HostRuntimeCustody:
     interpreter_path: str
     source_root: str
     isolated: bool
+    runtime_preparation_timeout_seconds: float
     module_origins: Mapping[str, str]
 
 
@@ -223,6 +228,7 @@ def _decode_configuration(path: Path) -> dict[str, object]:
         {
             "schemaVersion",
             "evidenceRoot",
+            "deadlines",
             "hostPython",
             "admittedEnvironment",
             "node",
@@ -241,9 +247,22 @@ def _decode_configuration(path: Path) -> dict[str, object]:
 
 def load_frozen_configuration(path: Path) -> FrozenGate7CConfiguration:
     payload = _decode_configuration(path)
-    if payload["schemaVersion"] != 1:
+    if payload["schemaVersion"] != 2:
         raise Gate7CAdmissionFailure("unsupported frozen Gate 7C configuration")
     evidence_root = _path(payload["evidenceRoot"], "evidence root")
+    deadlines = _object(
+        payload["deadlines"],
+        {"runtimePreparationSeconds", "outerWrapperSeconds"},
+        "deadlines",
+    )
+    preparation_timeout = deadlines["runtimePreparationSeconds"]
+    if (
+        type(preparation_timeout) not in {int, float}
+        or float(preparation_timeout) != EXPECTED_RUNTIME_PREPARATION_TIMEOUT_SECONDS
+    ):
+        raise Gate7CAdmissionFailure("frozen runtime preparation deadline is invalid")
+    if deadlines["outerWrapperSeconds"] is not None:
+        raise Gate7CAdmissionFailure("frozen outer wrapper deadline must be absent")
     host_python = _object(
         payload["hostPython"],
         {"interpreterPath", "sourceRoot"},
@@ -278,6 +297,7 @@ def load_frozen_configuration(path: Path) -> FrozenGate7CConfiguration:
         },
         "runtime roots",
     )
+    kernel_root = _path(runtime["kernelRoot"], "kernel root")
     uv = _object(payload["uv"], {"path", "sha256"}, "uv identity")
     model = _object(payload["model"], {"provider", "id", "thinking"}, "model")
     target = _object(
@@ -330,7 +350,7 @@ def load_frozen_configuration(path: Path) -> FrozenGate7CConfiguration:
         "--product-root",
         str(_path(runtime["productRoot"], "product root")),
         "--kernel-root",
-        str(_path(runtime["kernelRoot"], "kernel root")),
+        str(kernel_root),
         "--registry-root",
         str(_path(runtime["registryRoot"], "registry root")),
         "--session-dir",
@@ -370,10 +390,13 @@ def load_frozen_configuration(path: Path) -> FrozenGate7CConfiguration:
     )
     return FrozenGate7CConfiguration(
         evidence_root=evidence_root,
+        kernel_root=kernel_root,
         approved_prime_commit=_string(prime["commit"], "Prime commit"),
         host_python_interpreter=host_python_interpreter,
         source_root=source_root,
         admitted_environment=admitted_environment,
+        runtime_preparation_timeout_seconds=float(preparation_timeout),
+        outer_wrapper_timeout_seconds=None,
         harness_arguments=tuple(arguments),
     )
 
@@ -409,6 +432,7 @@ def verify_host_runtime(
         raise Gate7CAdmissionFailure("host Python interpreter differs from review")
 
     origins: dict[str, str] = {}
+    preparation_timeout: float | None = None
     for module_name, relative_path in HOST_MODULE_PATHS.items():
         module = module_loader(module_name)
         raw_origin = getattr(module, "__file__", None)
@@ -427,12 +451,30 @@ def verify_host_runtime(
             raise Gate7CAdmissionFailure(
                 f"host module import origin differs from review: {module_name}"
             )
+        if module_name == "rook.agent.chat.prime_backend":
+            raw_timeout = getattr(
+                module,
+                "RUNTIME_PREPARATION_TIMEOUT_SECONDS",
+                None,
+            )
+            if (
+                type(raw_timeout) not in {int, float}
+                or float(raw_timeout) != config.runtime_preparation_timeout_seconds
+            ):
+                raise Gate7CAdmissionFailure(
+                    "host runtime preparation deadline differs from review"
+                )
+            preparation_timeout = float(raw_timeout)
         origins[module_name] = str(origin)
+
+    if preparation_timeout is None:
+        raise Gate7CAdmissionFailure("host runtime preparation deadline is missing")
 
     return HostRuntimeCustody(
         interpreter_path=str(actual_interpreter),
         source_root=str(source_root),
         isolated=True,
+        runtime_preparation_timeout_seconds=preparation_timeout,
         module_origins=origins,
     )
 
@@ -497,6 +539,13 @@ def execute_gate_7c(
         raise Gate7CAdmissionFailure("frozen host Python is outside the Rook worktree")
     if config.source_root.absolute() != expected_source_root:
         raise Gate7CAdmissionFailure("frozen Rook source root differs from review")
+    expected_kernel_root = (
+        config.evidence_root / "runtime" / "kernels"
+    ).absolute()
+    if config.kernel_root.absolute() != expected_kernel_root:
+        raise Gate7CAdmissionFailure("frozen kernel root differs from V2 evidence root")
+    if config.kernel_root.exists():
+        raise Gate7CAdmissionFailure("Gate 7C V2 kernel root is not fresh")
     if config.evidence_root.exists():
         raise Gate7CAdmissionFailure("Gate 7C evidence root already exists")
     for root, expected, label in (
@@ -517,7 +566,7 @@ def execute_gate_7c(
     wrapper_sha256 = file_hasher(admission.wrapper_path)
     config.evidence_root.mkdir(parents=True, exist_ok=False)
     record: dict[str, Any] = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "wrapperSha256": wrapper_sha256,
         "harnessSha256": admission.harness_sha256,
         "configurationSha256": admission.configuration_sha256,
@@ -527,6 +576,13 @@ def execute_gate_7c(
             "rook": admission.approved_rook_commit,
             "prime": admission.approved_prime_commit,
         },
+        "deadlineCustody": {
+            "runtimePreparationSeconds": (
+                config.runtime_preparation_timeout_seconds
+            ),
+            "outerWrapperSeconds": config.outer_wrapper_timeout_seconds,
+        },
+        "kernelRootAbsentBeforeExecution": True,
         "constructedInvocation": {
             "pythonExecutable": str(Path(sys.executable).resolve()),
             "wrapperPath": str(admission.wrapper_path),
@@ -537,6 +593,9 @@ def execute_gate_7c(
             "interpreterPath": host_runtime.interpreter_path,
             "sourceRoot": host_runtime.source_root,
             "isolated": host_runtime.isolated,
+            "runtimePreparationTimeoutSeconds": (
+                host_runtime.runtime_preparation_timeout_seconds
+            ),
             "moduleOrigins": dict(host_runtime.module_origins),
         },
         "startedAtUtc": utc_now(),

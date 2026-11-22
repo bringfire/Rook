@@ -30,8 +30,12 @@ def _configuration_payload(tmp_path: Path) -> dict[str, object]:
     evidence = tmp_path / "evidence"
     source_root = tmp_path / "rook" / "mcp_server" / "src"
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "evidenceRoot": str(evidence),
+        "deadlines": {
+            "runtimePreparationSeconds": 150.0,
+            "outerWrapperSeconds": None,
+        },
         "hostPython": {
             "interpreterPath": str(
                 tmp_path
@@ -145,6 +149,7 @@ def _host_runtime(tmp_path: Path) -> wrapper.HostRuntimeCustody:
         ),
         source_root=str(source_root),
         isolated=True,
+        runtime_preparation_timeout_seconds=150.0,
         module_origins={
             "rook": str(source_root / "rook" / "__init__.py"),
             "rook.agent.chat.prime_backend": str(
@@ -270,6 +275,10 @@ def test_wrapper_builds_only_the_frozen_invocation_and_seals_success(
         "failure": None,
         "harnessExitCode": 0,
         "harnessSha256": admitted.harness_sha256,
+        "deadlineCustody": {
+            "outerWrapperSeconds": None,
+            "runtimePreparationSeconds": 150.0,
+        },
         "hostRuntime": {
             "interpreterPath": str(
                 tmp_path
@@ -280,6 +289,7 @@ def test_wrapper_builds_only_the_frozen_invocation_and_seals_success(
                 / "python.exe"
             ),
             "isolated": True,
+            "runtimePreparationTimeoutSeconds": 150.0,
             "moduleOrigins": _host_runtime(tmp_path).module_origins,
             "sourceRoot": str(tmp_path / "rook" / "mcp_server" / "src"),
         },
@@ -288,7 +298,8 @@ def test_wrapper_builds_only_the_frozen_invocation_and_seals_success(
         "resultSha256": wrapper._sha256_file(
             tmp_path / "evidence" / "result.json"
         ),
-        "schemaVersion": 1,
+        "kernelRootAbsentBeforeExecution": True,
+        "schemaVersion": 2,
         "startedAtUtc": STARTED_AT,
         "wrapperExitCode": 0,
         "wrapperSha256": wrapper._sha256_file(admitted.wrapper_path),
@@ -296,7 +307,8 @@ def test_wrapper_builds_only_the_frozen_invocation_and_seals_success(
 
 
 @pytest.mark.parametrize(
-    "failure", ("config_hash", "harness_hash", "dirty", "existing")
+    "failure",
+    ("config_hash", "harness_hash", "dirty", "existing", "existing_kernel"),
 )
 def test_wrapper_refuses_before_invocation(tmp_path: Path, failure: str) -> None:
     admitted = _admission(tmp_path)
@@ -310,6 +322,8 @@ def test_wrapper_refuses_before_invocation(tmp_path: Path, failure: str) -> None
         )
     elif failure == "existing":
         (tmp_path / "evidence").mkdir(parents=True)
+    elif failure == "existing_kernel":
+        (tmp_path / "evidence" / "runtime" / "kernels").mkdir(parents=True)
 
     def inspect(root: Path) -> tuple[str, str]:
         if failure == "dirty" and root.name == "rook":
@@ -409,8 +423,20 @@ def _host_modules(tmp_path: Path) -> tuple[Path, dict[str, Path]]:
     return interpreter, paths
 
 
-def _module_loader(paths: dict[str, Path]):
-    return lambda name: SimpleNamespace(__file__=str(paths[name]))
+def _module_loader(
+    paths: dict[str, Path],
+    *,
+    preparation_timeout_seconds: float = 150.0,
+):
+    def load(name: str):
+        values = {"__file__": str(paths[name])}
+        if name == "rook.agent.chat.prime_backend":
+            values["RUNTIME_PREPARATION_TIMEOUT_SECONDS"] = (
+                preparation_timeout_seconds
+            )
+        return SimpleNamespace(**values)
+
+    return load
 
 
 def test_host_runtime_refuses_wrong_interpreter(tmp_path: Path) -> None:
@@ -476,6 +502,42 @@ def test_host_runtime_refuses_wrong_rook_import_origin(tmp_path: Path) -> None:
             environment={},
             module_loader=_module_loader(paths),
         )
+
+
+def test_host_runtime_refuses_wrong_preparation_deadline(tmp_path: Path) -> None:
+    interpreter, paths = _host_modules(tmp_path)
+    config = wrapper.load_frozen_configuration(_write_configuration(tmp_path))
+
+    with pytest.raises(wrapper.Gate7CAdmissionFailure, match="preparation deadline"):
+        wrapper.verify_host_runtime(
+            config,
+            executable=interpreter,
+            isolated=True,
+            environment={},
+            module_loader=_module_loader(
+                paths,
+                preparation_timeout_seconds=149.0,
+            ),
+        )
+
+
+def test_configuration_refuses_outer_wrapper_deadline(tmp_path: Path) -> None:
+    payload = _configuration_payload(tmp_path)
+    payload["deadlines"]["outerWrapperSeconds"] = 149.0
+    path = tmp_path / "gate-7c-config.json"
+    path.write_text(
+        json.dumps(
+            payload,
+            ensure_ascii=True,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
+        encoding="ascii",
+    )
+
+    with pytest.raises(wrapper.Gate7CAdmissionFailure, match="outer wrapper"):
+        wrapper.load_frozen_configuration(path)
 
 
 def test_wrapper_refuses_changed_admitted_environment(tmp_path: Path) -> None:

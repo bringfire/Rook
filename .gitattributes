@@ -36,3 +36,4 @@ integrations/prime/skills/rook-full/package-manifest.json -text
 scripts/rookchat_prime_gate_7c_broker_harness.py text eol=lf
 scripts/run_rookchat_prime_gate_7c.py text eol=lf
 docs/superpowers/experiments/inputs/2026-08-30-rookchat-prime-gate-7c-broker-v1/config.json -text
+docs/superpowers/experiments/inputs/2026-08-30-rookchat-prime-gate-7c-broker-v2/config.json -text
