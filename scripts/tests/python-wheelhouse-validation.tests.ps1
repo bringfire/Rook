@@ -119,7 +119,7 @@ function New-TestPayload {
     $chirpLock = Join-Path $runtime 'requirements-chirp-lock.txt'
 
     Set-Content -Path $bootstrapLock -Value "pip==26.2.2 --hash=sha256:$('0'*64)`nsetuptools==84.1.0 --hash=sha256:$('0'*64)" -Encoding UTF8
-    Set-Content -Path $installerToolsLock -Value "uv==0.12.5 --hash=sha256:$('0'*64)" -Encoding UTF8
+    Set-Content -Path $installerToolsLock -Value "uv==0.13.4 --hash=sha256:$('0'*64)" -Encoding UTF8
     Set-Content -Path $rookLock -Value "rook-mcp==$TestVersion --hash=sha256:$('0'*64)`ncertifi==2024.1.1 --hash=sha256:$('0'*64)" -Encoding UTF8
     Set-Content -Path $chirpLock -Value "chirp==0.1.0 --hash=sha256:$('0'*64)" -Encoding UTF8
 

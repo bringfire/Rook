@@ -141,7 +141,7 @@ def test_uv_cache_dirs_are_per_venv_under_the_runtime_root(tmp_path: Path) -> No
 # --- bundled uv extraction, lock reading, freeze comparison ----------------------
 
 
-def _uv_wheel(wheelhouse: Path, version: str = "0.12.5", payload: bytes = b"bundled uv") -> Path:
+def _uv_wheel(wheelhouse: Path, version: str = "0.13.4", payload: bytes = b"bundled uv") -> Path:
     wheelhouse.mkdir(parents=True, exist_ok=True)
     wheel = wheelhouse / f"uv-{version}-py3-none-win_amd64.whl"
     with zipfile.ZipFile(wheel, "w") as archive:
@@ -163,7 +163,7 @@ def _sha(path: Path) -> str:
 def test_extract_bundled_uv_takes_the_wheel_the_lock_pins(tmp_path: Path) -> None:
     runtime = load_runtime_install()
     wheel = _uv_wheel(tmp_path / "wheelhouse")
-    lock = _tools_lock(tmp_path, f"uv==0.12.5 --hash=sha256:{_sha(wheel)}")
+    lock = _tools_lock(tmp_path, f"uv==0.13.4 --hash=sha256:{_sha(wheel)}")
     dest = tmp_path / "tools"
     dest.mkdir()
     (dest / "uv.exe").write_bytes(b"stale uv from an interrupted run")
@@ -174,18 +174,18 @@ def test_extract_bundled_uv_takes_the_wheel_the_lock_pins(tmp_path: Path) -> Non
     assert tool.executable.read_bytes() == b"bundled uv"
     assert sorted(p.name for p in dest.iterdir()) == ["uv.exe"]
     assert tool.evidence() == {
-        "name": "uv", "version": "0.12.5", "wheel": wheel.name, "wheel_sha256": _sha(wheel),
+        "name": "uv", "version": "0.13.4", "wheel": wheel.name, "wheel_sha256": _sha(wheel),
     }
 
 
 @pytest.mark.parametrize(
     "rows",
     [
-        pytest.param(lambda digest: [f"uv==0.12.5 --hash=sha256:{'0' * 64}"], id="hash-mismatch"),
+        pytest.param(lambda digest: [f"uv==0.13.4 --hash=sha256:{'0' * 64}"], id="hash-mismatch"),
         pytest.param(lambda digest: [f"uv==0.12.6 --hash=sha256:{digest}"], id="version-without-wheel"),
-        pytest.param(lambda digest: [f"uv==0.12.5 --hash=sha256:{digest}", f"pip==26.2.1 --hash=sha256:{digest}"], id="two-tools"),
+        pytest.param(lambda digest: [f"uv==0.13.4 --hash=sha256:{digest}", f"pip==26.2.1 --hash=sha256:{digest}"], id="two-tools"),
         pytest.param(lambda digest: [f"ruff==0.12.5 --hash=sha256:{digest}"], id="not-uv"),
-        pytest.param(lambda digest: ["uv==0.12.5"], id="unhashed"),
+        pytest.param(lambda digest: ["uv==0.13.4"], id="unhashed"),
         pytest.param(lambda digest: [], id="empty"),
     ],
 )
@@ -224,11 +224,11 @@ def test_freeze_mismatches_compares_canonical_names_and_exact_versions(tmp_path:
     exact = "pip==26.2.1\ntyping_extensions==4.16.0\npyyaml==6.0.3\n"
     assert runtime.freeze_mismatches(exact, [bootstrap, lock]) == []
 
-    drifted = "pip==26.2.1\ntyping_extensions==4.15.0\nuv==0.12.5\nlocal @ file:///C:/src/local\n"
+    drifted = "pip==26.2.1\ntyping_extensions==4.15.0\nuv==0.13.4\nlocal @ file:///C:/src/local\n"
     assert runtime.freeze_mismatches(drifted, [bootstrap, lock]) == sorted([
         "missing pyyaml==6.0.3",
         "typing-extensions: installed 4.15.0, locked 4.16.0",
-        "unexpected uv==0.12.5",
+        "unexpected uv==0.13.4",
         "unexpected local @ file:///C:/src/local==<not a pinned release>",
     ])
 

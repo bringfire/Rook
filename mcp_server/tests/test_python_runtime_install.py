@@ -64,11 +64,11 @@ def seed_runtime_inputs(layout) -> None:
     layout.bootstrap_lock.write_text("pip==26.2.2 --hash=sha256:" + "a" * 64 + "\n", encoding="utf-8")
     layout.rook_lock.write_text("rook-mcp==1.5.10 --hash=sha256:" + "d" * 64 + "\n", encoding="utf-8")
     layout.runtime_manifest.write_text('{"schema_version":1}', encoding="utf-8")
-    wheel = layout.wheelhouse / "uv-0.12.5-py3-none-win_amd64.whl"
+    wheel = layout.wheelhouse / "uv-0.13.4-py3-none-win_amd64.whl"
     with zipfile.ZipFile(wheel, "w") as archive:
-        archive.writestr("uv-0.12.5.data/scripts/uv.exe", b"fixture uv")
+        archive.writestr("uv-0.13.4.data/scripts/uv.exe", b"fixture uv")
     layout.installer_tools_lock.write_text(
-        f"uv==0.12.5 --hash=sha256:{hashlib.sha256(wheel.read_bytes()).hexdigest()}\n", encoding="utf-8"
+        f"uv==0.13.4 --hash=sha256:{hashlib.sha256(wheel.read_bytes()).hexdigest()}\n", encoding="utf-8"
     )
 
 
@@ -151,9 +151,9 @@ def test_bootstrap_and_tool_locks_reach_temp_and_customer_installs(
     (layout.wheelhouse / "pip-26.2.2-py3-none-any.whl").write_bytes(pip_bytes)
     (layout.wheelhouse / "pip-26.1.2-py3-none-any.whl").write_bytes(b"obsolete wheel")
     (layout.wheelhouse / "setuptools-84.1.0-py3-none-any.whl").write_bytes(b"setuptools")
-    uv_wheel = layout.wheelhouse / "uv-0.12.5-py3-none-win_amd64.whl"
+    uv_wheel = layout.wheelhouse / "uv-0.13.4-py3-none-win_amd64.whl"
     with zipfile.ZipFile(uv_wheel, "w") as archive:
-        archive.writestr("uv-0.12.5.data/scripts/uv.exe", b"fixture uv")
+        archive.writestr("uv-0.13.4.data/scripts/uv.exe", b"fixture uv")
 
     # Run the real statements between the tool pins and the lock-generation script.
     # Wheels are already staged there, so any process launch in that range is a bug.
@@ -187,9 +187,9 @@ $text=$ast.Extent.Text.Substring($start[0].Extent.StartOffset,$end[0].Extent.Sta
     assert ("pip", "26.2.2", hashlib.sha256(pip_bytes).hexdigest()) in bootstrap_rows
     assert [row[:2] for row in bootstrap_rows] == [("pip", "26.2.2"), ("setuptools", "84.1.0")]
     assert runtime.read_hash_lock(layout.installer_tools_lock) == [
-        ("uv", "0.12.5", hashlib.sha256(uv_wheel.read_bytes()).hexdigest())
+        ("uv", "0.13.4", hashlib.sha256(uv_wheel.read_bytes()).hexdigest())
     ]
-    assert f"uv=={runtime.INSTALLER_TOOL_REQUIREMENTS[0].split('==')[1]}" == "uv==0.12.5"
+    assert f"uv=={runtime.INSTALLER_TOOL_REQUIREMENTS[0].split('==')[1]}" == "uv==0.13.4"
 
     # Execute the actual generated verification entrypoint with subprocess.run faked.
     ns = load_verification_script()
@@ -353,7 +353,7 @@ def test_venv_invalidates_per_runtime_when_rook_installs_before_chirp(tmp_path: 
         python_identity_hash=new_runtime_hash,
         lockfile_sha256=old_lock_hash,
         pip_check_output="No broken requirements found.",
-        installer_tool={"name": "uv", "version": "0.12.5", "wheel": "uv.whl", "wheel_sha256": "e" * 64},
+        installer_tool={"name": "uv", "version": "0.13.4", "wheel": "uv.whl", "wheel_sha256": "e" * 64},
     )
 
     updated_state = runtime.read_install_state(layout.install_state)
@@ -666,7 +666,7 @@ def test_post_install_recreates_stale_venv_and_writes_install_state(
     assert install_state["rook"]["python_identity_hash"] == install_state["python"]["identity_hash"]
     assert install_state["rook"]["lockfile_sha256"]
     assert install_state["rook"]["installer_tool"]["name"] == "uv"
-    assert install_state["rook"]["installer_tool"]["version"] == "0.12.5"
+    assert install_state["rook"]["installer_tool"]["version"] == "0.13.4"
     assert install_state["rook"]["freeze_matches_locks"] is True
 
     post_install._remove_installer_cache(layout.rook_root)
@@ -703,7 +703,7 @@ def test_post_install_refuses_a_uv_wheel_that_does_not_match_the_tools_lock(
     post_install = load_post_install()
     layout = runtime.RuntimeLayout.from_rook_root(tmp_path / "Rook", "3.11.9")
     seed_runtime_inputs(layout)
-    with zipfile.ZipFile(layout.wheelhouse / "uv-0.12.5-py3-none-win_amd64.whl", "a") as archive:
+    with zipfile.ZipFile(layout.wheelhouse / "uv-0.13.4-py3-none-win_amd64.whl", "a") as archive:
         archive.writestr("tampered.txt", b"x")
     uv_commands: list[list[str]] = []
 

@@ -56,7 +56,7 @@ function Invoke-CheckedProcess {
         'hash-locked dependency wheel acquisition' {
             [IO.File]::WriteAllText((Join-Path $wheelhouse 'pip-26.2.2-py3-none-any.whl'),'fixture pip')
             [IO.File]::WriteAllText((Join-Path $wheelhouse 'setuptools-84.1.0-py3-none-any.whl'),'setuptools')
-            [IO.File]::WriteAllText((Join-Path $wheelhouse 'uv-0.12.5-py3-none-win_amd64.whl'),'fixture uv')
+            [IO.File]::WriteAllText((Join-Path $wheelhouse 'uv-0.13.4-py3-none-win_amd64.whl'),'fixture uv')
         }
         'pip-audit venv creation' { }
         'pip-audit install' { }
@@ -172,7 +172,7 @@ def test_all_online_operations_use_offline_bootstrapped_build_pip(tmp_path, monk
     assert f"pip==26.2.2 --hash=sha256:{hashlib.sha256(b'fixture pip').hexdigest()}" in lock
     assert "uv==" not in lock, "uv must never enter a lock that is installed into a venv"
     tools_lock = (tmp_path / "installer/runtime/requirements-installer-tools-lock.txt").read_text(encoding="utf-8-sig")
-    assert f"uv==0.12.5 --hash=sha256:{hashlib.sha256(b'fixture uv').hexdigest()}" in tools_lock
+    assert f"uv==0.13.4 --hash=sha256:{hashlib.sha256(b'fixture uv').hexdigest()}" in tools_lock
 
 
 @pytest.mark.parametrize("case", ["bootstrap-fails", "wrong-version"])
