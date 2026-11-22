@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using Rook.Services.Vision.Fal.Models;
 namespace Rook.Services.Vision.Image
 {
     public sealed record ImageModelDescriptor(
@@ -5,5 +7,6 @@ namespace Rook.Services.Vision.Image
         string ProviderName,
         ImageSubmissionMode SubmissionMode,
         ImageCapability Capability,
-        string PricingSource);
+        string PricingSource,
+        IReadOnlyList<FalOperationDescriptor>? Operations = null);
 }

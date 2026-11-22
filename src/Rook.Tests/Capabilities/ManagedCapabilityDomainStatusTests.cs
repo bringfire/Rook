@@ -202,6 +202,8 @@ namespace Rook.Tests.Capabilities
 
         private sealed class ThrowingBimRuntime : IRookBimRuntime
         {
+            public BimApiResponse RunTransaction(BimDiagnosticContext diagnostics, BimRunTransactionRequest request) => BimApiResponse.Ok(null);
+
             public bool StatusCalled { get; private set; }
 
             public BimStatusResponse Status(BimDiagnosticContext diagnostics)

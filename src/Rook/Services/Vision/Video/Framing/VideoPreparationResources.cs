@@ -24,6 +24,17 @@ namespace Rook.Services.Vision.Video.Framing
             long transientLimit = VideoPreparationLimits.TransientBytes)
         { _bundles = new(maxBundles, maxBundles); _renderers = new(maxRenderers, maxRenderers); _transientLimit = transientLimit; _maxOutstandingBundles = checked(maxBundles * 2); }
         public int ActiveBundles => Volatile.Read(ref _activeBundles);
+        // Synchronous capture must be admitted before copying, without waiting on the UI thread.
+        public bool TryAcquire(out VideoPreparationLease? lease)
+        {
+            lease = null;
+            if (Interlocked.Increment(ref _outstandingBundles) > _maxOutstandingBundles)
+            { Interlocked.Decrement(ref _outstandingBundles); return false; }
+            if (!_bundles.Wait(0)) { Interlocked.Decrement(ref _outstandingBundles); return false; }
+            Interlocked.Increment(ref _activeBundles);
+            lease = new VideoPreparationLease(_transientLimit, () => { Interlocked.Decrement(ref _activeBundles); Interlocked.Decrement(ref _outstandingBundles); _bundles.Release(); });
+            return true;
+        }
         public async Task<VideoPreparationLease> AcquireAsync(CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();

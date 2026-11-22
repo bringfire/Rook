@@ -83,8 +83,8 @@ topology/adjacency code. Package these DLLs app-local beside `RookNative.rhp`;
 do not rely on a prior developer deploy, PATH entry, or machine-wide OCCT
 installation.
 
-Default source root:
-`<repo>\..\OCCT\build-rook\win64\vc14\bin` (sibling checkout). Step 3B resolves `$OcctRuntimeRoot`
+Source root: `%OCCT_ROOT%\win64\vc14\bin` when `OCCT_ROOT` is set, otherwise the installer
+script's default `<repo>\..\OCCT\build-rook\win64\vc14\bin` (sibling checkout). Step 3B resolves `$OcctRuntimeRoot`
 once; its validator, this check, and ISCC (`/DOcctRuntimeRoot=$OcctRuntimeRoot`) all use that value.
 The DLL sha256 values are pinned in `third_party/occt/occt-provenance.json`.
 

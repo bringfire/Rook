@@ -171,6 +171,25 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
         }
 
         [Fact]
+        public async Task Explicit_unknown_submit_retains_uncertainty_in_durable_history()
+        {
+            _provider.OnSubmit = (_, _) => new FailedSubmitOutcome(new GenerationError(
+                GenerationErrorCode.ExecutionFailed, "response lost", true), SubmissionDisposition.Unknown);
+            using var manager = Manager();
+            var job = await manager.SubmitAsync(Start(), CancellationToken.None);
+            var status = await WaitForTerminalAsync(manager, job.JobId!.Value);
+            Assert.Equal(ImageJobState.Error, status.State);
+            Assert.Equal("fal_submission_unknown", status.Error!.ProviderErrorCode); Assert.False(status.Error.Retryable);
+            var durable = _ledger.AllRecords.Last(r => r.JobId == job.JobId.Value);
+            Assert.Equal("fal_submission_unknown", durable.Error!.ProviderErrorCode); Assert.False(durable.Error.Retryable);
+            var jsonl = new JsonlImageJobLedger(Path.Combine(_root, "unknown.jsonl")); jsonl.Append(durable);
+            Assert.Equal("fal_submission_unknown", Assert.Single(jsonl.ReadAll().Records).Error!.ProviderErrorCode);
+            using var restarted = Manager();
+            Assert.Equal("fal_submission_unknown", (await restarted.GetStatusAsync(job.JobId.Value, CancellationToken.None)).Error!.ProviderErrorCode);
+            Assert.Empty(_artifactStore.List());
+        }
+
+        [Fact]
         public async Task SubmitAsync_SyncProvider_CompletesAndWritesArtifact()
         {
             using var manager = Manager();

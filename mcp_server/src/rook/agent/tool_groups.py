@@ -202,12 +202,17 @@ TOOL_GROUPS: Dict[str, List[str]] = {
         "rhino_document",
     ],
 
-    # --- Vision (PR-6): Gemini generation + artifact management ---
-    # MCP-only: internal agents do not have BRIDGE_ROUTES entries for
-    # these, so the group is registered in MCP_ONLY_GROUPS below. When
-    # agent-side dispatch is added (future PR), remove from the
-    # MCP_ONLY_GROUPS set.
+    # --- Vision: legacy image tools plus configured model/job operations ---
+    # New job tools have direct dispatcher routes. Keep these groups MCP-only
+    # until the legacy artifact/generation tools also have complete routes.
     "vision": [
+        "rhino_image_models",
+        "rhino_image_estimate",
+        "rhino_generate_image",
+        "rhino_image_status",
+        "rhino_image_result",
+        "rhino_image_cancel",
+        "rhino_image_jobs",
         "rhino_render_view", "rhino_enhance_prompt", "rhino_capture_depth",
         "rhino_vision_artifacts", "rhino_vision_get_artifact",
         "rhino_vision_approve", "rhino_vision_delete_artifact",
@@ -217,6 +222,11 @@ TOOL_GROUPS: Dict[str, List[str]] = {
     # enhance_prompt (spends API quota), capture_depth (writes an
     # artifact), approve (mutates flags), and delete (mutates store).
     "vision_readonly": [
+        "rhino_image_models",
+        "rhino_image_estimate",
+        "rhino_image_status",
+        "rhino_image_result",
+        "rhino_image_jobs",
         "rhino_vision_artifacts", "rhino_vision_get_artifact",
         "rhino_vision_consume_approved",
     ],
@@ -276,6 +286,9 @@ TOOL_GROUPS: Dict[str, List[str]] = {
         "rookbim_clear_selection",
         "rookbim_export_elements",
         "rookbim_export_preset",
+        # The only member that writes the Revit model; never in rookbim_readonly.
+        "rookbim_run_transaction",
+        "rookbim_transaction_receipt",
         "rookbim_export_preset_to_rhino",
     ],
     "rookbim_readonly": [
@@ -285,6 +298,8 @@ TOOL_GROUPS: Dict[str, List[str]] = {
         "rookbim_query_elements",
         "rookbim_element_info",
         "rookbim_element_parameters",
+        # Reads how a write ended; it cannot write.
+        "rookbim_transaction_receipt",
     ],
 
     # --- Rhino Commands (direct) ---

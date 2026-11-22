@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "definition_id": "qualification-reference-video",
+  "revision": "revision-1",
+  "model_id": "qualification/reference-video",
+  "display_name": "Synthetic video",
+  "provider": "fal",
+  "status": "experimental",
+  "operations": [
+    {
+      "operation_id": "image_to_video",
+      "endpoint_id": "fal-ai/synthetic/video/frames",
+      "lifecycle_root": "fal-ai/synthetic",
+      "invocation": "queue",
+      "adapter": {
+        "id": "fal.video.declarative",
+        "version": 1
+      },
+      "fields": [
+        {
+          "key": "prompt",
+          "scope": "request",
+          "type": "string",
+          "required": true,
+          "max_length": 1000,
+          "label": "Prompt",
+          "payload": {
+            "pointer": "/prompt",
+            "conversion": "identity"
+          }
+        },
+        {
+          "key": "duration_seconds",
+          "scope": "request",
+          "type": "integer",
+          "min": 1,
+          "max": 10,
+          "default": 5,
+          "label": "Seconds",
+          "payload": {
+            "pointer": "/duration",
+            "conversion": "integer_to_string"
+          }
+        }
+      ],
+      "media": [
+        {
+          "role": "primary_image",
+          "min_count": 1,
+          "max_count": 1,
+          "ordered": false,
+          "preparation": "validated_original",
+          "transport": "fal_upload",
+          "payload": {
+            "pointer": "/start_image_url",
+            "conversion": "identity"
+          }
+        }
+      ],
+      "constraints": [],
+      "constants": [
+        {
+          "pointer": "/generate_audio",
+          "value": false
+        }
+      ],
+      "result": {
+        "role": "generated_video",
+        "mime_family": "video",
+        "url_pointer": "/video/url",
+        "mime_pointer": "/video/content_type"
+      },
+      "pricing": {
+        "strategy": "per_output_second",
+        "unit": "second",
+        "quantity_field": "request.duration_seconds",
+        "revision": "price-1",
+        "rates": [
+          {
+            "selectors": {},
+            "rate_usd": 0.1
+          }
+        ],
+        "rounding": "none",
+        "source": "https://fal.ai/models/synthetic",
+        "reviewed_on": "2026-10-25"
+      },
+      "evidence": {
+        "url": "https://fal.ai/models/synthetic",
+        "reviewed_on": "2026-10-25",
+        "qualification": "synthetic"
+      }
+    }
+  ]
+}

@@ -693,7 +693,6 @@ namespace Rook.Handlers
         {
             if (options is null) throw new ArgumentNullException(nameof(options));
 
-            var prompt = RequireString(args, "prompt", MaxPromptLength);
             var modelInput = GetStringArg(args, "model");
             var model = string.IsNullOrWhiteSpace(modelInput)
                 ? GeminiImageCapabilities.ResolveShortName(modelInput)
@@ -704,38 +703,21 @@ namespace Rook.Handlers
 
             if (!_imageProviderRegistry.TryResolve(model, out var resolvedModel))
             {
-                if (model.StartsWith("vertex_ai/", StringComparison.Ordinal))
-                    return ImageGenerationWorkItemResult.Fail(Fail($"Unknown image model '{model}'."));
-                // Preserve the legacy Gemini UI short names only after
-                // registered providers get first chance at exact model IDs.
                 model = GeminiImageCapabilities.ResolveShortName(modelInput);
                 if (!_imageProviderRegistry.TryResolve(model, out resolvedModel))
-                {
-                    if (!_imageProviderRegistry.TryResolveProviderByName(
-                            GeminiImageCapabilities.ProviderName, out var geminiProvider))
+                    return ImageGenerationWorkItemResult.Fail(new ApiResponse
                     {
-                        return ImageGenerationWorkItemResult.Fail(
-                            Fail($"Unknown image model '{model}'."));
-                    }
-
-                    resolvedModel = new ResolvedImageModel(
-                        ModelId: model,
-                        ProviderName: GeminiImageCapabilities.ProviderName,
-                        SubmissionMode: ImageSubmissionMode.Sync,
-                        Provider: geminiProvider,
-                        Capability: new ImageCapability(
-                            Id: model,
-                            Name: model,
-                            Status: "preview",
-                            Resolutions: SupportedResolutionsForModel(model),
-                            AspectRatios: AllowedAspectRatios,
-                            MaxReferenceImages: MaxReferenceImages,
-                            SupportsImageToImage: true,
-                            SupportsTextToImage: true),
-                        PricingModel: new GeminiImagePricingModel(),
-                        OptionsCodec: new GeminiImageOptionsCodec());
-                }
+                        Success = false, HttpStatus = 400,
+                        Data = new Dictionary<string, object?> { ["code"] = "model_unavailable", ["field"] = "model", ["message"] = $"Unknown or unavailable image model '{model}'." }
+                    });
             }
+            if (resolvedModel.Provider is IConfiguredGenerationProvider)
+                return ImageGenerationWorkItemResult.Fail(new ApiResponse
+                {
+                    Success = false, HttpStatus = 400,
+                    Data = new Dictionary<string, object?> { ["code"] = "image_job_required", ["field"] = "model", ["message"] = "Use image_estimate and confirmed image_generate_start for this model." }
+                });
+            var prompt = RequireString(args, "prompt", MaxPromptLength);
             var mediaLimits = MediaLimitsForModel(resolvedModel);
 
             var hasInputArtifactField =
@@ -968,6 +950,11 @@ namespace Rook.Handlers
 
             return (MaxInputImageBytes, MaxAggregateImageBytes);
         }
+
+        internal IImageProviderRegistry ImageRegistry => _imageProviderRegistry;
+        internal MediaResolutionResult ResolveConfiguredImageMedia(IReadOnlyList<MediaRef> refs)
+            => new ArtifactImageMediaResolver(_artifactStore, MaxInputImageBytes, MaxAggregateImageBytes, preserveArtifactRoles: true)
+                .ResolveAllAsync(refs, CancellationToken.None).GetAwaiter().GetResult();
 
         private MediaResolutionResult ResolveImageMediaRefs(
             IReadOnlyList<MediaRef> refs,
@@ -2302,6 +2289,7 @@ namespace Rook.Handlers
             return Ok(new Dictionary<string, object?>
             {
                 ["models"] = models,
+                ["catalog_diagnostics"] = FalConfiguredRequestParser.ProjectDiagnostics((_imageProviderRegistry as DefaultImageProviderRegistry)?.CatalogDiagnostics),
             });
         }
 
@@ -2322,6 +2310,7 @@ namespace Rook.Handlers
                 ["credential_message"] = credentialStatus.Message,
                 ["capability"] = ImageCapabilityToObj(descriptor.Capability),
             };
+            if (descriptor.Operations != null) result["operations"] = descriptor.Operations.Select(o => o.ToJson()).ToArray();
             var mapped = descriptor.ProviderName == "gemini" ? ImageRoutingCodec.FalModel(descriptor.ModelId) : null;
             if (mapped != null && _imageProviderRegistry.TryResolve(mapped, out var fallback) && fallback.ProviderName == "fal")
             {

@@ -637,3 +637,28 @@ async def test_artifact_lifecycle_end_to_end():
         status, body, _ = await _delete_vision(f"artifacts/{artifact_id}")
         assert status == 400
         assert body["success"] is False
+
+
+# Task 11 installed-runtime qualification only; these probes never submit paid work.
+@pytest.mark.parametrize("method,route,body,op", [
+    ("GET", "image/models", None, "list_image_models"),
+    ("POST", "image/estimate", {"model": "rook-test-unregistered-model"}, "image_estimate"),
+    ("POST", "image/jobs", {"model": "rook-test-unregistered-model"}, "image_generate_start"),
+    ("GET", "image/jobs/not-a-guid", None, "image_job_status"),
+    ("GET", "image/jobs/not-a-guid/result", None, "image_job_result"),
+    ("POST", "image/jobs/not-a-guid/cancel", {}, "image_job_cancel"),
+    ("GET", "image/jobs", None, "image_jobs"),
+])
+async def test_image_job_routes_dispatch_to_managed_validation(method, route, body, op):
+    status, envelope, headers = await _get_vision(route) if method == "GET" else await _post_vision(route, body)
+    assert status in (200, 400, 503)
+    assert headers.get("x-rook-vision-op") == op
+    assert "success" in envelope and "data" in envelope
+    if status == 503:
+        assert envelope["success"] is False
+        assert "companion" in str(envelope).lower()
+    elif op in ("list_image_models", "image_jobs"):
+        assert status == 200 and envelope["success"] is True
+        assert ("models" if op == "list_image_models" else "jobs") in envelope["data"]
+    else:
+        assert status == 400 and envelope["success"] is False

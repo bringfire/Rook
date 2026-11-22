@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Rook.Services.Vision.Generation;
@@ -15,10 +16,10 @@ namespace Rook.Services.Vision.Image.Jobs
     /// Each line is a complete record; reads compact by job_id with
     /// last line wins semantics.
     /// </summary>
-    public sealed class JsonlImageJobLedger : IImageJobLedger
+    public sealed class JsonlImageJobLedger : ICancellationAwareImageJobLedger
     {
         private readonly string _filePath;
-        private readonly object _lock = new();
+        private readonly SemaphoreSlim _lock = new(1, 1);
 
         public JsonlImageJobLedger() : this(DefaultPath()) { }
 
@@ -37,18 +38,23 @@ namespace Rook.Services.Vision.Image.Jobs
             return Path.Combine(RookPaths.SettingsRoot, "image", "job-ledger.jsonl");
         }
 
-        public void Append(ImageJobLedgerRecord record)
+        public void Append(ImageJobLedgerRecord record) => Append(record, CancellationToken.None);
+
+        public void Append(ImageJobLedgerRecord record, CancellationToken ct)
         {
             if (record is null) throw new ArgumentNullException(nameof(record));
 
             var line = SerializeRecord(SanitizeRecord(record));
 
-            lock (_lock)
+            _lock.Wait(ct);
+            try
             {
+                ct.ThrowIfCancellationRequested();
                 var dir = Path.GetDirectoryName(_filePath);
                 if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
                     Directory.CreateDirectory(dir);
 
+                ct.ThrowIfCancellationRequested();
                 using var stream = new FileStream(
                     _filePath,
                     FileMode.Append,
@@ -56,21 +62,30 @@ namespace Rook.Services.Vision.Image.Jobs
                     FileShare.Read);
                 using var writer = new StreamWriter(stream, new UTF8Encoding(false));
                 writer.WriteLine(line);
+                writer.Flush();
+                stream.Flush(flushToDisk: true);
             }
+            finally { _lock.Release(); }
         }
 
-        public ImageJobLedgerReadResult ReadAll()
+        public ImageJobLedgerReadResult ReadAll() => ReadAll(CancellationToken.None);
+
+        public ImageJobLedgerReadResult ReadAll(CancellationToken ct)
         {
+            ct.ThrowIfCancellationRequested();
             if (!File.Exists(_filePath))
                 return new ImageJobLedgerReadResult(
                     Array.Empty<ImageJobLedgerRecord>(),
                     Array.Empty<ImageJobLedgerReadError>());
 
             string[] lines;
-            lock (_lock)
+            _lock.Wait(ct);
+            try
             {
+                ct.ThrowIfCancellationRequested();
                 lines = File.ReadAllLines(_filePath, Encoding.UTF8);
             }
+            finally { _lock.Release(); }
 
             var byJobId = new Dictionary<Guid, ImageJobLedgerRecord>();
             var errors = new List<ImageJobLedgerReadError>();
@@ -117,6 +132,7 @@ namespace Rook.Services.Vision.Image.Jobs
                 ["updated_at"] = r.UpdatedAt.ToString("o", CultureInfo.InvariantCulture),
             };
 
+            if (r.ConfiguredFalExecution != null) obj[Services.Vision.Fal.FalExecutionSnapshot.ExtensionKey] = r.ConfiguredFalExecution.Json;
             var routing = ImageRoutingCodec.ToJson(new ImageRoutingContext(r.ImageRoute, r.CredentialFailure), r.FalDispatchState);
             if (!ImageRoutingCodec.TryRead(routing, r.Provider, r.Model, out _, out _, out var invalidField))
                 throw new ArgumentException("Invalid image routing field: " + invalidField);
@@ -235,7 +251,9 @@ namespace Rook.Services.Vision.Image.Jobs
                 UpdatedAt: updatedAt,
                 ImageRoute: routing?.Route,
                 CredentialFailure: routing?.CredentialFailure,
-                FalDispatchState: dispatch), null);
+                FalDispatchState: dispatch,
+                ConfiguredFalExecution: obj.ContainsKey(Services.Vision.Fal.FalExecutionSnapshot.ExtensionKey)
+                    ? Services.Vision.Fal.FalExecutionSnapshotCodec.Deserialize(obj[Services.Vision.Fal.FalExecutionSnapshot.ExtensionKey] as JsonObject ?? new JsonObject()) : null), null);
         }
 
         private static (GenerationError? Error, ImageJobLedgerReadError? ReadError)

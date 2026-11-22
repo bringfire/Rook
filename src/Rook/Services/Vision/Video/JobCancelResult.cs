@@ -1,4 +1,5 @@
 using System;
+using Rook.Services.Vision.Fal;
 
 namespace Rook.Services.Vision.Video
 {
@@ -15,6 +16,10 @@ namespace Rook.Services.Vision.Video
         internal VideoExecutionProjection? Execution { get; init; }
         public VideoJobState State { get; }
         public VideoJobError? Error { get; }
+        /// <summary>Remote evidence is independent of State, which describes the local job.</summary>
+        public FalCancellationSnapshot? ConfiguredCancellation { get; private init; }
+        public static JobCancelResult Configured(VideoJobState localState, FalCancellationSnapshot evidence, VideoJobError? error = null)
+            => new(localState, error) { ConfiguredCancellation = evidence };
 
         private JobCancelResult(VideoJobState state, VideoJobError? error)
         {

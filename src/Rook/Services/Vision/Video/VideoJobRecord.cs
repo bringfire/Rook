@@ -1,6 +1,7 @@
 using System;
 using System.Text.Json.Nodes;
 using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Fal;
 
 namespace Rook.Services.Vision.Video
 {
@@ -41,6 +42,13 @@ namespace Rook.Services.Vision.Video
         DateTimeOffset UpdatedAt,
         JsonObject? Extensions)
     {
+        private JsonObject? _extensions = Extensions == null ? null : (JsonObject)Extensions.DeepClone();
+        private JsonObject _providerOptions = (JsonObject)ProviderOptions.DeepClone();
+        public JsonObject? Extensions { get => _extensions == null ? null : (JsonObject)_extensions.DeepClone(); init => _extensions = value == null ? null : (JsonObject)value.DeepClone(); }
+        public JsonObject ProviderOptions { get => (JsonObject)_providerOptions.DeepClone(); init => _providerOptions = (JsonObject)value.DeepClone(); }
+        public FalExecutionSnapshotReadResult? ConfiguredFalExecution => _extensions?.ContainsKey(FalExecutionSnapshot.ExtensionKey) == true
+            ? FalExecutionSnapshotCodec.Deserialize(_extensions[FalExecutionSnapshot.ExtensionKey] as JsonObject ?? new JsonObject()) : null;
+
         public ProviderJobHandle? ProviderHandle =>
             VideoJobRecordProviderHandle.TryFromRecord(this, out var handle)
                 ? handle

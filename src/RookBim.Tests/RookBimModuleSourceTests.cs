@@ -699,7 +699,9 @@ Assert.Contains(""required"", member);";
             Assert.DoesNotContain("Task.Run", dispatcher);
             Assert.DoesNotContain("ExternalEvent.Create", dispatcher);
             Assert.DoesNotContain("IExternalEventHandler", dispatcher);
-            Assert.DoesNotContain("Transaction", combined);
+            Assert.DoesNotContain("Transaction", dispatcher);
+            Assert.NotEmpty(combined);
+            RookBimRunTransactionSourceTests.AssertRevitWritesStayInTransactionService();
         }
 
         [Fact]
@@ -895,8 +897,11 @@ Assert.Contains(""required"", member);";
             Assert.Contains("CompareExchange(ref state, Running, Pending)", execute);
             Assert.Contains("CompareExchange(ref state, Abandoned, Pending)", tryAbandon);
             Assert.Contains("completion.TrySetCanceled();", tryAbandon);
-            Assert.Contains("dispatch.Abandon();", dispatchWithTimeout);
-            Assert.Contains("throw new TimeoutException(", dispatchWithTimeout);
+            // The queue has its own deadline; only work that was still queued is abandoned.
+            Assert.Contains("if (first < 0 && dispatch.Abandon())", dispatchWithTimeout);
+            Assert.Contains("throw new RevitDispatchTimeoutException(false, pickup);", dispatchWithTimeout);
+            Assert.Contains("throw new RevitDispatchTimeoutException(true, timeout);", dispatchWithTimeout);
+            Assert.DoesNotContain("throw new TimeoutException(", dispatchWithTimeout);
             Assert.DoesNotContain("ExternalEvent", ExecutableCode(runtime));
         }
 
@@ -1162,7 +1167,7 @@ Assert.Contains(""required"", member);";
             var documentContext = ExtractExecutableMember(
                 runtime,
                 RuntimeType,
-                "private BimApiResponse ExecuteInDocumentContext(BimDiagnosticContext diagnostics, string operation, Func<UIDocument, Document, RevitDocumentIdentityEvidence, BimApiResponse> work, TimeSpan? timeout = null)");
+                "private BimApiResponse ExecuteInDocumentContext(BimDiagnosticContext diagnostics, string operation, Func<UIDocument, Document, RevitDocumentIdentityEvidence, BimApiResponse> work, TimeSpan? timeout = null, BimTransactionCall? transactionCall = null)");
 
             Assert.Equal(
                 RemoveWhitespace("private readonly RevitCategoryResolver categories;"),
@@ -1279,7 +1284,7 @@ Assert.Contains(""required"", member);";
             var documentContext = ExtractExecutableMember(
                 runtime,
                 RuntimeType,
-                "private BimApiResponse ExecuteInDocumentContext(BimDiagnosticContext diagnostics, string operation, Func<UIDocument, Document, RevitDocumentIdentityEvidence, BimApiResponse> work, TimeSpan? timeout = null)");
+                "private BimApiResponse ExecuteInDocumentContext(BimDiagnosticContext diagnostics, string operation, Func<UIDocument, Document, RevitDocumentIdentityEvidence, BimApiResponse> work, TimeSpan? timeout = null, BimTransactionCall? transactionCall = null)");
 
             Assert.Equal(
                 RemoveWhitespace("private readonly RevitQueryService query;"),
@@ -1398,7 +1403,8 @@ Assert.Contains(""required"", member);";
             Assert.DoesNotContain("ParameterFilterElement", combined);
             Assert.DoesNotContain("OverrideGraphicSettings", combined);
             Assert.DoesNotContain("TemporaryView", combined);
-            Assert.DoesNotContain("Transaction", combined);
+            // Writes are allowed in exactly one file since run_transaction exists.
+            RookBimRunTransactionSourceTests.AssertRevitWritesStayInTransactionService();
         }
 
         [Fact]
@@ -1712,7 +1718,7 @@ Assert.Contains(""required"", member);";
             var execute = ExtractExecutableMember(
                 runtime,
                 RuntimeType,
-                "private BimApiResponse ExecuteInDocumentContext(BimDiagnosticContext diagnostics, string operation, Func<UIDocument, Document, RevitDocumentIdentityEvidence, BimApiResponse> work, TimeSpan? timeout = null)");
+                "private BimApiResponse ExecuteInDocumentContext(BimDiagnosticContext diagnostics, string operation, Func<UIDocument, Document, RevitDocumentIdentityEvidence, BimApiResponse> work, TimeSpan? timeout = null, BimTransactionCall? transactionCall = null)");
             var select = ExtractExecutableMember(
                 selection,
                 "internal sealed class RevitSelectionService",
@@ -3103,7 +3109,7 @@ Assert.Contains(""required"", member);";
             var execute = ExtractExecutableMember(
                 runtime,
                 RuntimeType,
-                "private BimApiResponse ExecuteInDocumentContext(BimDiagnosticContext diagnostics, string operation, Func<UIDocument, Document, RevitDocumentIdentityEvidence, BimApiResponse> work, TimeSpan? timeout = null)");
+                "private BimApiResponse ExecuteInDocumentContext(BimDiagnosticContext diagnostics, string operation, Func<UIDocument, Document, RevitDocumentIdentityEvidence, BimApiResponse> work, TimeSpan? timeout = null, BimTransactionCall? transactionCall = null)");
             AssertSingleInvocationArguments(
                 execute,
                 "RevitDocumentIdentityResolver.Capture",
@@ -3155,6 +3161,10 @@ Assert.Contains(""required"", member);";
                 runtime,
                 "public BimApiResponse ExportElements(BimDiagnosticContext diagnostics, BimExportElementsRequest request)",
                 new EvidenceConsumer("export.Export", 3));
+            AssertRuntimeOperationEvidence(
+                runtime,
+                "public BimApiResponse RunTransaction(BimDiagnosticContext diagnostics, BimRunTransactionRequest request)",
+                new EvidenceConsumer("transactions.Run", 2));
 
             var status = ExtractExecutableMember(
                 runtime,

@@ -256,7 +256,7 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
-        public void NativeUtf8CallbackPreservesIndependentCredentialProjection()
+        public async Task NativeUtf8CallbackPreservesIndependentCredentialProjection()
         {
             using var f = new ImageFallbackFixture();
             var response = new ApiResponse { Success = false, HttpStatus = 503,
@@ -271,10 +271,16 @@ namespace Rook.Tests.Handlers
             try
             {
                 Func<string, CancellationToken, Task<ApiResponse>> operation = (_, _) => Task.FromResult(response);
-                Assert.Equal(0, callback.Invoke(null, new object?[] { buffer, 65536, length, status, "{}", operation, 1, null }));
+                // The synchronous native callback waits for pool dispatch. Yield
+                // the test worker so that dispatch cannot starve behind this test.
+                using (var outer = new BlockingTestWorker<object?>(_ => callback.Invoke(null,
+                    new object?[] { buffer, 65536, length, status, "{}", operation, 1, null })))
+                    Assert.Equal(0, await outer.Task);
                 var bytes = new byte[System.Runtime.InteropServices.Marshal.ReadInt32(length)];
                 System.Runtime.InteropServices.Marshal.Copy(buffer, bytes, 0, bytes.Length);
-                var data = JsonNode.Parse(System.Text.Encoding.UTF8.GetString(bytes))!["data"]!;
+                var envelope = System.Text.Encoding.UTF8.GetString(bytes);
+                var data = JsonNode.Parse(envelope)!["data"]!;
+                Assert.True(data is JsonObject, envelope);
                 Assert.Equal("生成失敗。", data["message"]!.GetValue<string>());
                 Assert.Equal("missing", data["credential_failure"]!["kind"]!.GetValue<string>());
                 Assert.Null(data["image_route"]); Assert.Equal(503, System.Runtime.InteropServices.Marshal.ReadInt32(status));

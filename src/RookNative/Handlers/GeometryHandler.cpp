@@ -354,6 +354,12 @@ void HandleGeometry(const httplib::Request& req, httplib::Response& res)
 
         snap.name = WideToUtf8(obj->Attributes().m_name);
         snap.visible = obj->IsVisible();
+        {
+            const ObjectState state = ReadObjectState(obj, pDoc);
+            snap.mode = state.mode;
+            snap.layerVisible = state.layerVisible;
+            snap.layerLocked = state.layerLocked;
+        }
 
         ON_BoundingBox bbox = obj->BoundingBox();
         if (bbox.IsValid())

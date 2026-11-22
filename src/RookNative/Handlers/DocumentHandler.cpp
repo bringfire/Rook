@@ -60,15 +60,14 @@ void HandleDocument(const httplib::Request& req, httplib::Response& res)
         // Rhino stores angle tolerance in radians; C# returns degrees
         snap.angleTolerance = RoundTo(ut.m_angle_tolerance * (180.0 / ON_PI), 2);
 
-        // Object count — iterate to count non-deleted
+        // Object count: every undeleted object, including hidden objects,
+        // lights and objects on turned-off layers. unlistedObjectCount is the
+        // part of it that GET /objects leaves out unless includeUnlisted is
+        // passed.
         {
-            CRhinoObjectIterator it(*pDoc,
-                CRhinoObjectIterator::normal_or_locked_objects,
-                CRhinoObjectIterator::active_objects);
-            int count = 0;
-            for (const CRhinoObject* obj = it.First(); obj; obj = it.Next())
-                ++count;
-            snap.objectCount = count;
+            const ObjectCounts counts = CountObjects(pDoc);
+            snap.objectCount = counts.all;
+            snap.unlistedObjectCount = counts.Unlisted();
         }
 
         // Layer count (excluding deleted)

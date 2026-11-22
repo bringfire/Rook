@@ -1,4 +1,8 @@
 using System;
+using System.Linq;
+using System.Collections.Generic;
+using Rook.Services.Vision.Fal;
+using Rook.Services.Vision.Fal.Models;
 using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Image;
 using Rook.Services.Vision.Image.Fal;
@@ -17,28 +21,55 @@ namespace Rook.Services.Vision
             Func<string?> geminiKeyProvider,
             Func<string?> falKeyProvider,
             Func<string?> replicateTokenProvider,
-            IVertexAccessTokenSource? vertexAccessTokenSource = null)
-            => new IImageProviderRegistration[]
+            IVertexAccessTokenSource? vertexAccessTokenSource = null,
+            FalCatalogSnapshot? catalog = null, FalConfiguredExecutor? configuredExecutor = null, FalAdapterRegistry? adapters = null)
+        {
+            var registrations = new List<IImageProviderRegistration>
             {
                 new GeminiImageProviderRegistration(new GeminiImageProvider(geminiKeyProvider)),
                 new FalImageProviderRegistration(new FalImageProvider(falKeyProvider)),
                 new ReplicateImageProviderRegistration(new ReplicateImageProvider(replicateTokenProvider)),
                 new VertexImageProviderRegistration(new VertexImageProvider(vertexAccessTokenSource ?? UnavailableVertexAccessTokenSource.Instance)),
             };
+            if (catalog != null)
+            {
+                var configuredAdapters = adapters ?? new FalAdapterRegistry();
+                foreach (var model in catalog.Definitions.Where(m => m.Operations[0].Result.MimeFamily == "image"))
+                    registrations.Add(new ConfiguredFalImageRegistration(model,
+                        configuredExecutor ?? throw new ArgumentNullException(nameof(configuredExecutor)), configuredAdapters,
+                        new FalDeclarativePricing().ForImage(model, configuredAdapters)));
+            }
+            return registrations.ToArray();
+        }
 
         public static IVideoProviderRegistration[] CreateVideoRegistrations(
             Func<string?> geminiKeyProvider,
             Func<string?> falKeyProvider,
-            IVertexAccessTokenSource? vertexAccessTokenSource = null)
+            IVertexAccessTokenSource? vertexAccessTokenSource = null,
+            FalCatalogSnapshot? catalog = null, FalConfiguredExecutor? configuredExecutor = null, FalAdapterRegistry? adapters = null)
         {
             var fal = new FalVideoProvider(falKeyProvider);
-            return new IVideoProviderRegistration[] {
+            var registrations = new List<IVideoProviderRegistration> {
                 new VeoProviderRegistration(new VeoProvider(geminiKeyProvider)),
                 new FalVideoProviderRegistration(fal),
                 new FalVeoProviderRegistration(fal, new FalVeoBindingCatalog()),
                 new VertexVeoProviderRegistration(new VertexVeoProvider(vertexAccessTokenSource ?? UnavailableVertexAccessTokenSource.Instance)),
             };
+            if (catalog != null)
+            {
+                var configuredAdapters = adapters ?? new FalAdapterRegistry();
+                foreach (var model in catalog.Definitions.Where(m => m.Operations[0].Result.MimeFamily == "video"))
+                    registrations.Add(new ConfiguredFalVideoRegistration(model,
+                        configuredExecutor ?? throw new ArgumentNullException(nameof(configuredExecutor)), configuredAdapters,
+                        new FalDeclarativePricing().ForVideo(model, configuredAdapters)));
+            }
+            return registrations.ToArray();
         }
+
+        public static IReadOnlyCollection<string> GetLegacyModelIds() => Array.AsReadOnly(
+            CreateImageRegistrations(() => null, () => null, () => null).SelectMany(r => r.Models.Keys)
+                .Concat(CreateVideoRegistrations(() => null, () => null).SelectMany(r => r.Models.Keys))
+                .Concat(GeminiImageCapabilities.ShortNameToId.Keys).Distinct(StringComparer.Ordinal).ToArray());
 
         public static ProviderCredentialMetadataCatalog CreateCredentialMetadata()
         {

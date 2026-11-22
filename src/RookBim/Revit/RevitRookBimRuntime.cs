@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Autodesk.Revit.DB;
@@ -12,12 +13,25 @@ namespace RookBim.Revit
         private const string ModuleName = "RookBim.dll";
         private static readonly TimeSpan DispatchTimeout = TimeSpan.FromSeconds(5);
         private static readonly TimeSpan ExportDispatchTimeout = TimeSpan.FromSeconds(120);
+        // run_transaction waits in two phases so a blocked Revit is reported
+        // quickly instead of after the whole script budget.
+        // How long any queued work may wait for Revit's idle queue to pick it
+        // up. A queue that does not move this long is blocked (a dialog or an
+        // active command), whatever the work's own time budget is.
+        private static readonly TimeSpan QueuePickupTimeout = TimeSpan.FromSeconds(10);
+        // Between pickup and the script being entered: document checks and
+        // starting the transaction.
+        private static readonly TimeSpan TransactionSetupTimeout = TimeSpan.FromSeconds(4);
+        // Between the script's budget ending and the host thread saying so.
+        private static readonly TimeSpan ScriptReturnAllowance = TimeSpan.FromSeconds(1);
+        private static readonly TimeSpan TransactionCommitGrace = TimeSpan.FromSeconds(8);
         private readonly RevitApiDispatcher dispatcher;
         private readonly RevitCategoryResolver categories;
         private readonly RevitQueryService query;
         private readonly RevitSelectionService selection;
         private readonly RevitExportService export;
         private readonly RevitPresetResolver presetResolver;
+        private readonly RevitTransactionService transactions;
 
         public RevitRookBimRuntime()
             : this(new RevitApiDispatcher())
@@ -32,25 +46,50 @@ namespace RookBim.Revit
             this.selection = new RevitSelectionService();
             this.export = new RevitExportService();
             this.presetResolver = new RevitPresetResolver();
+            this.transactions = new RevitTransactionService();
         }
 
         public BimStatusResponse Status(BimDiagnosticContext diagnostics)
         {
             try
             {
+                string? failureInsideRevit = null;
                 var hasActiveDocument = Dispatch(
                     diagnostics,
                     uiapp =>
                     {
-                        var document = AcquireActiveDocument(uiapp, diagnostics);
-                        if (document == null)
+                        try
                         {
+                            var document = AcquireActiveDocument(uiapp, diagnostics);
+                            if (document == null)
+                            {
+                                return false;
+                            }
+
+                            RevitDocumentIdentityResolver.Capture(document, diagnostics);
+                            return true;
+                        }
+                        catch (Exception ex)
+                        {
+                            // Revit ran this callback, so the host is present.
+                            failureInsideRevit = DescribeDispatchException(ex);
                             return false;
                         }
-
-                        RevitDocumentIdentityResolver.Capture(document, diagnostics);
-                        return true;
                     });
+                if (failureInsideRevit != null)
+                {
+                    return new BimStatusResponse
+                    {
+                        Available = false,
+                        Runtime = "rookbim",
+                        ErrorCode = "internal_error",
+                        Message = "RookBIM reached Revit, but reading the active document failed: " +
+                            failureInsideRevit,
+                        Host = "revit",
+                        Module = ModuleName
+                    };
+                }
+
                 if (!hasActiveDocument)
                 {
                     return new BimStatusResponse
@@ -68,6 +107,20 @@ namespace RookBim.Revit
                 {
                     Available = true,
                     Runtime = "rookbim",
+                    Host = "revit",
+                    Module = ModuleName
+                };
+            }
+            catch (RevitDispatchTimeoutException ex)
+            {
+                // RhinoInside.Revit is loaded and accepted the work; Revit just
+                // never ran it. That is not a missing host.
+                return new BimStatusResponse
+                {
+                    Available = false,
+                    Runtime = "rookbim",
+                    ErrorCode = ex.WorkStarted ? "revit_operation_timeout" : "revit_not_idle",
+                    Message = DescribeDispatchTimeout(ex, "status"),
                     Host = "revit",
                     Module = ModuleName
                 };
@@ -307,6 +360,50 @@ namespace RookBim.Revit
                 ExportDispatchTimeout);
         }
 
+        public BimApiResponse RunTransaction(BimDiagnosticContext diagnostics, BimRunTransactionRequest request)
+        {
+            if (request == null)
+            {
+                return BimApiResponse.Fail(BimErrorCode.InvalidRequest, "run-transaction request is required.", 400);
+            }
+
+            var validation = request.Validate();
+            if (!validation.Success)
+            {
+                return BimApiResponse.Fail(
+                    validation.ErrorCode, validation.Message ?? "run-transaction validation failed.", 400);
+            }
+
+            // The receipt exists before anything is queued, so every way this
+            // call can end is reported from the same record.
+            var call = BimTransactionCall.Begin(
+                request.EffectiveName,
+                TimeSpan.FromSeconds(request.EffectiveTimeoutSeconds));
+            var response = ExecuteInDocumentContext(
+                diagnostics,
+                "run_transaction",
+                (uidoc, document, evidence) =>
+                    transactions.Run(uidoc, document, evidence, request, call),
+                null,
+                call);
+
+            // A refusal issued before the executor ran (no active document,
+            // Revit not idle, host missing) never reached the receipt. Record
+            // it, and answer from the receipt like every other outcome, so the
+            // caller gets the transaction id and a lookup does not read as
+            // "still queued".
+            if (!response.Success && call.Receipt.Snapshot().IsQueued)
+            {
+                call.Receipt.Refuse(response.ErrorCode, response.Message ?? "The write was refused.");
+                call.Receipt.EndObservation();
+                return BimTransactionReport.Build(
+                    call.Receipt.Snapshot(),
+                    new Dictionary<string, object?> { ["dispatch"] = response.Data });
+            }
+
+            return response;
+        }
+
         private T Dispatch<T>(
             BimDiagnosticContext diagnostics,
             Func<UIApplication, T> work)
@@ -315,8 +412,10 @@ namespace RookBim.Revit
             var dispatch = dispatcher.InvokeAbandonable(capturedDiagnostics, work);
             if (Task.WaitAny(new Task[] { dispatch.Task }, DispatchTimeout) < 0)
             {
-                dispatch.Abandon();
-                throw new TimeoutException("Timed out waiting for RhinoInside Revit idling-queue execution.");
+                // Abandon() succeeds only while the work is still queued, so its
+                // answer says whether Revit ever became idle.
+                var neverStarted = dispatch.Abandon();
+                throw new RevitDispatchTimeoutException(!neverStarted, DispatchTimeout);
             }
 
             return dispatch.Task.GetAwaiter().GetResult();
@@ -329,40 +428,161 @@ namespace RookBim.Revit
         {
             var capturedDiagnostics = diagnostics;
             var dispatch = dispatcher.InvokeAbandonable(capturedDiagnostics, work);
-            if (Task.WaitAny(new Task[] { dispatch.Task }, timeout) < 0)
+            // Phase 1: the queue. However long the work may take, a queue that
+            // does not pick it up within QueuePickupTimeout is blocked, and the
+            // caller should hear that now, not after the whole work budget.
+            var pickup = timeout < QueuePickupTimeout ? timeout : QueuePickupTimeout;
+            var waited = System.Diagnostics.Stopwatch.StartNew();
+            var first = Task.WaitAny(new Task[] { dispatch.Task, dispatch.Started }, pickup);
+            if (first == 0)
             {
-                dispatch.Abandon();
-                throw new TimeoutException("Timed out waiting for RhinoInside Revit idling-queue execution.");
+                return dispatch.Task.GetAwaiter().GetResult();
+            }
+
+            if (first < 0 && dispatch.Abandon())
+            {
+                throw new RevitDispatchTimeoutException(false, pickup);
+            }
+
+            // Phase 2: the work is running; it gets the rest of its budget.
+            var remaining = timeout - waited.Elapsed;
+            if (remaining < TimeSpan.Zero)
+            {
+                remaining = TimeSpan.Zero;
+            }
+
+            if (Task.WaitAny(new Task[] { dispatch.Task }, remaining) < 0)
+            {
+                throw new RevitDispatchTimeoutException(true, timeout);
             }
 
             return dispatch.Task.GetAwaiter().GetResult();
+        }
+
+        private BimApiResponse DispatchTransaction(
+            BimDiagnosticContext diagnostics,
+            Func<UIApplication, BimApiResponse> work,
+            BimTransactionCall call)
+        {
+            var capturedDiagnostics = diagnostics;
+            var dispatch = dispatcher.InvokeAbandonable(capturedDiagnostics, work);
+            var gate = call.Gate;
+
+            // Phase 1: the queue.
+            var first = Task.WaitAny(
+                new Task[] { dispatch.Task, dispatch.Started },
+                QueuePickupTimeout);
+            if (first == 0)
+            {
+                return dispatch.Task.GetAwaiter().GetResult();
+            }
+
+            if (first < 0 && dispatch.Abandon())
+            {
+                throw new RevitDispatchTimeoutException(false, QueuePickupTimeout);
+            }
+
+            // Phase 2: setup, until the host thread enters the script.
+            var entered = Task.WaitAny(
+                new Task[] { dispatch.Task, gate.ScriptEntered },
+                TransactionSetupTimeout);
+            if (entered == 0)
+            {
+                return dispatch.Task.GetAwaiter().GetResult();
+            }
+
+            // Phase 3: the script. Its budget is counted from the entry signal,
+            // the same instant the host thread counts from, and is enforced on
+            // that thread; this wait only has to outlast it.
+            if (entered == 1 &&
+                Task.WaitAny(new Task[] { dispatch.Task }, gate.ScriptTimeout + ScriptReturnAllowance) >= 0)
+            {
+                return dispatch.Task.GetAwaiter().GetResult();
+            }
+
+            // This thread stops waiting. It does not decide what happened: it
+            // withdraws permission to commit if it still can, records why, and
+            // reports whatever the receipt says the host has observed.
+            switch (gate.Cancel())
+            {
+                case BimTransactionCancelOutcome.BeforeScript:
+                    call.Receipt.ProhibitCommit(
+                        BimErrorCode.TransactionTimeout,
+                        "RookBIM was still preparing the transaction after " +
+                        $"{RevitDispatchTimeoutException.Seconds(TransactionSetupTimeout)} s, so the script was not " +
+                        "started and will not be.");
+                    break;
+                case BimTransactionCancelOutcome.DuringScript:
+                    call.Receipt.ProhibitCommit(
+                        BimErrorCode.TransactionTimeout,
+                        "The script did not finish within " +
+                        $"{RevitDispatchTimeoutException.Seconds(gate.ScriptTimeout)} s.");
+                    break;
+                default:
+                    // The host thread already owns the outcome: it is
+                    // committing, or has refused the commit and is rolling
+                    // back. Give it a moment to finish and answer itself.
+                    if (Task.WaitAny(new Task[] { dispatch.Task }, TransactionCommitGrace) >= 0)
+                    {
+                        return dispatch.Task.GetAwaiter().GetResult();
+                    }
+
+                    break;
+            }
+
+            return BimTransactionReport.Build(
+                call.Receipt.Snapshot(),
+                new Dictionary<string, object?>
+                {
+                    // Observed: Revit's API thread had not finished this call
+                    // when the wait ended.
+                    ["revitStillBusy"] = !dispatch.Task.IsCompleted,
+                });
         }
 
         private BimApiResponse ExecuteInDocumentContext(
             BimDiagnosticContext diagnostics,
             string operation,
             Func<UIDocument, Document, RevitDocumentIdentityEvidence, BimApiResponse> work,
-            TimeSpan? timeout = null)
+            TimeSpan? timeout = null,
+            BimTransactionCall? transactionCall = null)
         {
             try
             {
                 Func<UIApplication, BimApiResponse> callback = uiapp =>
                 {
-                    var uidoc = AcquireActiveUiDocument(uiapp, diagnostics);
-                    var document = uidoc == null
-                        ? null
-                        : AcquireDocument(uidoc, diagnostics);
-                    if (uidoc == null || document == null)
+                    UIDocument? uidoc;
+                    Document? document;
+                    RevitDocumentIdentityEvidence evidence;
+                    try
                     {
+                        uidoc = AcquireActiveUiDocument(uiapp, diagnostics);
+                        document = uidoc == null
+                            ? null
+                            : AcquireDocument(uidoc, diagnostics);
+                        if (uidoc == null || document == null)
+                        {
+                            return BimApiResponse.Fail(
+                                BimErrorCode.NoActiveDocument,
+                                "No active Revit document is open.",
+                                409);
+                        }
+
+                        evidence = RevitDocumentIdentityResolver.Capture(
+                            document,
+                            diagnostics);
+                    }
+                    catch (Exception ex)
+                    {
+                        // This runs inside Revit's API context: the host is
+                        // present. Letting it escape would report not_rhino_inside.
                         return BimApiResponse.Fail(
-                            BimErrorCode.NoActiveDocument,
-                            "No active Revit document is open.",
-                            409);
+                            BimErrorCode.InternalError,
+                            $"RookBIM operation '{operation}' could not read the active Revit document: " +
+                            $"{DescribeDispatchException(ex)}. Nothing was changed.",
+                            500);
                     }
 
-                    var evidence = RevitDocumentIdentityResolver.Capture(
-                        document,
-                        diagnostics);
                     try
                     {
                         return work(uidoc, document, evidence);
@@ -382,9 +602,31 @@ namespace RookBim.Revit
                     }
                 };
 
+                if (transactionCall != null)
+                {
+                    return DispatchTransaction(diagnostics, callback, transactionCall);
+                }
+
                 return timeout.HasValue
                     ? DispatchWithTimeout(diagnostics, callback, timeout.Value)
                     : Dispatch(diagnostics, callback);
+            }
+            catch (RevitDispatchTimeoutException ex)
+            {
+                // The host is present and took the work; what failed is Revit's
+                // idle queue. Reporting not_rhino_inside here sent callers after
+                // the wrong cause.
+                var response = BimApiResponse.Fail(
+                    ex.WorkStarted ? BimErrorCode.RevitOperationTimeout : BimErrorCode.RevitNotIdle,
+                    DescribeDispatchTimeout(ex, operation),
+                    503);
+                response.Data = new
+                {
+                    operation = operation,
+                    waitedSeconds = (int)Math.Round(ex.Waited.TotalSeconds),
+                    workStarted = ex.WorkStarted
+                };
+                return response;
             }
             catch (Exception ex)
             {
@@ -393,6 +635,24 @@ namespace RookBim.Revit
                     $"RookBIM could not enter the Revit API context: {DescribeDispatchException(ex)}",
                     503);
             }
+        }
+
+        private static string DescribeDispatchTimeout(
+            RevitDispatchTimeoutException ex,
+            string operation)
+        {
+            var seconds = RevitDispatchTimeoutException.Seconds(ex.Waited);
+            if (ex.WorkStarted)
+            {
+                return $"RookBIM operation '{operation}' started on Revit's API thread but did not finish within " +
+                    $"{seconds} s. It is still running and its result is discarded; Revit is busy, not blocked. " +
+                    "Wait for Revit to finish, then retry (narrow the request if it is a large query or export).";
+            }
+
+            return $"Revit did not become idle within {seconds} s, so RookBIM operation '{operation}' never ran " +
+                "and nothing was read or changed. The likely cause is an open dialog or an active command in Revit " +
+                "(a modal window, an unfinished sketch or edit mode, a tool waiting for a pick). Ask the user to " +
+                "close the dialog or finish or cancel the command in Revit, then retry.";
         }
 
         private static string DescribeDispatchException(Exception ex)

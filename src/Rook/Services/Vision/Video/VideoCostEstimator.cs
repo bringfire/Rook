@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using Rook.Services.Vision.Fal.Models;
+using Rook.Services.Vision.Video.Fal;
 
 namespace Rook.Services.Vision.Video
 {
@@ -46,6 +48,28 @@ namespace Rook.Services.Vision.Video
                     $"Resolved model id '{model.ModelId}' does not match " +
                     $"request.Model '{request.Model}'.",
                     nameof(VideoGenerationRequest.Model));
+
+            // Configured controls may exceed the legacy Int32 shell and its capability lists.
+            // Normalize and price the canonical controls before entering that legacy projection.
+            if (model.OptionsCodec is ConfiguredFalVideoOptionsCodec configuredCodec && request.Options is FalModelOptions configuredOptions)
+            {
+                var validated = configuredCodec.Validate(request, configuredOptions, model.Capability);
+                if (!validated.Success) return VideoCostEstimateResult.Fail(new Generation.GenerationError(Generation.GenerationErrorCode.InvalidRequest,
+                    validated.Message!, false, validated.Field));
+                var input = configuredOptions.Input;
+                var normalized = configuredCodec.Normalize(new FalModelInput(input.RequestFields, input.Options, configuredOptions.SelectedOperation, input.Media, input.OutputCount));
+                if (!normalized.Success) return VideoCostEstimateResult.Fail(new Generation.GenerationError(Generation.GenerationErrorCode.InvalidRequest,
+                    normalized.Errors[0].Message, false, normalized.Errors[0].Field));
+                var priced = new FalDeclarativePricing().Estimate(normalized.Request!);
+                if (!priced.Success) return VideoCostEstimateResult.Fail(priced.Error!);
+                var p = priced.Pricing!; var fields = normalized.Request!.EffectiveRequestFields;
+                decimal? seconds = fields["duration_seconds"] == null ? null : fields["duration_seconds"]!.GetValue<decimal>();
+                int? legacySeconds = seconds is { } s && s == decimal.Truncate(s) && s <= int.MaxValue && s >= 0 ? (int)s : null;
+                return VideoCostEstimateResult.Ok(new VideoCostEstimate(FalQuote.PublicCeiling(p.EstimateMaxUsd), request.Model,
+                    fields["resolution"]?.GetValue<string>() ?? "", legacySeconds, 1,
+                    new[] { new CostBreakdownComponent($"{model.Capability.Name} × {p.QuantityMax} {p.Unit}", FalQuote.PublicCeiling(p.EstimateMaxUsd)) },
+                    VideoJobPricingTranslator.FromConfigured(p)) { ConfiguredRequest = normalized.Request, ConfiguredPricing = p });
+            }
 
             // Step 1: capability validation (provider-neutral)
             var capResult = CapabilityValidator.Validate(model.Capability, request);

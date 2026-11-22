@@ -51,6 +51,8 @@ namespace Rook.Handlers
             "clear_selection",
             "export_elements",
             "export_preset",
+            "run_transaction",
+            "transaction_receipt",
         };
 
         private static readonly HashSet<string> ExpectedBimOpSet =
@@ -185,6 +187,14 @@ namespace Rook.Handlers
                 return DispatchStandaloneStatus(diagnostics, control);
             }
 
+            if (string.Equals(op, "transaction_receipt", StringComparison.Ordinal))
+            {
+                // Answered from memory, without entering the host API thread:
+                // it must work exactly when that thread is busy with the
+                // transaction the caller is asking about.
+                return DispatchTransactionReceipt(diagnostics, control, body);
+            }
+
             RookBimModuleLoader.TryActivate(diagnostics);
             var runtime = RookBimRuntimeRegistry.Current;
             return op switch
@@ -237,6 +247,8 @@ namespace Rook.Handlers
                     "export_preset",
                     body,
                     request => runtime.ExportPreset(diagnostics, request)),
+                "run_transaction" => DispatchRunTransaction(
+                    runtime, diagnostics, control, body),
                 _ => Fail(
                     diagnostics,
                     control,
@@ -271,6 +283,120 @@ namespace Rook.Handlers
                 InvokeRuntime(
                     diagnostics,
                     () => runtime.QueryElements(diagnostics, request)));
+        }
+
+        private ApiResponse DispatchTransactionReceipt(
+            BimDiagnosticContext diagnostics,
+            DispatchControlState control,
+            string? body)
+        {
+            BimTransactionReceiptRequest request;
+            try
+            {
+                request = DeserializeRequest<BimTransactionReceiptRequest>(diagnostics, body);
+            }
+            catch (JsonException ex)
+            {
+                return Fail(
+                    diagnostics,
+                    control,
+                    BimErrorCode.InvalidRequest,
+                    "transaction-receipt arguments have the wrong JSON type: " + ex.Message +
+                    " Expected transactionId (string, optional).",
+                    400);
+            }
+
+            if (string.IsNullOrWhiteSpace(request.TransactionId))
+            {
+                var recent = new List<object>();
+                foreach (var snapshot in BimTransactionReceiptStore.Recent(BimTransactionReceiptRequest.MaxRecent))
+                {
+                    recent.Add(DescribeReceipt(snapshot));
+                }
+
+                return Ok(
+                    diagnostics,
+                    control,
+                    new Dictionary<string, object?>
+                    {
+                        ["receipts"] = recent,
+                        ["kept"] = BimTransactionReceiptStore.Capacity,
+                    });
+            }
+
+            if (!BimTransactionReceiptStore.TryGet(request.TransactionId, out var receipt) || receipt == null)
+            {
+                return Fail(
+                    diagnostics,
+                    control,
+                    BimErrorCode.TransactionReceiptNotFound,
+                    $"No receipt with transactionId '{request.TransactionId}' in this Revit session. Receipts are " +
+                    $"kept in memory for the last {BimTransactionReceiptStore.Capacity} write calls and do not " +
+                    "survive a restart of Revit. Call rookbim_transaction_receipt without transactionId to list " +
+                    "the ones that exist, or read the model back to see whether the change is there.",
+                    404);
+            }
+
+            return Ok(diagnostics, control, DescribeReceipt(receipt.Snapshot()));
+        }
+
+        private static Dictionary<string, object?> DescribeReceipt(BimTransactionReceiptSnapshot snapshot)
+        {
+            // The same receipt fields the write call returned, from the same
+            // function, so a lookup can never disagree with it.
+            var description = BimTransactionReport.Describe(snapshot);
+            var code = BimTransactionReport.LookupCode(snapshot);
+            description["errorCode"] = code == BimErrorCode.None ? null : MapErrorCode(code);
+            description["message"] = BimTransactionReport.Message(snapshot, withDetails: false);
+            description["updatedUtc"] =
+                snapshot.UpdatedUtc.ToString("o", System.Globalization.CultureInfo.InvariantCulture);
+            return description;
+        }
+
+        private ApiResponse DispatchRunTransaction(
+            IRookBimRuntime runtime,
+            BimDiagnosticContext diagnostics,
+            DispatchControlState control,
+            string? body)
+        {
+            // Validate before the runtime is reached: a malformed write request
+            // must be refused without ever entering the Revit API context.
+            BimRunTransactionRequest request;
+            try
+            {
+                request = DeserializeRequest<BimRunTransactionRequest>(diagnostics, body);
+            }
+            catch (JsonException ex)
+            {
+                // A wrong-typed field (for example timeoutSeconds as a string)
+                // is an invalid request, not an invalid scope.
+                return Fail(
+                    diagnostics,
+                    control,
+                    BimErrorCode.InvalidRequest,
+                    "run-transaction arguments have the wrong JSON type: " + ex.Message +
+                    " Expected name (string), code (string), timeoutSeconds (integer, optional) " +
+                    "and documentKey (string, optional).",
+                    400);
+            }
+            var validation = request.Validate();
+            if (!validation.Success)
+            {
+                return Fail(
+                    diagnostics,
+                    control,
+                    validation.ErrorCode,
+                    validation.Message ?? "run-transaction validation failed.",
+                    400);
+            }
+
+            return FromBimResponse(
+                diagnostics,
+                control,
+                "run_transaction",
+                InvokeRuntime(
+                    diagnostics,
+                    () => runtime.RunTransaction(diagnostics, request)));
         }
 
         private ApiResponse DispatchTypedRequest<T>(
@@ -674,6 +800,15 @@ namespace Rook.Handlers
                 BimErrorCode.ExportFailed => "export_failed",
                 BimErrorCode.UnknownPreset => "unknown_preset",
                 BimErrorCode.NoCategoriesResolved => "no_categories_resolved",
+                BimErrorCode.InvalidRequest => "invalid_request",
+                BimErrorCode.RevitNotIdle => "revit_not_idle",
+                BimErrorCode.RevitOperationTimeout => "revit_operation_timeout",
+                BimErrorCode.DocumentNotModifiable => "document_not_modifiable",
+                BimErrorCode.TransactionScriptFailed => "transaction_script_failed",
+                BimErrorCode.TransactionRolledBack => "transaction_rolled_back",
+                BimErrorCode.TransactionTimeout => "transaction_timeout",
+                BimErrorCode.TransactionOutcomeUnknown => "transaction_outcome_unknown",
+                BimErrorCode.TransactionReceiptNotFound => "transaction_receipt_not_found",
                 BimErrorCode.InternalError => "internal_error",
                 BimErrorCode.None => "internal_error",
                 _ => "internal_error",
@@ -760,6 +895,15 @@ namespace Rook.Handlers
                     userActionRequired = true;
                     recommendedNextStep = "Inspect RookBIM module load diagnostics, then restart Rhino.";
                     break;
+                case "revit_not_idle":
+                    failureKind = "host_blocked";
+                    ownedBy = "rookbim";
+                    evidenceSource = "rookbim_revit_idle_queue";
+                    retryable = true;
+                    userActionRequired = true;
+                    recommendedNextStep =
+                        "Close the open dialog or finish the active command in Revit, then retry.";
+                    break;
                 case "no_active_document":
                     failureKind = "operation_unavailable";
                     ownedBy = "rookbim";
@@ -814,6 +958,8 @@ namespace Rook.Handlers
                 "clear_selection" => "POST /bim/clear-selection",
                 "export_elements" => "POST /bim/export-elements",
                 "export_preset" => "POST /bim/export-preset",
+                "run_transaction" => "POST /bim/run-transaction",
+                "transaction_receipt" => "POST /bim/transaction-receipt",
                 _ => "POST /bim",
             };
         }

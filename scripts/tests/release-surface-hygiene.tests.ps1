@@ -250,6 +250,7 @@ function Test-Workflow {
     foreach ($requiredContract in @(
         'uv lock',
         'claude plugin validate --strict .',
+        'scripts/validate-claude-plugin.ps1',
         'scripts/tests/release-surface-hygiene.tests.ps1',
         'release-installer-guards.tests.ps1 -SkipBuiltPayloadCheck',
         'git worktree add --detach',

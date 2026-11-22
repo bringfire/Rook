@@ -74,6 +74,11 @@ namespace Rook.Bim
             return Unavailable();
         }
 
+        public BimApiResponse RunTransaction(BimDiagnosticContext diagnostics, BimRunTransactionRequest request)
+        {
+            return Unavailable();
+        }
+
         private BimApiResponse Unavailable()
         {
             return BimApiResponse.Fail(

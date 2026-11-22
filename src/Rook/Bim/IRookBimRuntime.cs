@@ -21,5 +21,11 @@ namespace Rook.Bim
         BimApiResponse ExportElements(BimDiagnosticContext diagnostics, BimExportElementsRequest request);
 
         BimApiResponse ExportPreset(BimDiagnosticContext diagnostics, BimExportPresetRequest request);
+
+        /// <summary>
+        /// The only operation that writes the host BIM document: runs a script
+        /// inside one named transaction and reports commit or rollback.
+        /// </summary>
+        BimApiResponse RunTransaction(BimDiagnosticContext diagnostics, BimRunTransactionRequest request);
     }
 }

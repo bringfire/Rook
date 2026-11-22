@@ -7,7 +7,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <Version>1.7.0</Version>
+    <Version>1.8.0</Version>
     <Title>RookBIM</Title>
     <Company>Bringfire</Company>
     <Description>RookBIM for Rhino.Inside.Revit category and element queries</Description>
@@ -36,6 +36,18 @@
       <HintPath>$(RhinoSystemDir)\RhinoCommon.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- Rhino 8's own script engine API (part of Rhino, like RhinoCommon).
+         RevitPythonScriptRunner calls it directly so the host observes the script's end. -->
+    <Reference Include="Rhino.Runtime.Code">
+      <HintPath>$(RhinoSystemDir)\Rhino.Runtime.Code.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Python body of the run-transaction wrapper; RevitTransactionService prepends the per-call header. -->
+    <EmbeddedResource Include="Revit\Scripts\run_transaction_wrapper.py"
+                      LogicalName="RookBim.run_transaction_wrapper.py" />
   </ItemGroup>
 
   <PropertyGroup>
