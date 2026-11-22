@@ -71,7 +71,7 @@ def run_case(tmp_path, case):
     payload = tmp_path / "runtimes" / ("A" * 64)
     payload.mkdir(parents=True)
     record = {
-        "installer_tool": {"name": "uv", "version": "0.12.5", "wheel": "uv.whl", "wheel_sha256": "e" * 64},
+        "installer_tool": {"name": "uv", "version": "0.13.4", "wheel": "uv.whl", "wheel_sha256": "e" * 64},
         "uv_install_offline_contract": True, "uv_cache_removed_before_checks": True,
         "freeze_matches_locks": True, "bytecode_compiled": True,
         "pip_check": "No broken requirements found.",

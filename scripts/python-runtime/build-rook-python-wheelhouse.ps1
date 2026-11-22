@@ -280,7 +280,7 @@ Copy-Item -LiteralPath $chirpWheel.FullName -Destination $wheelhouse
 $bootstrapToolPackages = @('pip==26.2.2', 'setuptools==84.1.0')
 # Installer tools are extracted by post_install.py, never installed into a venv
 # (#595). Keep in step with INSTALLER_TOOL_REQUIREMENTS in python_runtime_install.py.
-$installerToolPackages = @('uv==0.12.5')
+$installerToolPackages = @('uv==0.13.4')
 
 $sdists = @(Get-ChildItem -Path $wheelhouse -Include *.tar.gz,*.zip -File -Recurse)
 if ($sdists.Count -gt 0) {
