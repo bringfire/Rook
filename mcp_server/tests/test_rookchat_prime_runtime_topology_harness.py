@@ -203,54 +203,68 @@ def test_cleanup_admission_requires_exact_generation_and_identity() -> None:
         )
 
 
-def test_phase_observations_require_exact_uv_and_one_steady_kernel(tmp_path: Path) -> None:
+def test_transition_snapshots_reject_daemon_artifacts_and_child_node(tmp_path: Path) -> None:
     harness = _load()
-    uv = (tmp_path / "uv.exe").resolve()
-    python = (tmp_path / "kernel" / "Scripts" / "python.exe").resolve()
-    uv.write_bytes(b"uv")
-    python.parent.mkdir(parents=True)
-    python.write_bytes(b"python")
-    observations = (
-        harness.ProcessObservation(
-            "cold_preparation",
-            harness.ProcessSnapshot(201, 101, "2", str(uv)),
-        ),
-        harness.ProcessObservation(
-            "cold_preparation",
-            harness.ProcessSnapshot(202, 101, "3", str(python)),
-        ),
-        harness.ProcessObservation(
-            "steady_state",
-            harness.ProcessSnapshot(202, 101, "3", str(python)),
+    agent_root = tmp_path / "agent"
+    agent_root.mkdir()
+    clean = (
+        harness.TransitionSnapshot(
+            "session_persisted",
+            (harness.ProcessSnapshot(202, 101, "3", "python.exe"),),
         ),
     )
 
-    harness.validate_phase_observations(
-        observations,
-        uv_path=uv,
-        uv_sha256=hashlib.sha256(b"uv").hexdigest().upper(),
-        interpreter=python,
-    )
-    with pytest.raises(harness.HarnessFailure, match="uv"):
-        harness.validate_phase_observations(
-            observations,
-            uv_path=uv,
-            uv_sha256="A" * 64,
-            interpreter=python,
-        )
-    with pytest.raises(harness.HarnessFailure, match="steady"):
-        harness.validate_phase_observations(
-            observations
-            + (
-                harness.ProcessObservation(
-                    "steady_state",
-                    harness.ProcessSnapshot(203, 101, "4", "daemon-worker.exe"),
+    harness.validate_no_daemon_activity(agent_root, clean)
+
+    with pytest.raises(harness.HarnessFailure, match="daemon process"):
+        harness.validate_no_daemon_activity(
+            agent_root,
+            (
+                harness.TransitionSnapshot(
+                    "started",
+                    (harness.ProcessSnapshot(203, 101, "4", "node.exe"),),
                 ),
             ),
-            uv_path=uv,
-            uv_sha256=hashlib.sha256(b"uv").hexdigest().upper(),
-            interpreter=python,
         )
+
+    (agent_root / "daemon-workers").mkdir()
+    with pytest.raises(harness.HarnessFailure, match="daemon artifact"):
+        harness.validate_no_daemon_activity(agent_root, clean)
+
+
+def test_session_file_is_admitted_only_after_supported_depth_flush(tmp_path: Path) -> None:
+    harness = _load()
+    sessions = (tmp_path / "sessions").resolve()
+    sessions.mkdir()
+    session_file = sessions / "saved.jsonl"
+    calls = []
+
+    class Child:
+        def command(self, command, _timeout):
+            calls.append(command["type"])
+            if command["type"] == "get_state":
+                return {
+                    "type": "response",
+                    "id": command["id"],
+                    "success": True,
+                    "command": "get_state",
+                    "data": {"sessionFile": str(session_file)},
+                }
+            session_file.write_text("persisted\n", encoding="utf-8")
+            return {
+                "type": "response",
+                "id": command["id"],
+                "success": True,
+                "command": "set_rlm_max_depth",
+                "data": {"maxDepth": 0, "source": "chat"},
+            }
+
+    state, depth, admitted = harness.persist_session_file(Child(), sessions)
+
+    assert calls == ["get_state", "set_rlm_max_depth"]
+    assert state["sessionFile"] == str(session_file)
+    assert depth == {"maxDepth": 0, "source": "chat"}
+    assert admitted == session_file
 
 
 def test_runtime_preparation_uses_prime_reported_interpreter_and_import_origins(
@@ -408,7 +422,7 @@ def test_owned_process_start_closes_the_retained_child_when_identity_capture_rai
     assert child.close() == {"result": "graceful", "returnCode": 0}
 
 
-def test_owned_process_start_closes_the_retained_child_when_monitor_start_fails(
+def test_owned_process_records_bounded_transition_snapshots(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -421,19 +435,9 @@ def test_owned_process_start_closes_the_retained_child_when_monitor_start_fails(
         def snapshot(self, _pid: int):
             return owner
 
-    class FailingMonitor:
-        observations = ()
+        def descendants(self, _pid: int):
+            return (harness.ProcessSnapshot(702, process.pid, "638880485801234568", "python.exe"),)
 
-        def __init__(self, _observer, _pid):
-            self.stopped = False
-
-        def start(self) -> None:
-            raise RuntimeError("monitor start failed")
-
-        def stop(self) -> None:
-            self.stopped = True
-
-    monkeypatch.setattr(harness, "ProcessMonitor", FailingMonitor)
     child = harness.OwnedPrimeProcess(
         argv=("node.exe", "cli.js"),
         environment={},
@@ -442,25 +446,28 @@ def test_owned_process_start_closes_the_retained_child_when_monitor_start_fails(
         observer=Observer(),
     )
 
-    with pytest.raises(RuntimeError, match="monitor start failed"):
-        child.start()
+    child.start()
+    child.capture_transition("session_persisted")
 
-    assert process.stdin.closed is True
-    assert process.wait_calls == 1
+    assert [item.phase for item in child.transition_snapshots] == [
+        "started",
+        "session_persisted",
+    ]
+    assert child.transition_snapshots[-1].descendants[0].pid == 702
     assert child.close() == {"result": "graceful", "returnCode": 0}
 
 
-def test_owned_process_evidence_retains_generation_argv_owner_rows_and_observations() -> None:
+def test_owned_process_evidence_retains_generation_argv_owner_rows_and_transitions() -> None:
     harness = _load()
     owner = harness.ProcessSnapshot(701, 55, "638880485801234567", "node.exe")
-    observation = harness.ProcessObservation("admission", owner)
+    transition = harness.TransitionSnapshot("admission", (owner,))
     child = SimpleNamespace(
         generation=4,
         argv=("node.exe", "cli.js", "--resume", "C:/sessions/exact.jsonl"),
         owner=owner,
         rows=[{"type": "response", "id": "state", "success": True}],
         stderr=["lease refused"],
-        monitor=SimpleNamespace(observations=[observation]),
+        transition_snapshots=[transition],
         close_record={"result": "already_exited", "returnCode": 1},
     )
 
@@ -475,13 +482,17 @@ def test_owned_process_evidence_retains_generation_argv_owner_rows_and_observati
         },
         "rows": [{"type": "response", "id": "state", "success": True}],
         "stderr": ["lease refused"],
-        "processObservations": [
+        "transitionSnapshots": [
             {
                 "phase": "admission",
-                "pid": 701,
-                "parent_pid": 55,
-                "start_utc_ticks": "638880485801234567",
-                "executable": "node.exe",
+                "descendants": [
+                    {
+                        "pid": 701,
+                        "parent_pid": 55,
+                        "start_utc_ticks": "638880485801234567",
+                        "executable": "node.exe",
+                    }
+                ],
             }
         ],
         "close": {"result": "already_exited", "returnCode": 1},
