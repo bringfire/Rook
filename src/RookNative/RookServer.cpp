@@ -2048,7 +2048,7 @@ nlohmann::json GetNativeGrasshopperRoutes()
     return routes;
 }
 
-constexpr const char* kRookNativePluginVersion = "1.7.0";
+constexpr const char* kRookNativePluginVersion = "1.8.0";
 
 bool JsonBoolOr(const nlohmann::json& object, const char* name, bool fallback)
 {
