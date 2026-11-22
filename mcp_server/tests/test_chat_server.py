@@ -29,7 +29,9 @@ from rook.agent.chat.prime_registry import (
     PrimeConversationRegistry,
     PrimeModelSelection,
     TargetFingerprint,
+    TargetFingerprintV2,
 )
+from rook.agent.chat.prime_runtime_contract import stage_product_package
 from rook.agent.minimal_intent_worker_integration import (
     MinimalPlannerDraftAdapter,
     run_minimal_intent_worker_initial_body_integration,
@@ -1910,17 +1912,22 @@ class _FakePrimeBackend:
     @staticmethod
     def _record(
         conversation_id: str,
-        target: TargetFingerprint,
+        target: TargetFingerprint | TargetFingerprintV2,
         *,
         lifecycle: str = "idle",
     ) -> PrimeConversationRecord:
+        persisted_target = TargetFingerprint(
+            target.rhino_pid,
+            target.rhino_process_start_utc_ticks,
+            target.document_runtime_serial,
+        )
         return PrimeConversationRecord(
             schema_version=1,
             conversation_id=conversation_id,
             prime_session_id=f"session-{conversation_id}",
             prime_session_path=f"C:/prime-sessions/{conversation_id}.jsonl",
             model=PrimeModelSelection("openai-codex", "gpt-5.6-sol", "xhigh"),
-            target=target,
+            target=persisted_target,
             last_lifecycle=LifecycleRecord(
                 state=lifecycle,
                 reason=None,
@@ -1929,7 +1936,7 @@ class _FakePrimeBackend:
         )
 
     async def create(
-        self, conversation_id: str, target: TargetFingerprint
+        self, conversation_id: str, target: TargetFingerprint | TargetFingerprintV2
     ) -> PrimeConversationRecord:
         self.calls.append(("create", conversation_id, target))
         record = self._record(conversation_id, target)
@@ -1937,13 +1944,17 @@ class _FakePrimeBackend:
         return record
 
     async def reopen(
-        self, conversation_id: str, target: TargetFingerprint
+        self, conversation_id: str, target: TargetFingerprint | TargetFingerprintV2
     ) -> PrimeConversationRecord:
         self.calls.append(("reopen", conversation_id, target))
         record = self.records.get(conversation_id)
         if record is None:
             raise PrimeBackendError("conversation_not_found")
-        if record.target != target:
+        if record.target != TargetFingerprint(
+            target.rhino_pid,
+            target.rhino_process_start_utc_ticks,
+            target.document_runtime_serial,
+        ):
             raise PrimeBackendError("target_mismatch")
         return record
 
@@ -2011,6 +2022,7 @@ class TestPrimeChatServer(AioHTTPTestCase):
         "rhinoPid": 2468,
         "rhinoProcessStartUtcTicks": "638918000000000000",
         "documentRuntimeSerial": 42,
+        "grasshopperDocumentId": "12345678-1234-1234-1234-1234567890ab",
     }
 
     async def get_application(self):
@@ -2065,6 +2077,19 @@ class TestPrimeChatServer(AioHTTPTestCase):
         assert (await created.json())["conversation_id"] == self.conversation_id
         assert (await reopened.json())["backend"] == "prime"
         assert [call[0] for call in self.backend.calls] == ["create", "reopen"]
+        assert self.backend.calls[0][2].grasshopper_document_id == (
+            "12345678-1234-1234-1234-1234567890ab"
+        )
+
+        profile = await self.client.post(
+            "/agent/chat/start",
+            json={
+                **create_body,
+                "capabilityProfile": "full",
+            },
+            headers=self._headers(),
+        )
+        assert profile.status == 400
 
         mixed = await self.client.post(
             "/agent/chat/start",
@@ -2399,12 +2424,26 @@ async def test_prime_vertical_http_cancel_race_is_correlated_and_model_free(
     tmp_path: Path,
 ) -> None:
     conversation_id = "conv_abcdef0123456789abcdef0123456789"
-    target = TargetFingerprint(2468, "638918000000000000", 42)
+    target = TargetFingerprintV2(
+        2468,
+        "638918000000000000",
+        42,
+        "11111111-1111-1111-1111-111111111111",
+    )
     registry = PrimeConversationRegistry(
         tmp_path / "registry",
         rhino_pid=target.rhino_pid,
         rhino_process_start_utc_ticks=target.rhino_process_start_utc_ticks,
     )
+    contract_configuration = chat_service_main._build_service_configuration(
+        rhino_process_id=target.rhino_pid,
+        rhino_process_start_utc_ticks=target.rhino_process_start_utc_ticks,
+        environment=_prime_service_environment(tmp_path / "runtime"),
+    )
+    runtime_contract_owner = contract_configuration.runtime_contract_owner
+    assert runtime_contract_owner is not None
+    assert contract_configuration.registry is not None
+    contract_configuration.registry.close()
     fixture = Path(__file__).parent / "fixtures" / "prime_rpc_fake_child.py"
     processes: list[PrimeRpcProcess] = []
 
@@ -2412,7 +2451,9 @@ async def test_prime_vertical_http_cancel_race_is_correlated_and_model_free(
         generation: int,
         model: PrimeModelSelection,
         resume_session_path: str | None,
+        launch_configuration,
     ) -> PrimeRpcProcess:
+        assert launch_configuration is not None
         process = PrimeRpcProcess(
             node_path=sys.executable,
             cli_path=fixture,
@@ -2422,6 +2463,7 @@ async def test_prime_vertical_http_cancel_race_is_correlated_and_model_free(
             model_id=model.id,
             thinking=model.thinking,
             resume_session_path=resume_session_path,
+            launch_configuration=launch_configuration,
             extra_args=("--scenario", "vertical_cancel_race"),
         )
         processes.append(process)
@@ -2431,6 +2473,7 @@ async def test_prime_vertical_http_cancel_race_is_correlated_and_model_free(
         registry,
         process_factory,
         PrimeModelSelection("fixture", "model", None),
+        runtime_contract_owner=runtime_contract_owner,
         retirement_grace_seconds=0.1,
     )
     legacy = _ExplodingLegacyRunner()
@@ -2459,6 +2502,7 @@ async def test_prime_vertical_http_cancel_race_is_correlated_and_model_free(
                         target.rhino_process_start_utc_ticks
                     ),
                     "documentRuntimeSerial": target.document_runtime_serial,
+                    "grasshopperDocumentId": target.grasshopper_document_id,
                 },
             },
             headers=headers,
@@ -2543,34 +2587,83 @@ def test_explicit_legacy_chat_backend_remains_legacy(monkeypatch):
     assert app[chat_server._BACKEND_MODE_KEY] == "legacy"
 
 
-def test_prime_service_configuration_is_closed_and_absolute(tmp_path):
-    node = tmp_path / "node.exe"
-    cli = tmp_path / "cli.js"
+def _prime_service_environment(tmp_path: Path, *, profile: str = "readonly") -> dict[str, str]:
+    prime_root = tmp_path / "prime"
+    node = prime_root / "node.exe"
+    cli = prime_root / "dist" / "cli.js"
+    cli.parent.mkdir(parents=True)
     node.write_bytes(b"node")
     cli.write_text("// cli", encoding="utf-8")
+    bundle = prime_root / "bundle-manifest.json"
+    bundle.write_bytes(b"bundle")
+    goal = prime_root / "packages" / "coding-agent" / "skills" / "goal"
+    (goal / "src" / "goal").mkdir(parents=True)
+    (goal / "SKILL.md").write_text("Goal", encoding="utf-8")
+    (goal / "pyproject.toml").write_text("[project]\nname='goal'\n", encoding="utf-8")
+    (goal / "src" / "goal" / "__init__.py").write_text("async def get(): return None\n", encoding="utf-8")
+    package = stage_product_package(
+        Path(__file__).parents[2] / "integrations" / "prime" / "skills" / "rook-full",
+        product_root=tmp_path / "contracts",
+    )
+    installed = tmp_path / "installed"
+    python = installed / "venv" / "Scripts" / "python.exe"
+    workdir = installed / "app" / "mcp_server"
+    for directory in (
+        python.parent,
+        workdir,
+        installed / "data" / "dspy-cache",
+        installed / "app" / "chirp",
+    ):
+        directory.mkdir(parents=True, exist_ok=True)
+    python.touch()
+    return {
+        "ROOK_CHAT_BACKEND": "prime",
+        "ROOK_PRIME_NODE_PATH": str(node),
+        "ROOK_PRIME_CLI_PATH": str(cli),
+        "ROOK_PRIME_MODEL": "openai-codex/gpt-5.6-sol",
+        "ROOK_PRIME_THINKING": "xhigh",
+        "ROOK_PRIME_REGISTRY_ROOT": str((tmp_path / "registry").absolute()),
+        "ROOK_PRIME_ROOT": str(prime_root),
+        "ROOK_PRIME_BUNDLE_MANIFEST_PATH": str(bundle),
+        "ROOK_PRIME_GIT_COMMIT_PROVENANCE": "prime-test-commit",
+        "ROOK_PRIME_GOAL_SKILL_ROOT": str(goal),
+        "ROOK_PRIME_GOAL_SKILL_PATH_IDENTITY": "packages/coding-agent/skills/goal",
+        "ROOK_PRIME_PRODUCT_ROOT": str(tmp_path / "contracts"),
+        "ROOK_PRIME_ROOK_PACKAGE_ROOT": str(package.root),
+        "ROOK_PRIME_KERNEL_ROOT": str(tmp_path / "kernels"),
+        "ROOK_PRIME_RUNTIME_COMPATIBILITY_VERSION": "1",
+        "ROOK_PRIME_CAPABILITY_PROFILE": profile,
+        "ROOK_MCP_PYTHON_EXECUTABLE": str(python),
+        "ROOK_MCP_WORKING_DIRECTORY": str(workdir),
+        "ROOK_INSTALL_ROOT": str(installed / "app"),
+        "ROOK_DATA_DIR": str(installed / "data"),
+        "DSPY_CACHEDIR": str(installed / "data" / "dspy-cache"),
+        "CHIRP_HOME": str(installed / "app" / "chirp"),
+        "ROOK_MODE": "release",
+        "ROOK_DSPY_RESTRICT_PICKLE": "1",
+    }
+
+
+def test_prime_service_configuration_is_closed_and_absolute(tmp_path):
+    environment = _prime_service_environment(tmp_path)
     registry = tmp_path / "registry"
 
     config = chat_service_main._build_service_configuration(
         rhino_process_id=2468,
         rhino_process_start_utc_ticks="638918000000000000",
-        environment={
-            "ROOK_CHAT_BACKEND": "prime",
-            "ROOK_PRIME_NODE_PATH": str(node),
-            "ROOK_PRIME_CLI_PATH": str(cli),
-            "ROOK_PRIME_MODEL": "openai-codex/gpt-5.6-sol",
-            "ROOK_PRIME_THINKING": "xhigh",
-            "ROOK_PRIME_REGISTRY_ROOT": str(registry),
-        },
+        environment=environment,
     )
 
     try:
         assert config.backend_mode == "prime"
-        assert config.node_path == node.absolute()
-        assert config.cli_path == cli.absolute()
+        assert config.node_path == Path(environment["ROOK_PRIME_NODE_PATH"]).absolute()
+        assert config.cli_path == Path(environment["ROOK_PRIME_CLI_PATH"]).absolute()
         assert config.registry_root == registry.absolute()
         assert config.default_model == PrimeModelSelection(
             "openai-codex", "gpt-5.6-sol", "xhigh"
         )
+        assert config.runtime_contract_owner is not None
+        assert config.runtime_contract_owner.contract.record["capabilityProfile"] == "readonly"
     finally:
         assert config.registry is not None
         config.registry.close()
@@ -2587,19 +2680,7 @@ def test_prime_service_configuration_is_closed_and_absolute(tmp_path):
     ],
 )
 def test_prime_service_configuration_refuses_drift(tmp_path, override, match):
-    node = tmp_path / "node.exe"
-    cli = tmp_path / "cli.js"
-    node.write_bytes(b"node")
-    cli.write_text("// cli", encoding="utf-8")
-    environment = {
-        "ROOK_CHAT_BACKEND": "prime",
-        "ROOK_PRIME_NODE_PATH": str(node),
-        "ROOK_PRIME_CLI_PATH": str(cli),
-        "ROOK_PRIME_MODEL": "openai-codex/gpt-5.6-sol",
-        "ROOK_PRIME_THINKING": "xhigh",
-        "ROOK_PRIME_REGISTRY_ROOT": str((tmp_path / "registry").absolute()),
-        **override,
-    }
+    environment = {**_prime_service_environment(tmp_path), **override}
     with pytest.raises(ValueError, match=match):
         chat_service_main._build_service_configuration(
             rhino_process_id=2468,
@@ -2619,19 +2700,13 @@ def test_legacy_service_configuration_needs_no_prime_values():
 
 
 def test_prime_service_configuration_can_inherit_prime_model(tmp_path):
-    node = tmp_path / "node.exe"
-    cli = tmp_path / "cli.js"
-    node.write_bytes(b"node")
-    cli.write_text("// cli", encoding="utf-8")
+    environment = _prime_service_environment(tmp_path)
+    environment.pop("ROOK_PRIME_MODEL")
+    environment.pop("ROOK_PRIME_THINKING")
     config = chat_service_main._build_service_configuration(
         rhino_process_id=2468,
         rhino_process_start_utc_ticks="638918000000000000",
-        environment={
-            "ROOK_CHAT_BACKEND": "prime",
-            "ROOK_PRIME_NODE_PATH": str(node),
-            "ROOK_PRIME_CLI_PATH": str(cli),
-            "ROOK_PRIME_REGISTRY_ROOT": str((tmp_path / "registry").absolute()),
-        },
+        environment=environment,
     )
     try:
         assert config.default_model is None

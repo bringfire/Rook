@@ -530,6 +530,139 @@ namespace Rook.UI.Chat
                     false);
             }
 
+            if (ManifestEnvironmentEquals(manifest, "ROOK_CHAT_BACKEND", "prime"))
+            {
+                var primeValidation = ValidatePrimeManifestRuntime(manifest);
+                if (!primeValidation.IsValid)
+                    return primeValidation;
+            }
+
+            return ChatServiceRuntimeValidation.Valid;
+        }
+
+        internal static ChatServiceRuntimeValidation ValidatePrimeManifestRuntime(
+            ChatServiceManifest manifest)
+        {
+            string? Value(string key) => ManifestEnvironmentValue(manifest, key);
+            ChatServiceRuntimeValidation Invalid(string message) =>
+                new ChatServiceRuntimeValidation(false, message, false);
+
+            bool ExistingFile(string key, out string path)
+            {
+                path = Value(key) ?? "";
+                return Path.IsPathRooted(path) && File.Exists(path);
+            }
+
+            bool ExistingDirectory(string key, out string path)
+            {
+                path = Value(key) ?? "";
+                return Path.IsPathRooted(path) && Directory.Exists(path);
+            }
+
+            bool Beneath(string path, string root)
+            {
+                try
+                {
+                    var normalizedRoot = Path.GetFullPath(root)
+                        .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                        + Path.DirectorySeparatorChar;
+                    var normalizedPath = Path.GetFullPath(path);
+                    return normalizedPath.StartsWith(
+                        normalizedRoot,
+                        StringComparison.OrdinalIgnoreCase);
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+
+            foreach (var key in new[]
+            {
+                "ROOK_PRIME_NODE_PATH",
+                "ROOK_PRIME_CLI_PATH",
+                "ROOK_PRIME_BUNDLE_MANIFEST_PATH",
+                "ROOK_MCP_PYTHON_EXECUTABLE",
+            })
+            {
+                if (!ExistingFile(key, out _))
+                    return Invalid($"{key} must name an existing absolute file");
+            }
+
+            foreach (var key in new[]
+            {
+                "ROOK_PRIME_ROOT",
+                "ROOK_PRIME_GOAL_SKILL_ROOT",
+                "ROOK_PRIME_PRODUCT_ROOT",
+                "ROOK_PRIME_ROOK_PACKAGE_ROOT",
+                "ROOK_MCP_WORKING_DIRECTORY",
+                "ROOK_INSTALL_ROOT",
+                "ROOK_DATA_DIR",
+                "DSPY_CACHEDIR",
+                "CHIRP_HOME",
+            })
+            {
+                if (!ExistingDirectory(key, out _))
+                    return Invalid($"{key} must name an existing absolute directory");
+            }
+
+            foreach (var key in new[]
+            {
+                "ROOK_PRIME_REGISTRY_ROOT",
+                "ROOK_PRIME_KERNEL_ROOT",
+            })
+            {
+                var value = Value(key);
+                if (string.IsNullOrWhiteSpace(value) || !Path.IsPathRooted(value))
+                    return Invalid($"{key} must be an absolute path");
+            }
+
+            foreach (var key in new[]
+            {
+                "ROOK_PRIME_GIT_COMMIT_PROVENANCE",
+                "ROOK_PRIME_GOAL_SKILL_PATH_IDENTITY",
+            })
+            {
+                if (string.IsNullOrWhiteSpace(Value(key)))
+                    return Invalid($"{key} must be nonempty");
+            }
+
+            var profile = Value("ROOK_PRIME_CAPABILITY_PROFILE");
+            if (profile != "readonly" && profile != "full")
+                return Invalid("ROOK_PRIME_CAPABILITY_PROFILE must be readonly or full");
+            if (Value("ROOK_PRIME_RUNTIME_COMPATIBILITY_VERSION") != "1")
+                return Invalid("ROOK_PRIME_RUNTIME_COMPATIBILITY_VERSION must equal 1");
+            if (Value("ROOK_MODE") != "release")
+                return Invalid("ROOK_MODE must equal release");
+            if (Value("ROOK_DSPY_RESTRICT_PICKLE") != "1")
+                return Invalid("ROOK_DSPY_RESTRICT_PICKLE must equal 1");
+
+            var primeRoot = Value("ROOK_PRIME_ROOT")!;
+            foreach (var key in new[]
+            {
+                "ROOK_PRIME_NODE_PATH",
+                "ROOK_PRIME_CLI_PATH",
+                "ROOK_PRIME_BUNDLE_MANIFEST_PATH",
+                "ROOK_PRIME_GOAL_SKILL_ROOT",
+            })
+            {
+                if (!Beneath(Value(key)!, primeRoot))
+                    return Invalid($"{key} escaped ROOK_PRIME_ROOT");
+            }
+
+            if (!Beneath(
+                Value("ROOK_PRIME_ROOK_PACKAGE_ROOT")!,
+                Value("ROOK_PRIME_PRODUCT_ROOT")!))
+            {
+                return Invalid(
+                    "ROOK_PRIME_ROOK_PACKAGE_ROOT escaped ROOK_PRIME_PRODUCT_ROOT");
+            }
+            if (!PathsEqual(Value("ROOK_MCP_PYTHON_EXECUTABLE")!, manifest.PythonPath))
+                return Invalid("ROOK_MCP_PYTHON_EXECUTABLE must match manifest pythonPath");
+            if (!PathsEqual(Value("ROOK_MCP_WORKING_DIRECTORY")!, manifest.WorkingDirectory))
+                return Invalid(
+                    "ROOK_MCP_WORKING_DIRECTORY must match manifest workingDirectory");
+
             return ChatServiceRuntimeValidation.Valid;
         }
 

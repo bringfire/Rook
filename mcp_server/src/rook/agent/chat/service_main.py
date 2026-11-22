@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import logging
 import os
 import sys
@@ -17,6 +18,11 @@ from .prime_registry import (
     PrimeConversationRegistry,
     PrimeModelSelection,
     TargetFingerprint,
+)
+from .prime_runtime_contract import (
+    PrimeRuntimeContractOwner,
+    build_runtime_contract,
+    verify_package,
 )
 from .server import start_chat_server, stop_chat_server, wait_for_chat_server
 
@@ -35,6 +41,7 @@ class ServiceConfiguration:
     default_model: PrimeModelSelection | None = None
     prime_backend: PrimeChatBackend | None = None
     registry: PrimeConversationRegistry | None = None
+    runtime_contract_owner: PrimeRuntimeContractOwner | None = None
 
 
 def _absolute_path(value: str | None, name: str, *, must_exist: bool) -> Path:
@@ -47,6 +54,32 @@ def _absolute_path(value: str | None, name: str, *, must_exist: bool) -> Path:
     if must_exist and not absolute.is_file():
         raise ValueError(f"{name} must name an existing file")
     return absolute
+
+
+def _absolute_directory(
+    value: str | None,
+    name: str,
+    *,
+    must_exist: bool,
+) -> Path:
+    if not value:
+        raise ValueError(f"{name} is required in Prime mode")
+    path = Path(value)
+    if not path.is_absolute():
+        raise ValueError(f"{name} must be absolute")
+    absolute = path.absolute()
+    if must_exist and not absolute.is_dir():
+        raise ValueError(f"{name} must name an existing directory")
+    if absolute.exists() and not absolute.is_dir():
+        raise ValueError(f"{name} must name a directory")
+    return absolute
+
+
+def _required_text(env: Mapping[str, str], name: str) -> str:
+    value = env.get(name)
+    if not value:
+        raise ValueError(f"{name} is required in Prime mode")
+    return value
 
 
 def _build_service_configuration(
@@ -96,6 +129,123 @@ def _build_service_configuration(
     else:
         default_model = PrimeModelSelection("prime-config", "default", thinking)
 
+    prime_root = _absolute_directory(
+        env.get("ROOK_PRIME_ROOT"), "ROOK_PRIME_ROOT", must_exist=True
+    )
+    prime_bundle_manifest_path = _absolute_path(
+        env.get("ROOK_PRIME_BUNDLE_MANIFEST_PATH"),
+        "ROOK_PRIME_BUNDLE_MANIFEST_PATH",
+        must_exist=True,
+    )
+    goal_skill_root = _absolute_directory(
+        env.get("ROOK_PRIME_GOAL_SKILL_ROOT"),
+        "ROOK_PRIME_GOAL_SKILL_ROOT",
+        must_exist=True,
+    )
+    product_root = _absolute_directory(
+        env.get("ROOK_PRIME_PRODUCT_ROOT"),
+        "ROOK_PRIME_PRODUCT_ROOT",
+        must_exist=True,
+    )
+    rook_package_root = _absolute_directory(
+        env.get("ROOK_PRIME_ROOK_PACKAGE_ROOT"),
+        "ROOK_PRIME_ROOK_PACKAGE_ROOT",
+        must_exist=True,
+    )
+    kernel_root = _absolute_directory(
+        env.get("ROOK_PRIME_KERNEL_ROOT"),
+        "ROOK_PRIME_KERNEL_ROOT",
+        must_exist=False,
+    )
+    capability_profile = _required_text(env, "ROOK_PRIME_CAPABILITY_PROFILE")
+    if capability_profile not in {"readonly", "full"}:
+        raise ValueError("ROOK_PRIME_CAPABILITY_PROFILE must be readonly or full")
+    runtime_compatibility = _required_text(
+        env, "ROOK_PRIME_RUNTIME_COMPATIBILITY_VERSION"
+    )
+    if runtime_compatibility != "1":
+        raise ValueError(
+            "ROOK_PRIME_RUNTIME_COMPATIBILITY_VERSION must equal 1"
+        )
+
+    product_environment = {
+        "ROOK_MCP_PYTHON_EXECUTABLE": str(
+            _absolute_path(
+                env.get("ROOK_MCP_PYTHON_EXECUTABLE"),
+                "ROOK_MCP_PYTHON_EXECUTABLE",
+                must_exist=True,
+            )
+        ),
+        "ROOK_MCP_WORKING_DIRECTORY": str(
+            _absolute_directory(
+                env.get("ROOK_MCP_WORKING_DIRECTORY"),
+                "ROOK_MCP_WORKING_DIRECTORY",
+                must_exist=True,
+            )
+        ),
+        "ROOK_INSTALL_ROOT": str(
+            _absolute_directory(
+                env.get("ROOK_INSTALL_ROOT"),
+                "ROOK_INSTALL_ROOT",
+                must_exist=True,
+            )
+        ),
+        "ROOK_DATA_DIR": str(
+            _absolute_directory(
+                env.get("ROOK_DATA_DIR"), "ROOK_DATA_DIR", must_exist=True
+            )
+        ),
+        "DSPY_CACHEDIR": str(
+            _absolute_directory(
+                env.get("DSPY_CACHEDIR"), "DSPY_CACHEDIR", must_exist=True
+            )
+        ),
+        "CHIRP_HOME": str(
+            _absolute_directory(
+                env.get("CHIRP_HOME"), "CHIRP_HOME", must_exist=True
+            )
+        ),
+        "ROOK_MODE": _required_text(env, "ROOK_MODE"),
+        "ROOK_DSPY_RESTRICT_PICKLE": _required_text(
+            env, "ROOK_DSPY_RESTRICT_PICKLE"
+        ),
+    }
+    if product_environment["ROOK_MODE"] != "release":
+        raise ValueError("ROOK_MODE must equal release")
+    if product_environment["ROOK_DSPY_RESTRICT_PICKLE"] != "1":
+        raise ValueError("ROOK_DSPY_RESTRICT_PICKLE must equal 1")
+
+    rook_package = verify_package(rook_package_root)
+    prime_bundle_sha256 = hashlib.sha256(
+        prime_bundle_manifest_path.read_bytes()
+    ).hexdigest().upper()
+    contract = build_runtime_contract(
+        prime_bundle_manifest_sha256=prime_bundle_sha256,
+        prime_git_commit_provenance=_required_text(
+            env, "ROOK_PRIME_GIT_COMMIT_PROVENANCE"
+        ),
+        goal_skill_root=goal_skill_root,
+        goal_skill_path_identity=_required_text(
+            env, "ROOK_PRIME_GOAL_SKILL_PATH_IDENTITY"
+        ),
+        rook_package=rook_package,
+        capability_profile=capability_profile,
+        kernel_root=kernel_root,
+        runtime_compatibility_version=1,
+    )
+    runtime_contract_owner = PrimeRuntimeContractOwner(
+        contract=contract,
+        prime_root=prime_root,
+        prime_bundle_manifest_path=prime_bundle_manifest_path,
+        prime_git_commit_provenance=_required_text(
+            env, "ROOK_PRIME_GIT_COMMIT_PROVENANCE"
+        ),
+        goal_skill_root=goal_skill_root,
+        product_root=product_root,
+        kernel_root=kernel_root,
+        product_environment=product_environment,
+    )
+
     registry = PrimeConversationRegistry(
         registry_root,
         rhino_pid=rhino_process_id,
@@ -107,6 +257,7 @@ def _build_service_configuration(
         generation: int,
         model: PrimeModelSelection,
         resume_session_path: str | None,
+        launch_configuration,
     ) -> PrimeRpcProcess:
         use_configured_model = (
             configured_model is not None or resume_session_path is not None
@@ -120,9 +271,15 @@ def _build_service_configuration(
             model_id=model.id if use_configured_model else None,
             thinking=model.thinking,
             resume_session_path=resume_session_path,
+            launch_configuration=launch_configuration,
         )
 
-    backend = PrimeChatBackend(registry, process_factory, default_model)
+    backend = PrimeChatBackend(
+        registry,
+        process_factory,
+        default_model,
+        runtime_contract_owner=runtime_contract_owner,
+    )
     return ServiceConfiguration(
         backend_mode="prime",
         node_path=node_path,
@@ -131,6 +288,7 @@ def _build_service_configuration(
         default_model=(default_model if configured_model is not None else None),
         prime_backend=backend,
         registry=registry,
+        runtime_contract_owner=runtime_contract_owner,
     )
 
 

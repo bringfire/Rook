@@ -82,6 +82,72 @@ namespace Rook.Tests.UI.Chat
                 ChatServiceManager.ShouldCopyLegacyCredentials(backend));
         }
 
+        [Fact]
+        public void Prime_manifest_requires_validated_installed_runtime_contract()
+        {
+            var root = Directory.CreateDirectory(
+                Path.Combine(Path.GetTempPath(), "rook-prime-manifest-" + Guid.NewGuid().ToString("N"))).FullName;
+            try
+            {
+                var primeRoot = Directory.CreateDirectory(Path.Combine(root, "prime")).FullName;
+                var productRoot = Directory.CreateDirectory(Path.Combine(root, "contracts")).FullName;
+                var packageRoot = Directory.CreateDirectory(Path.Combine(productRoot, "HASH", "rook-full")).FullName;
+                var kernelRoot = Path.Combine(root, "kernels");
+                var workingDirectory = Directory.CreateDirectory(Path.Combine(root, "app", "mcp_server")).FullName;
+                var dataRoot = Directory.CreateDirectory(Path.Combine(root, "data")).FullName;
+                var dspyRoot = Directory.CreateDirectory(Path.Combine(dataRoot, "dspy-cache")).FullName;
+                var chirpRoot = Directory.CreateDirectory(Path.Combine(root, "app", "chirp")).FullName;
+                var goalRoot = Directory.CreateDirectory(Path.Combine(primeRoot, "skills", "goal")).FullName;
+                var node = CreateFile(Path.Combine(primeRoot, "node.exe"));
+                var cli = CreateFile(Path.Combine(primeRoot, "dist", "cli.js"));
+                var bundle = CreateFile(Path.Combine(primeRoot, "bundle-manifest.json"));
+                var python = CreateFile(Path.Combine(root, "venv", "Scripts", "python.exe"));
+                var manifest = new ChatServiceManifest
+                {
+                    PythonPath = python,
+                    WorkingDirectory = workingDirectory,
+                    Owner = "rhino-panel",
+                    Environment = new System.Collections.Generic.Dictionary<string, string>
+                    {
+                        ["ROOK_CHAT_BACKEND"] = "prime",
+                        ["ROOK_PRIME_NODE_PATH"] = node,
+                        ["ROOK_PRIME_CLI_PATH"] = cli,
+                        ["ROOK_PRIME_REGISTRY_ROOT"] = Path.Combine(root, "registry"),
+                        ["ROOK_PRIME_ROOT"] = primeRoot,
+                        ["ROOK_PRIME_BUNDLE_MANIFEST_PATH"] = bundle,
+                        ["ROOK_PRIME_GIT_COMMIT_PROVENANCE"] = "prime-test-commit",
+                        ["ROOK_PRIME_GOAL_SKILL_ROOT"] = goalRoot,
+                        ["ROOK_PRIME_GOAL_SKILL_PATH_IDENTITY"] = "skills/goal",
+                        ["ROOK_PRIME_PRODUCT_ROOT"] = productRoot,
+                        ["ROOK_PRIME_ROOK_PACKAGE_ROOT"] = packageRoot,
+                        ["ROOK_PRIME_KERNEL_ROOT"] = kernelRoot,
+                        ["ROOK_PRIME_RUNTIME_COMPATIBILITY_VERSION"] = "1",
+                        ["ROOK_PRIME_CAPABILITY_PROFILE"] = "readonly",
+                        ["ROOK_MCP_PYTHON_EXECUTABLE"] = python,
+                        ["ROOK_MCP_WORKING_DIRECTORY"] = workingDirectory,
+                        ["ROOK_INSTALL_ROOT"] = Path.Combine(root, "app"),
+                        ["ROOK_DATA_DIR"] = dataRoot,
+                        ["DSPY_CACHEDIR"] = dspyRoot,
+                        ["CHIRP_HOME"] = chirpRoot,
+                        ["ROOK_MODE"] = "release",
+                        ["ROOK_DSPY_RESTRICT_PICKLE"] = "1",
+                    },
+                };
+
+                var valid = ChatServiceManager.ValidateManifestRuntime(manifest);
+                Assert.True(valid.IsValid, valid.Message);
+
+                manifest.Environment["ROOK_PRIME_CAPABILITY_PROFILE"] = "inspection";
+                var invalid = ChatServiceManager.ValidateManifestRuntime(manifest);
+                Assert.False(invalid.IsValid);
+                Assert.Contains("ROOK_PRIME_CAPABILITY_PROFILE", invalid.Message);
+            }
+            finally
+            {
+                TryDeleteDirectory(root);
+            }
+        }
+
         [Theory]
         [InlineData("net48")]
         [InlineData("net7.0")]
@@ -319,6 +385,15 @@ namespace Rook.Tests.UI.Chat
                 Path.Combine(Path.GetTempPath(), "rook-chat-test-" + Guid.NewGuid().ToString("N"))).FullName;
             var path = Path.Combine(dir, fileName);
             File.WriteAllText(path, "");
+            return path;
+        }
+
+        private static string CreateFile(string path)
+        {
+            var directory = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(directory))
+                Directory.CreateDirectory(directory);
+            File.WriteAllText(path, "test");
             return path;
         }
 

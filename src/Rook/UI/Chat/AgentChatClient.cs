@@ -51,6 +51,7 @@ namespace Rook.UI.Chat
         public int RhinoPid { get; set; }
         public string RhinoProcessStartUtcTicks { get; set; } = "";
         public uint DocumentRuntimeSerial { get; set; }
+        public string? GrasshopperDocumentId { get; set; }
     }
 
     public sealed class PrimeModelInfo
@@ -327,6 +328,7 @@ namespace Rook.UI.Chat
                     rhinoPid = target.RhinoPid,
                     rhinoProcessStartUtcTicks = target.RhinoProcessStartUtcTicks,
                     documentRuntimeSerial = target.DocumentRuntimeSerial,
+                    grasshopperDocumentId = target.GrasshopperDocumentId,
                 },
             });
             var content = new StringContent(body, Encoding.UTF8, "application/json");

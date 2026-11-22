@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal, Mapping, cast
 
 
@@ -14,6 +15,7 @@ PromptFailureCode = Literal[
     "protocol_failed",
 ]
 PromptOutcome = Literal["completed", "aborted"]
+RlmMaxDepthSource = Literal["default", "env", "global", "inherited", "chat"]
 
 _PROMPT_FAILURE_CODES = frozenset(
     {
@@ -38,6 +40,19 @@ class PromptSettlement:
     error_message: str | None
 
 
+@dataclass(frozen=True)
+class RlmMaxDepthStatus:
+    max_depth: int
+    source: RlmMaxDepthSource
+
+
+@dataclass(frozen=True)
+class IpythonRuntimePreparation:
+    interpreter_path: str
+    rook_full_file: str
+    goal_file: str
+
+
 def _mapping(value: Any, label: str) -> Mapping[str, Any]:
     if not isinstance(value, dict):
         raise PrimeProtocolError(f"{label} must be an object")
@@ -55,6 +70,85 @@ def _nonempty_string(value: Any, label: str) -> str:
     if not isinstance(value, str) or not value:
         raise PrimeProtocolError(f"{label} must be a non-empty string")
     return value
+
+
+def _successful_response_data(
+    response: Any,
+    *,
+    command: str,
+    label: str,
+) -> tuple[str, Mapping[str, Any]]:
+    payload = _mapping(response, label)
+    _exact_keys(
+        payload,
+        frozenset({"id", "type", "command", "success", "data"}),
+        label,
+    )
+    if payload["type"] != "response" or payload["command"] != command:
+        raise PrimeProtocolError(f"{label} command does not match")
+    request_id = _nonempty_string(payload["id"], f"{label} id")
+    if payload["success"] is not True:
+        raise PrimeProtocolError(f"{label} did not succeed")
+    return request_id, _mapping(payload["data"], f"{label} data")
+
+
+def parse_rlm_max_depth_status(
+    response: Any,
+    *,
+    expected_command: Literal[
+        "get_rlm_max_depth_status", "set_rlm_max_depth"
+    ],
+) -> RlmMaxDepthStatus:
+    _, data = _successful_response_data(
+        response,
+        command=expected_command,
+        label="RLM max-depth response",
+    )
+    _exact_keys(data, frozenset({"maxDepth", "source"}), "RLM max-depth data")
+    max_depth = data["maxDepth"]
+    source = data["source"]
+    if type(max_depth) is not int or max_depth < 0:
+        raise PrimeProtocolError("RLM max depth must be a nonnegative integer")
+    if source not in {"default", "env", "global", "inherited", "chat"}:
+        raise PrimeProtocolError("RLM max-depth source is invalid")
+    return RlmMaxDepthStatus(
+        max_depth=max_depth,
+        source=cast(RlmMaxDepthSource, source),
+    )
+
+
+def parse_ipython_runtime_preparation(
+    response: Any,
+) -> IpythonRuntimePreparation:
+    _, data = _successful_response_data(
+        response,
+        command="prepare_ipython_runtime",
+        label="IPython runtime preparation response",
+    )
+    _exact_keys(
+        data,
+        frozenset({"interpreterPath", "rookFullFile", "goalFile", "callables"}),
+        "IPython runtime preparation data",
+    )
+    paths: dict[str, str] = {}
+    for key in ("interpreterPath", "rookFullFile", "goalFile"):
+        value = _nonempty_string(data[key], f"IPython runtime {key}")
+        if not Path(value).is_absolute():
+            raise PrimeProtocolError(f"IPython runtime {key} must be absolute")
+        paths[key] = value
+    callables = _mapping(data["callables"], "IPython runtime callables")
+    _exact_keys(
+        callables,
+        frozenset({"search", "read", "call"}),
+        "IPython runtime callables",
+    )
+    if any(callables[name] is not True for name in ("search", "read", "call")):
+        raise PrimeProtocolError("IPython runtime callables are unavailable")
+    return IpythonRuntimePreparation(
+        interpreter_path=paths["interpreterPath"],
+        rook_full_file=paths["rookFullFile"],
+        goal_file=paths["goalFile"],
+    )
 
 
 def parse_prompt_settlement(response: Any) -> PromptSettlement:

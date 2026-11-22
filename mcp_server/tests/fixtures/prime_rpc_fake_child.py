@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -21,6 +22,9 @@ parser.add_argument("--no-extensions", action="store_true")
 parser.add_argument("--no-skills", action="store_true")
 parser.add_argument("--no-context-files", action="store_true")
 parser.add_argument("--no-prompt-templates", action="store_true")
+parser.add_argument("--tools")
+parser.add_argument("--skill", action="append", default=[])
+parser.add_argument("--append-system-prompt-file")
 parser.add_argument("--model")
 parser.add_argument("--thinking")
 parser.add_argument("--resume")
@@ -40,6 +44,10 @@ if args.environment_output:
                     "SERPER_API_KEY",
                     "AWS_PROFILE",
                     "ROOK_SESSION_NONCE",
+                    "PRIME_AGENT_KERNEL_VENV",
+                    "ROOK_MCP_TOOL_PROFILE",
+                    "ROOK_MCP_TARGET_PROCESS_ID",
+                    "ROOK_MCP_TARGET_GRASSHOPPER_DOCUMENT_ID",
                 }
             },
             sort_keys=True,
@@ -101,6 +109,53 @@ for line in sys.stdin:
 
     if command_type == "get_state":
         state_response(request_id)
+        continue
+    if command_type == "set_rlm_max_depth":
+        emit(
+            {
+                "id": request_id,
+                "type": "response",
+                "command": command_type,
+                "success": True,
+                "data": {"maxDepth": 0, "source": "chat"},
+            }
+        )
+        continue
+    if command_type == "get_rlm_max_depth_status":
+        emit(
+            {
+                "id": request_id,
+                "type": "response",
+                "command": command_type,
+                "success": True,
+                "data": {"maxDepth": 0, "source": "chat"},
+            }
+        )
+        continue
+    if command_type == "prepare_ipython_runtime":
+        kernel = Path(os.environ["PRIME_AGENT_KERNEL_VENV"])
+        interpreter = kernel / "Scripts" / "python.exe"
+        interpreter.parent.mkdir(parents=True, exist_ok=True)
+        interpreter.touch(exist_ok=True)
+        goal_skill, rook_skill = (Path(value) for value in args.skill)
+        emit(
+            {
+                "id": request_id,
+                "type": "response",
+                "command": command_type,
+                "success": True,
+                "data": {
+                    "interpreterPath": str(interpreter.absolute()),
+                    "rookFullFile": str(
+                        (rook_skill / "src" / "rook_full" / "__init__.py").absolute()
+                    ),
+                    "goalFile": str(
+                        (goal_skill / "src" / "goal" / "__init__.py").absolute()
+                    ),
+                    "callables": {"search": True, "read": True, "call": True},
+                },
+            }
+        )
         continue
     if command_type == "get_available_models":
         if args.scenario == "stalled_control_response":

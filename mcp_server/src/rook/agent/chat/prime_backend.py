@@ -17,18 +17,27 @@ from .prime_process import (
     PrimeProcessLost,
     PrimeRpcProcess,
     PrimeRuntimeState,
+    PrimeLaunchConfiguration,
     parse_runtime_state,
 )
 from .prime_registry import (
     LifecycleRecord,
     PrimeConversationRecord,
+    PrimeConversationRecordUnion,
+    PrimeConversationRecordV2,
     PrimeConversationRegistry,
     PrimeModelSelection,
+    PrimeRuntimeContractRef,
+    RuntimePreparation,
     TargetFingerprint,
+    TargetFingerprintV2,
 )
+from .prime_runtime_contract import PrimeRuntimeContractOwner, RuntimeContractError
 from .prime_rpc_protocol import (
     PrimeProtocolError,
+    parse_ipython_runtime_preparation,
     parse_prompt_settlement,
+    parse_rlm_max_depth_status,
     project_prime_event,
 )
 
@@ -87,7 +96,7 @@ class PrimeProcessLike(Protocol):
 
 
 ProcessFactory = Callable[
-    [int, PrimeModelSelection, str | None],
+    [int, PrimeModelSelection, str | None, PrimeLaunchConfiguration | None],
     PrimeProcessLike,
 ]
 
@@ -269,6 +278,7 @@ class PrimeChatBackend:
         process_factory: ProcessFactory,
         default_model: PrimeModelSelection,
         *,
+        runtime_contract_owner: PrimeRuntimeContractOwner | None = None,
         max_residents: int = MAX_RESIDENTS,
         idle_retire_seconds: float = IDLE_RETIRE_SECONDS,
         retirement_grace_seconds: float = 1.0,
@@ -277,6 +287,7 @@ class PrimeChatBackend:
         self.registry = registry
         self.process_factory = process_factory
         self.default_model = default_model
+        self.runtime_contract_owner = runtime_contract_owner
         self.max_residents = max_residents
         self.idle_retire_seconds = idle_retire_seconds
         self.retirement_grace_seconds = retirement_grace_seconds
@@ -297,18 +308,80 @@ class PrimeChatBackend:
     async def create(
         self,
         conversation_id: str,
-        target: TargetFingerprint,
-    ) -> PrimeConversationRecord:
+        target: TargetFingerprint | TargetFingerprintV2,
+    ) -> PrimeConversationRecordUnion:
         async with self._residency_lock:
             self._require_available()
             if self.registry.exists(conversation_id):
                 raise PrimeBackendError("conversation_exists")
             await self._ensure_capacity_locked()
-            resident, runtime = await self._launch_locked(
-                conversation_id,
-                self.default_model,
-                None,
-            )
+            owner = self.runtime_contract_owner
+            if owner is not None and not isinstance(target, TargetFingerprintV2):
+                raise PrimeBackendError("runtime_contract_unavailable")
+            try:
+                resident, runtime = await self._launch_locked(
+                    conversation_id,
+                    self.default_model,
+                    None,
+                    target if isinstance(target, TargetFingerprintV2) else None,
+                )
+            except RuntimeContractError as error:
+                raise PrimeBackendError(
+                    "runtime_contract_unavailable", str(error)
+                ) from error
+            if owner is not None:
+                assert isinstance(target, TargetFingerprintV2)
+                pending = PrimeConversationRecordV2(
+                    schema_version=2,
+                    conversation_id=conversation_id,
+                    prime_session_id=runtime.session_id,
+                    prime_session_path=runtime.session_path,
+                    model=PrimeModelSelection(
+                        runtime.provider,
+                        runtime.model_id,
+                        runtime.thinking,
+                    ),
+                    runtime=PrimeRuntimeContractRef(
+                        contract_fingerprint_sha256=owner.contract.fingerprint,
+                        capability_profile=owner.contract.record[
+                            "capabilityProfile"
+                        ],
+                        kernel_environment_path=str(
+                            owner.contract.kernel_environment_path
+                        ),
+                        preparation=RuntimePreparation(
+                            status="pending",
+                            interpreter_path=None,
+                            prepared_at_utc=None,
+                        ),
+                    ),
+                    target=target,
+                    last_lifecycle=_lifecycle("idle"),
+                )
+                try:
+                    self.registry.write_new_v2(pending)
+                    prepared = await self._prepare_first_use_runtime(
+                        conversation_id,
+                        resident,
+                        owner,
+                    )
+                except BaseException as error:
+                    if self.registry.exists(conversation_id):
+                        try:
+                            self.registry.mark_pending_runtime_unavailable(
+                                conversation_id
+                            )
+                        except BaseException:
+                            pass
+                    self._detach_locked(conversation_id, resident)
+                    await resident.process.retire(self.retirement_grace_seconds)
+                    if isinstance(error, asyncio.CancelledError):
+                        raise
+                    raise PrimeBackendError(
+                        "runtime_contract_unavailable", str(error)
+                    ) from error
+                self._start_maintenance()
+                return prepared
             record = PrimeConversationRecord(
                 schema_version=1,
                 conversation_id=conversation_id,
@@ -334,8 +407,8 @@ class PrimeChatBackend:
     async def reopen(
         self,
         conversation_id: str,
-        target: TargetFingerprint,
-    ) -> PrimeConversationRecord:
+        target: TargetFingerprint | TargetFingerprintV2,
+    ) -> PrimeConversationRecordUnion:
         async with self._residency_lock:
             self._require_available()
             if not self.registry.exists(conversation_id):
@@ -349,6 +422,17 @@ class PrimeChatBackend:
                 raise PrimeBackendError("conversation_not_reopenable")
             if not Path(record.prime_session_path).is_file():
                 raise PrimeBackendError("session_missing")
+            owner = self.runtime_contract_owner
+            if isinstance(record, PrimeConversationRecordV2):
+                if owner is None or not isinstance(target, TargetFingerprintV2):
+                    raise PrimeBackendError("runtime_contract_unavailable")
+                try:
+                    self._verify_reopen_runtime(record, owner)
+                except (RuntimeContractError, OSError) as error:
+                    self._mark_runtime_failed(record)
+                    raise PrimeBackendError(
+                        "runtime_contract_unavailable", str(error)
+                    ) from error
             existing = self._residents.get(conversation_id)
             if existing is not None:
                 if record.last_lifecycle.state == "idle":
@@ -360,6 +444,7 @@ class PrimeChatBackend:
                 conversation_id,
                 record.model,
                 record.prime_session_path,
+                target if isinstance(target, TargetFingerprintV2) else None,
             )
             if (
                 runtime.session_id != record.prime_session_id
@@ -369,6 +454,19 @@ class PrimeChatBackend:
                 self._detach_locked(conversation_id, resident)
                 await resident.process.retire(self.retirement_grace_seconds)
                 raise PrimeBackendError("session_identity_mismatch")
+            if isinstance(record, PrimeConversationRecordV2):
+                assert owner is not None
+                try:
+                    await self._verify_reopened_runtime(resident, record, owner)
+                except BaseException as error:
+                    self._detach_locked(conversation_id, resident)
+                    await resident.process.retire(self.retirement_grace_seconds)
+                    self._mark_runtime_failed(record)
+                    if isinstance(error, asyncio.CancelledError):
+                        raise
+                    raise PrimeBackendError(
+                        "runtime_contract_unavailable", str(error)
+                    ) from error
             reopened = replace(
                 record,
                 model=PrimeModelSelection(
@@ -392,12 +490,21 @@ class PrimeChatBackend:
         conversation_id: str,
         model: PrimeModelSelection,
         resume_session_path: str | None,
+        target: TargetFingerprintV2 | None,
     ) -> tuple[ResidentPrimeConversation, PrimeRuntimeState]:
         self._generation += 1
+        launch_configuration = None
+        if self.runtime_contract_owner is not None:
+            if target is None:
+                raise RuntimeContractError("v2 target is required for runtime launch")
+            launch_configuration = self.runtime_contract_owner.launch_configuration(
+                target
+            )
         process = self.process_factory(
             self._generation,
             model,
             resume_session_path,
+            launch_configuration,
         )
         resident = ResidentPrimeConversation(
             process=process,
@@ -424,6 +531,105 @@ class PrimeChatBackend:
             await process.retire(self.retirement_grace_seconds)
             raise
         return resident, runtime
+
+    async def _prepare_first_use_runtime(
+        self,
+        conversation_id: str,
+        resident: ResidentPrimeConversation,
+        owner: PrimeRuntimeContractOwner,
+    ) -> PrimeConversationRecordV2:
+        set_response = await resident.process.command(
+            {"type": "set_rlm_max_depth", "maxDepth": 0, "global": False},
+            expected_command="set_rlm_max_depth",
+        )
+        set_status = parse_rlm_max_depth_status(
+            set_response,
+            expected_command="set_rlm_max_depth",
+        )
+        if set_status.max_depth != 0 or set_status.source != "chat":
+            raise PrimeProtocolError("Prime recursion depth was not locked to chat zero")
+        get_response = await resident.process.command(
+            {"type": "get_rlm_max_depth_status"},
+            expected_command="get_rlm_max_depth_status",
+        )
+        get_status = parse_rlm_max_depth_status(
+            get_response,
+            expected_command="get_rlm_max_depth_status",
+        )
+        if get_status.max_depth != 0 or get_status.source != "chat":
+            raise PrimeProtocolError("Prime recursion depth custody was not retained")
+        prepare_response = await resident.process.command(
+            {"type": "prepare_ipython_runtime"},
+            expected_command="prepare_ipython_runtime",
+        )
+        prepared = parse_ipython_runtime_preparation(prepare_response)
+        owner.verify_prepared_runtime(prepared)
+        return self.registry.mark_runtime_prepared(
+            conversation_id,
+            prepared.interpreter_path,
+            _utc_now(),
+        )
+
+    def _verify_reopen_runtime(
+        self,
+        record: PrimeConversationRecordV2,
+        owner: PrimeRuntimeContractOwner,
+    ) -> None:
+        owner.verify()
+        if (
+            record.runtime.contract_fingerprint_sha256
+            != owner.contract.fingerprint
+            or record.runtime.capability_profile
+            != owner.contract.record["capabilityProfile"]
+            or Path(record.runtime.kernel_environment_path).resolve(strict=False)
+            != owner.contract.kernel_environment_path.resolve(strict=False)
+            or record.runtime.preparation.status != "prepared"
+            or record.runtime.preparation.interpreter_path is None
+        ):
+            raise RuntimeContractError("recorded runtime contract is unavailable")
+        environment = Path(record.runtime.kernel_environment_path)
+        interpreter = Path(record.runtime.preparation.interpreter_path)
+        if not environment.is_dir() or not interpreter.is_file():
+            raise RuntimeContractError("prepared runtime environment is unavailable")
+
+    async def _verify_reopened_runtime(
+        self,
+        resident: ResidentPrimeConversation,
+        record: PrimeConversationRecordV2,
+        owner: PrimeRuntimeContractOwner,
+    ) -> None:
+        depth_response = await resident.process.command(
+            {"type": "get_rlm_max_depth_status"},
+            expected_command="get_rlm_max_depth_status",
+        )
+        depth = parse_rlm_max_depth_status(
+            depth_response,
+            expected_command="get_rlm_max_depth_status",
+        )
+        if depth.max_depth != 0 or depth.source != "chat":
+            raise RuntimeContractError("recorded recursion depth custody drifted")
+        prepare_response = await resident.process.command(
+            {"type": "prepare_ipython_runtime"},
+            expected_command="prepare_ipython_runtime",
+        )
+        prepared = parse_ipython_runtime_preparation(prepare_response)
+        owner.verify_prepared_runtime(
+            prepared,
+            expected_interpreter_path=record.runtime.preparation.interpreter_path,
+        )
+
+    def _mark_runtime_failed(self, record: PrimeConversationRecordV2) -> None:
+        try:
+            self.registry.write(
+                replace(
+                    record,
+                    last_lifecycle=_lifecycle(
+                        "failed", "runtime_contract_unavailable"
+                    ),
+                )
+            )
+        except BaseException:
+            pass
 
     def _schedule_process_event(
         self,

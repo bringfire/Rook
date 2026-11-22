@@ -429,6 +429,7 @@ namespace Rook.UI.Chat
                     RhinoPid = manager.RhinoProcessId,
                     RhinoProcessStartUtcTicks = manager.RhinoProcessStartUtcTicks,
                     DocumentRuntimeSerial = currentDocument,
+                    GrasshopperDocumentId = GetActiveGrasshopperDocumentId(),
                 };
                 info = await _client.StartPrimeAsync(
                     health.BaseUri,
@@ -468,6 +469,38 @@ namespace Rook.UI.Chat
                         "Chat service is running, but the Rhino bridge is currently unavailable.");
                 _connectionBannerShown = true;
             }
+        }
+
+        private static string? GetActiveGrasshopperDocumentId()
+        {
+            var assembly = AppDomain.CurrentDomain.GetAssemblies()
+                .FirstOrDefault(candidate =>
+                    string.Equals(
+                        candidate.GetName().Name,
+                        "Grasshopper",
+                        StringComparison.Ordinal));
+            var instances = assembly?.GetType("Grasshopper.Instances");
+            var canvas = instances?
+                .GetProperty(
+                    "ActiveCanvas",
+                    System.Reflection.BindingFlags.Public |
+                    System.Reflection.BindingFlags.Static)
+                ?.GetValue(null);
+            var document = canvas?.GetType()
+                .GetProperty(
+                    "Document",
+                    System.Reflection.BindingFlags.Public |
+                    System.Reflection.BindingFlags.Instance)
+                ?.GetValue(canvas);
+            var value = document?.GetType()
+                .GetProperty(
+                    "DocumentID",
+                    System.Reflection.BindingFlags.Public |
+                    System.Reflection.BindingFlags.Instance)
+                ?.GetValue(document);
+            if (value is not Guid documentId || documentId == Guid.Empty)
+                return null;
+            return documentId.ToString("D").ToLowerInvariant();
         }
 
         private async Task RefreshModelStatusAsync(string? expectedConversationId = null, CancellationToken ct = default)

@@ -25,9 +25,11 @@ from .prime_backend import (
 from .prime_registry import (
     LifecycleRecord,
     PrimeConversationRecord,
+    PrimeConversationRecordUnion,
     PrimeModelSelection,
     RegistryValidationError,
     TargetFingerprint,
+    TargetFingerprintV2,
 )
 from . import model_status
 from .runtime_health import collect_runtime_facts
@@ -72,7 +74,12 @@ _MAX_WORKER_FIRST_INTENT_BYTES = 16_384
 _PRIME_CONVERSATION_ID = re.compile(r"^conv_[0-9a-f]{32}$")
 _PRIME_START_KEYS = frozenset({"action", "conversation_id", "target"})
 _PRIME_TARGET_KEYS = frozenset(
-    {"rhinoPid", "rhinoProcessStartUtcTicks", "documentRuntimeSerial"}
+    {
+        "rhinoPid",
+        "rhinoProcessStartUtcTicks",
+        "documentRuntimeSerial",
+        "grasshopperDocumentId",
+    }
 )
 
 # Module-level singletons (initialized on first request or at startup)
@@ -129,7 +136,7 @@ def _project_lifecycle(lifecycle: LifecycleRecord) -> dict[str, Any]:
     }
 
 
-def _project_prime_start(record: PrimeConversationRecord) -> dict[str, Any]:
+def _project_prime_start(record: PrimeConversationRecordUnion) -> dict[str, Any]:
     return {
         "backend": "prime",
         "conversation_id": record.conversation_id,
@@ -696,12 +703,13 @@ async def handle_start(request: web.Request) -> web.Response:
         ):
             return _prime_error("invalid_prime_start_request")
         try:
-            target = TargetFingerprint(
+            target = TargetFingerprintV2(
                 rhino_pid=target_body["rhinoPid"],
                 rhino_process_start_utc_ticks=target_body[
                     "rhinoProcessStartUtcTicks"
                 ],
                 document_runtime_serial=target_body["documentRuntimeSerial"],
+                grasshopper_document_id=target_body["grasshopperDocumentId"],
             )
         except (RegistryValidationError, TypeError, ValueError):
             return _prime_error("invalid_prime_start_request")

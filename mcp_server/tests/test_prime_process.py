@@ -10,6 +10,7 @@ import pytest
 from rook.agent.chat.prime_process import (
     MAX_JSONL_ROW_BYTES,
     PrimeControlTimeout,
+    PrimeLaunchConfiguration,
     PrimeProcessLost,
     PrimeProtocolError,
     PrimeRpcProcess,
@@ -19,6 +20,56 @@ from rook.agent.chat.prime_rpc_protocol import parse_prompt_settlement
 
 pytestmark = pytest.mark.asyncio
 FIXTURE = Path(__file__).parent / "fixtures" / "prime_rpc_fake_child.py"
+GH_ID = "12345678-1234-1234-1234-1234567890ab"
+
+
+def launch_configuration(tmp_path: Path) -> PrimeLaunchConfiguration:
+    prime_root = tmp_path / "prime"
+    goal_skill = prime_root / "packages" / "coding-agent" / "skills" / "goal"
+    product_root = tmp_path / "product"
+    rook_skill = product_root / ("A" * 64) / "rook-full"
+    kernel = tmp_path / "kernels" / ("B" * 64)
+    mcp_python = tmp_path / "installed" / "venv" / "Scripts" / "python.exe"
+    mcp_workdir = tmp_path / "installed" / "app" / "mcp_server"
+    install_root = tmp_path / "installed" / "app"
+    data_root = tmp_path / "installed" / "data"
+    for directory in (
+        goal_skill,
+        rook_skill,
+        kernel.parent,
+        mcp_python.parent,
+        mcp_workdir,
+        data_root / "dspy-cache",
+        install_root / "chirp",
+    ):
+        directory.mkdir(parents=True, exist_ok=True)
+    (goal_skill / "SKILL.md").write_text("goal", encoding="utf-8")
+    (rook_skill / "SKILL.md").write_text("rook", encoding="utf-8")
+    mcp_python.touch()
+    return PrimeLaunchConfiguration(
+        prime_root=prime_root,
+        product_root=product_root,
+        goal_skill_path=goal_skill,
+        rook_skill_path=rook_skill,
+        system_prompt_path=rook_skill / "SKILL.md",
+        kernel_environment_path=kernel,
+        product_environment={
+            "ROOK_MCP_PYTHON_EXECUTABLE": str(mcp_python),
+            "ROOK_MCP_WORKING_DIRECTORY": str(mcp_workdir),
+            "ROOK_INSTALL_ROOT": str(install_root),
+            "ROOK_DATA_DIR": str(data_root),
+            "DSPY_CACHEDIR": str(data_root / "dspy-cache"),
+            "CHIRP_HOME": str(install_root / "chirp"),
+            "ROOK_MODE": "release",
+            "ROOK_DSPY_RESTRICT_PICKLE": "1",
+            "ROOK_MCP_TOOL_PROFILE": "readonly",
+            "ROOK_MCP_TARGET_MODE": "panel_locked",
+            "ROOK_MCP_TARGET_PROCESS_ID": "2468",
+            "ROOK_MCP_TARGET_PROCESS_START_UTC_TICKS": "638920000000000000",
+            "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+            "ROOK_MCP_TARGET_GRASSHOPPER_DOCUMENT_ID": GH_ID,
+        },
+    )
 
 
 def make_process(
@@ -41,17 +92,20 @@ def make_process(
 
 
 async def test_exact_new_session_and_configured_argument_arrays(tmp_path: Path) -> None:
+    launch = launch_configuration(tmp_path)
     plain = PrimeRpcProcess(
         node_path="node.exe",
         cli_path="D:/prime/dist/cli.js",
         session_dir=tmp_path / "sessions",
         generation=1,
+        launch_configuration=launch,
     )
     configured = PrimeRpcProcess(
         node_path="node.exe",
         cli_path="D:/prime/dist/cli.js",
         session_dir=tmp_path / "sessions",
         generation=2,
+        launch_configuration=launch,
         provider="openai-codex",
         model_id="gpt-5.6-sol",
         thinking="xhigh",
@@ -64,11 +118,18 @@ async def test_exact_new_session_and_configured_argument_arrays(tmp_path: Path) 
         "rpc",
         "--session-dir",
         str(tmp_path / "sessions"),
-        "--no-tools",
+        "--tools",
+        "ipython",
         "--no-extensions",
         "--no-skills",
+        "--skill",
+        str(launch.goal_skill_path),
+        "--skill",
+        str(launch.rook_skill_path),
         "--no-context-files",
         "--no-prompt-templates",
+        "--append-system-prompt-file",
+        str(launch.system_prompt_path),
     ]
     assert plain.argv == expected
     assert configured.argv == expected + [
@@ -78,6 +139,53 @@ async def test_exact_new_session_and_configured_argument_arrays(tmp_path: Path) 
         "xhigh",
     ]
     assert "--api-key" not in plain.argv + configured.argv
+    assert "--no-tools" not in plain.argv + configured.argv
+
+
+async def test_prime_child_environment_replaces_ambient_product_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output = tmp_path / "effective-environment.json"
+    launch = launch_configuration(tmp_path)
+    monkeypatch.setenv("PRIME_AGENT_KERNEL_VENV", "C:/ambient/kernel")
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
+    monkeypatch.setenv("ROOK_MCP_TARGET_PROCESS_ID", "9999")
+    process = PrimeRpcProcess(
+        node_path=sys.executable,
+        cli_path=FIXTURE,
+        session_dir=tmp_path / "sessions",
+        generation=1,
+        launch_configuration=launch,
+        extra_args=("--environment-output", str(output)),
+    )
+
+    await process.start()
+    effective = json.loads(output.read_text(encoding="utf-8"))
+
+    assert effective["PRIME_AGENT_KERNEL_VENV"] == str(
+        launch.kernel_environment_path
+    )
+    assert effective["ROOK_MCP_TOOL_PROFILE"] == "readonly"
+    assert effective["ROOK_MCP_TARGET_PROCESS_ID"] == "2468"
+    assert effective["ROOK_MCP_TARGET_GRASSHOPPER_DOCUMENT_ID"] == GH_ID
+    await process.retire(1.0)
+
+
+@pytest.mark.parametrize("field", ("goal_skill_path", "rook_skill_path", "system_prompt_path"))
+async def test_launch_rejects_authority_paths_outside_verified_roots(
+    tmp_path: Path,
+    field: str,
+) -> None:
+    launch = launch_configuration(tmp_path)
+    outside = tmp_path / "outside" / "SKILL.md"
+    outside.parent.mkdir()
+    outside.write_text("outside", encoding="utf-8")
+    values = dict(launch.__dict__)
+    values[field] = outside
+
+    with pytest.raises(ValueError, match="verified .* root|system prompt"):
+        PrimeLaunchConfiguration(**values)
 
 
 async def test_api_key_argument_is_prohibited(tmp_path: Path) -> None:

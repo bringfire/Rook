@@ -56,6 +56,7 @@ namespace Rook.Tests.UI.Chat
                     RhinoPid = 1234,
                     RhinoProcessStartUtcTicks = "638918000000000000",
                     DocumentRuntimeSerial = 42,
+                    GrasshopperDocumentId = "12345678-1234-1234-1234-1234567890ab",
                 });
             using (var payload = JsonDocument.Parse(handler.Body!))
             {
@@ -70,8 +71,13 @@ namespace Rook.Tests.UI.Chat
                     "638918000000000000",
                     target.GetProperty("rhinoProcessStartUtcTicks").GetString());
                 Assert.Equal(42u, target.GetProperty("documentRuntimeSerial").GetUInt32());
+                Assert.Equal(
+                    "12345678-1234-1234-1234-1234567890ab",
+                    target.GetProperty("grasshopperDocumentId").GetString());
+                Assert.Equal(4, CountProperties(target));
                 Assert.Equal(3, CountProperties(root));
                 Assert.False(root.TryGetProperty("persona", out _));
+                Assert.False(root.TryGetProperty("capabilityProfile", out _));
             }
         }
 

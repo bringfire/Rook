@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,16 +19,24 @@ from rook.agent.chat.prime_backend import (
 )
 from rook.agent.chat.prime_process import (
     PrimeControlTimeout,
+    PrimeLaunchConfiguration,
     PrimeProcessLost,
     PrimeRuntimeState,
 )
 from rook.agent.chat.prime_registry import (
     LifecycleRecord,
     PrimeConversationRecord,
+    PrimeConversationRecordV2,
     PrimeConversationRegistry,
     PrimeModelSelection,
     RegistryLockError,
     TargetFingerprint,
+    TargetFingerprintV2,
+)
+from rook.agent.chat.prime_runtime_contract import (
+    PrimeRuntimeContractOwner,
+    build_runtime_contract,
+    stage_product_package,
 )
 
 
@@ -35,10 +44,90 @@ pytestmark = pytest.mark.asyncio
 PID = 1234
 START_TICKS = "638918000000000000"
 DEFAULT_MODEL = PrimeModelSelection("fixture", "model", None)
+GH_ID = "12345678-1234-1234-1234-1234567890ab"
 
 
 def target(*, pid: int = PID, ticks: str = START_TICKS, serial: int = 42) -> TargetFingerprint:
     return TargetFingerprint(pid, ticks, serial)
+
+
+def target_v2(
+    *,
+    pid: int = PID,
+    ticks: str = START_TICKS,
+    serial: int = 42,
+    grasshopper_document_id: str | None = GH_ID,
+) -> TargetFingerprintV2:
+    return TargetFingerprintV2(pid, ticks, serial, grasshopper_document_id)
+
+
+def runtime_owner(tmp_path: Path, *, profile: str = "readonly") -> PrimeRuntimeContractOwner:
+    source = tmp_path / "rook-source"
+    (source / "src" / "rook_full").mkdir(parents=True)
+    (source / "references").mkdir()
+    (source / "SKILL.md").write_text("Rook contract", encoding="utf-8")
+    (source / "pyproject.toml").write_text("[project]\nname='rook-full'\n", encoding="utf-8")
+    (source / "src" / "rook_full" / "__init__.py").write_text(
+        "async def search(query): return query\n"
+        "async def read(name): return name\n"
+        "async def call(name, arguments): return arguments\n",
+        encoding="utf-8",
+    )
+    (source / "references" / "grasshopper.md").write_text("GH", encoding="utf-8")
+    product_root = tmp_path / "product"
+    package = stage_product_package(source, product_root=product_root)
+
+    prime_root = tmp_path / "prime"
+    goal_root = prime_root / "packages" / "coding-agent" / "skills" / "goal"
+    (goal_root / "src" / "goal").mkdir(parents=True)
+    (goal_root / "SKILL.md").write_text("Goal", encoding="utf-8")
+    (goal_root / "pyproject.toml").write_text("[project]\nname='goal'\n", encoding="utf-8")
+    (goal_root / "src" / "goal" / "__init__.py").write_text("async def get(): return None\n", encoding="utf-8")
+    bundle_manifest = prime_root / "bundle-manifest.json"
+    bundle_manifest.write_bytes(b"prime-bundle")
+    bundle_sha = hashlib.sha256(bundle_manifest.read_bytes()).hexdigest().upper()
+    kernel_root = tmp_path / "kernels"
+    contract = build_runtime_contract(
+        prime_bundle_manifest_sha256=bundle_sha,
+        prime_git_commit_provenance="prime-test-commit",
+        goal_skill_root=goal_root,
+        goal_skill_path_identity="packages/coding-agent/skills/goal",
+        rook_package=package,
+        capability_profile=profile,
+        kernel_root=kernel_root,
+        runtime_compatibility_version=1,
+    )
+    installed = tmp_path / "installed"
+    mcp_python = installed / "venv" / "Scripts" / "python.exe"
+    mcp_workdir = installed / "app" / "mcp_server"
+    data_root = installed / "data"
+    for directory in (
+        mcp_python.parent,
+        mcp_workdir,
+        data_root / "dspy-cache",
+        installed / "app" / "chirp",
+    ):
+        directory.mkdir(parents=True, exist_ok=True)
+    mcp_python.touch()
+    return PrimeRuntimeContractOwner(
+        contract=contract,
+        prime_root=prime_root,
+        prime_bundle_manifest_path=bundle_manifest,
+        prime_git_commit_provenance="prime-test-commit",
+        goal_skill_root=goal_root,
+        product_root=product_root,
+        kernel_root=kernel_root,
+        product_environment={
+            "ROOK_MCP_PYTHON_EXECUTABLE": str(mcp_python),
+            "ROOK_MCP_WORKING_DIRECTORY": str(mcp_workdir),
+            "ROOK_INSTALL_ROOT": str(installed / "app"),
+            "ROOK_DATA_DIR": str(data_root),
+            "DSPY_CACHEDIR": str(data_root / "dspy-cache"),
+            "CHIRP_HOME": str(installed / "app" / "chirp"),
+            "ROOK_MODE": "release",
+            "ROOK_DSPY_RESTRICT_PICKLE": "1",
+        },
+    )
 
 
 class FakeClock:
@@ -56,9 +145,11 @@ class FakePrimeProcess:
         generation: int,
         model: PrimeModelSelection,
         resume_session_path: str | None,
+        launch_configuration: PrimeLaunchConfiguration | None,
     ) -> None:
         self.generation = generation
         self.model = model
+        self.launch_configuration = launch_configuration
         self.session_path = Path(resume_session_path or root / f"session-{generation}.jsonl")
         self.session_path.parent.mkdir(parents=True, exist_ok=True)
         self.session_path.touch(exist_ok=True)
@@ -75,8 +166,10 @@ class FakePrimeProcess:
         self.set_thinking_error: Exception | None = None
         self.get_state_error: Exception | None = None
         self.models_error: Exception | None = None
+        self.control_error: dict[str, Exception] = {}
 
     async def start(self) -> PrimeRuntimeState:
+        self.commands.append({"type": "get_state"})
         return self.runtime_state()
 
     def runtime_state(self) -> PrimeRuntimeState:
@@ -114,6 +207,40 @@ class FakePrimeProcess:
         command = dict(command)
         command.setdefault("id", f"fake-{len(self.commands) + 1}")
         self.commands.append(command)
+        if expected_command in self.control_error:
+            raise self.control_error[expected_command]
+        if expected_command == "set_rlm_max_depth":
+            return self.response(
+                command,
+                success=True,
+                data={"maxDepth": command["maxDepth"], "source": "chat"},
+            )
+        if expected_command == "get_rlm_max_depth_status":
+            return self.response(
+                command,
+                success=True,
+                data={"maxDepth": 0, "source": "chat"},
+            )
+        if expected_command == "prepare_ipython_runtime":
+            assert self.launch_configuration is not None
+            launch = self.launch_configuration
+            interpreter = launch.kernel_environment_path / "Scripts" / "python.exe"
+            interpreter.parent.mkdir(parents=True, exist_ok=True)
+            interpreter.touch()
+            return self.response(
+                command,
+                success=True,
+                data={
+                    "interpreterPath": str(interpreter),
+                    "rookFullFile": str(
+                        launch.rook_skill_path / "src" / "rook_full" / "__init__.py"
+                    ),
+                    "goalFile": str(
+                        launch.goal_skill_path / "src" / "goal" / "__init__.py"
+                    ),
+                    "callables": {"search": True, "read": True, "call": True},
+                },
+            )
         if expected_command == "prompt_and_wait":
             self.prompt_id = command["id"]
             self.prompt_future = asyncio.get_running_loop().create_future()
@@ -236,12 +363,14 @@ class FakeProcessFactory:
         generation: int,
         model: PrimeModelSelection,
         resume_session_path: str | None,
+        launch_configuration: PrimeLaunchConfiguration | None = None,
     ) -> FakePrimeProcess:
         process = FakePrimeProcess(
             self.root,
             generation,
             model,
             resume_session_path,
+            launch_configuration,
         )
         self.created.append(process)
         return process
@@ -285,6 +414,151 @@ async def wait_for_prompt(process: FakePrimeProcess) -> None:
 
 async def drain(subscription: PromptSubscription) -> list[dict[str, Any]]:
     return [row async for row in subscription]
+
+
+def runtime_harness(tmp_path: Path, *, profile: str = "readonly") -> Harness:
+    registry = PrimeConversationRegistry(tmp_path / "registry", PID, START_TICKS)
+    factory = FakeProcessFactory(tmp_path / "sessions")
+    clock = FakeClock()
+    backend = PrimeChatBackend(
+        registry=registry,
+        process_factory=factory,
+        default_model=DEFAULT_MODEL,
+        runtime_contract_owner=runtime_owner(tmp_path, profile=profile),
+        clock=clock,
+        retirement_grace_seconds=0.01,
+    )
+    return Harness(backend, registry, factory, clock)
+
+
+async def test_first_use_promotes_pending_runtime_only_after_fixed_preflight(
+    tmp_path: Path,
+) -> None:
+    harness = runtime_harness(tmp_path)
+    try:
+        record = await harness.backend.create("conv_v2", target_v2())
+        process = harness.factory.created[-1]
+
+        assert isinstance(record, PrimeConversationRecordV2)
+        assert record.runtime.preparation.status == "prepared"
+        assert [row["type"] for row in process.commands] == [
+            "get_state",
+            "set_rlm_max_depth",
+            "get_rlm_max_depth_status",
+            "prepare_ipython_runtime",
+        ]
+        assert process.commands[1] == {
+            "type": "set_rlm_max_depth",
+            "maxDepth": 0,
+            "global": False,
+            "id": "fake-2",
+        }
+        assert Path(record.runtime.preparation.interpreter_path).is_file()
+
+        subscription = await harness.backend.start_prompt("conv_v2", "hello")
+        await wait_for_prompt(process)
+        process.settle("completed")
+        assert (await drain(subscription))[-1]["type"] == "done"
+    finally:
+        await harness.backend.shutdown()
+        harness.registry.close()
+
+
+async def test_failed_first_use_preflight_never_admits_a_prompt(
+    tmp_path: Path,
+) -> None:
+    harness = runtime_harness(tmp_path)
+    original = harness.factory.__call__
+
+    def failing_factory(*args, **kwargs):
+        process = original(*args, **kwargs)
+        process.control_error["prepare_ipython_runtime"] = PrimeControlTimeout(
+            "prepare_ipython_runtime"
+        )
+        return process
+
+    harness.backend.process_factory = failing_factory
+    try:
+        with pytest.raises(PrimeBackendError) as caught:
+            await harness.backend.create("conv_failed", target_v2())
+
+        assert caught.value.code == "runtime_contract_unavailable"
+        record = harness.registry.load("conv_failed")
+        assert isinstance(record, PrimeConversationRecordV2)
+        assert record.runtime.preparation.status == "pending"
+        assert record.last_lifecycle.state == "failed"
+        assert all(
+            row["type"] != "prompt_and_wait"
+            for row in harness.factory.created[-1].commands
+        )
+        assert harness.factory.created[-1].retired is True
+    finally:
+        await harness.backend.shutdown()
+        harness.registry.close()
+
+
+async def test_reopen_verifies_prepared_runtime_without_repairing_depth(
+    tmp_path: Path,
+) -> None:
+    first = runtime_harness(tmp_path)
+    owner = first.backend.runtime_contract_owner
+    await first.backend.create("conv_reopen_v2", target_v2())
+    await first.backend.shutdown()
+    first.registry.close()
+
+    registry = PrimeConversationRegistry(tmp_path / "registry", PID, START_TICKS)
+    factory = FakeProcessFactory(tmp_path / "sessions")
+    backend = PrimeChatBackend(
+        registry,
+        factory,
+        DEFAULT_MODEL,
+        runtime_contract_owner=owner,
+        retirement_grace_seconds=0.01,
+    )
+    try:
+        record = await backend.reopen("conv_reopen_v2", target_v2())
+        process = factory.created[-1]
+
+        assert isinstance(record, PrimeConversationRecordV2)
+        assert [row["type"] for row in process.commands] == [
+            "get_state",
+            "get_rlm_max_depth_status",
+            "prepare_ipython_runtime",
+        ]
+    finally:
+        await backend.shutdown()
+        registry.close()
+
+
+async def test_reopen_missing_prepared_environment_fails_before_launch(
+    tmp_path: Path,
+) -> None:
+    first = runtime_harness(tmp_path)
+    owner = first.backend.runtime_contract_owner
+    record = await first.backend.create("conv_missing_env", target_v2())
+    await first.backend.shutdown()
+    first.registry.close()
+    assert isinstance(record, PrimeConversationRecordV2)
+    Path(record.runtime.kernel_environment_path).rename(tmp_path / "removed-kernel")
+
+    registry = PrimeConversationRegistry(tmp_path / "registry", PID, START_TICKS)
+    factory = FakeProcessFactory(tmp_path / "sessions")
+    backend = PrimeChatBackend(
+        registry,
+        factory,
+        DEFAULT_MODEL,
+        runtime_contract_owner=owner,
+        retirement_grace_seconds=0.01,
+    )
+    try:
+        with pytest.raises(PrimeBackendError) as caught:
+            await backend.reopen("conv_missing_env", target_v2())
+
+        assert caught.value.code == "runtime_contract_unavailable"
+        assert factory.created == []
+    finally:
+        await backend.shutdown()
+        registry.close()
 
 
 def saved_record(

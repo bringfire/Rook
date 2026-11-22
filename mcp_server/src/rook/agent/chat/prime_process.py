@@ -7,6 +7,7 @@ import json
 import os
 import re
 import sys
+import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +18,26 @@ from .prime_rpc_protocol import PrimeProtocolError
 
 MAX_JSONL_ROW_BYTES = 64 * 1024 * 1024
 MAX_STDERR_TAIL_BYTES = 256 * 1024
+_PRODUCT_ENV_KEYS = frozenset(
+    {
+        "ROOK_MCP_PYTHON_EXECUTABLE",
+        "ROOK_MCP_WORKING_DIRECTORY",
+        "ROOK_INSTALL_ROOT",
+        "ROOK_DATA_DIR",
+        "DSPY_CACHEDIR",
+        "CHIRP_HOME",
+        "ROOK_MODE",
+        "ROOK_DSPY_RESTRICT_PICKLE",
+        "ROOK_MCP_TOOL_PROFILE",
+        "ROOK_MCP_TARGET_MODE",
+        "ROOK_MCP_TARGET_PROCESS_ID",
+        "ROOK_MCP_TARGET_PROCESS_START_UTC_TICKS",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER",
+    }
+)
+_OPTIONAL_PRODUCT_ENV_KEYS = frozenset(
+    {"ROOK_MCP_TARGET_GRASSHOPPER_DOCUMENT_ID"}
+)
 _CREDENTIAL_ENV_NAME = re.compile(
     r"(API_KEY|OAUTH_TOKEN|ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|"
     r"BEARER_TOKEN_BEDROCK|WEB_IDENTITY_TOKEN_FILE|GITHUB_TOKEN|GH_TOKEN|"
@@ -32,6 +53,114 @@ def _sanitized_prime_environment() -> dict[str, str]:
         for key, value in os.environ.items()
         if _CREDENTIAL_ENV_NAME.search(key) is None
     }
+
+
+def _is_beneath(path: Path, root: Path) -> bool:
+    try:
+        path.resolve(strict=False).relative_to(root.resolve(strict=True))
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def _canonical_positive_decimal(value: str) -> bool:
+    return bool(value and value.isascii() and value.isdigit() and value[0] != "0")
+
+
+@dataclass(frozen=True)
+class PrimeLaunchConfiguration:
+    prime_root: Path
+    product_root: Path
+    goal_skill_path: Path
+    rook_skill_path: Path
+    system_prompt_path: Path
+    kernel_environment_path: Path
+    product_environment: Mapping[str, str]
+
+    def __post_init__(self) -> None:
+        prime_root = Path(self.prime_root)
+        product_root = Path(self.product_root)
+        goal_skill = Path(self.goal_skill_path)
+        rook_skill = Path(self.rook_skill_path)
+        system_prompt = Path(self.system_prompt_path)
+        kernel_environment = Path(self.kernel_environment_path)
+        if not prime_root.is_absolute() or not prime_root.is_dir():
+            raise ValueError("verified Prime root must be an existing absolute directory")
+        if not product_root.is_absolute() or not product_root.is_dir():
+            raise ValueError("verified product root must be an existing absolute directory")
+        if not goal_skill.is_dir() or not _is_beneath(goal_skill, prime_root):
+            raise ValueError("goal skill must remain beneath the verified Prime root")
+        if not rook_skill.is_dir() or not _is_beneath(rook_skill, product_root):
+            raise ValueError("Rook skill must remain beneath the verified product root")
+        expected_prompt = rook_skill / "SKILL.md"
+        if system_prompt != expected_prompt or not system_prompt.is_file():
+            raise ValueError("system prompt must be the immutable Rook SKILL.md")
+        if not kernel_environment.is_absolute():
+            raise ValueError("kernel environment path must be absolute")
+
+        environment = dict(self.product_environment)
+        allowed = _PRODUCT_ENV_KEYS | _OPTIONAL_PRODUCT_ENV_KEYS
+        if set(environment) not in {
+            _PRODUCT_ENV_KEYS,
+            allowed,
+        }:
+            raise ValueError("product environment has an invalid closed shape")
+        for key, value in environment.items():
+            if not isinstance(key, str) or not isinstance(value, str) or not value:
+                raise ValueError("product environment values must be nonempty strings")
+        for key in (
+            "ROOK_MCP_PYTHON_EXECUTABLE",
+        ):
+            if not Path(environment[key]).is_absolute() or not Path(environment[key]).is_file():
+                raise ValueError(f"{key} must be an existing absolute file")
+        for key in (
+            "ROOK_MCP_WORKING_DIRECTORY",
+            "ROOK_INSTALL_ROOT",
+            "ROOK_DATA_DIR",
+            "DSPY_CACHEDIR",
+            "CHIRP_HOME",
+        ):
+            if not Path(environment[key]).is_absolute() or not Path(environment[key]).is_dir():
+                raise ValueError(f"{key} must be an existing absolute directory")
+        if environment["ROOK_MODE"] != "release":
+            raise ValueError("ROOK_MODE must equal release")
+        if environment["ROOK_DSPY_RESTRICT_PICKLE"] != "1":
+            raise ValueError("ROOK_DSPY_RESTRICT_PICKLE must equal 1")
+        if environment["ROOK_MCP_TOOL_PROFILE"] not in {"readonly", "full"}:
+            raise ValueError("ROOK_MCP_TOOL_PROFILE must be readonly or full")
+        if environment["ROOK_MCP_TARGET_MODE"] != "panel_locked":
+            raise ValueError("ROOK_MCP_TARGET_MODE must equal panel_locked")
+        for key in (
+            "ROOK_MCP_TARGET_PROCESS_ID",
+            "ROOK_MCP_TARGET_PROCESS_START_UTC_TICKS",
+            "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER",
+        ):
+            if not _canonical_positive_decimal(environment[key]):
+                raise ValueError(f"{key} must be a canonical positive decimal")
+        grasshopper_id = environment.get("ROOK_MCP_TARGET_GRASSHOPPER_DOCUMENT_ID")
+        if grasshopper_id is not None:
+            try:
+                parsed = uuid.UUID(grasshopper_id)
+            except ValueError as error:
+                raise ValueError(
+                    "ROOK_MCP_TARGET_GRASSHOPPER_DOCUMENT_ID must be canonical"
+                ) from error
+            if parsed.int == 0 or str(parsed) != grasshopper_id:
+                raise ValueError(
+                    "ROOK_MCP_TARGET_GRASSHOPPER_DOCUMENT_ID must be canonical"
+                )
+
+        object.__setattr__(self, "prime_root", prime_root.resolve(strict=True))
+        object.__setattr__(self, "product_root", product_root.resolve(strict=True))
+        object.__setattr__(self, "goal_skill_path", goal_skill.resolve(strict=True))
+        object.__setattr__(self, "rook_skill_path", rook_skill.resolve(strict=True))
+        object.__setattr__(self, "system_prompt_path", system_prompt.resolve(strict=True))
+        object.__setattr__(
+            self,
+            "kernel_environment_path",
+            kernel_environment.resolve(strict=False),
+        )
+        object.__setattr__(self, "product_environment", environment)
 
 
 class PrimeProcessError(RuntimeError):
@@ -134,6 +263,7 @@ class PrimeRpcProcess:
         model_id: str | None = None,
         thinking: str | None = None,
         resume_session_path: str | os.PathLike[str] | None = None,
+        launch_configuration: PrimeLaunchConfiguration | None = None,
         extra_args: Sequence[str] = (),
         control_timeout_seconds: float = CONTROL_COMMAND_TIMEOUT_SECONDS,
         max_row_bytes: int = MAX_JSONL_ROW_BYTES,
@@ -159,6 +289,7 @@ class PrimeRpcProcess:
         self._resume_session_path = (
             str(resume_session_path) if resume_session_path is not None else None
         )
+        self._launch_configuration = launch_configuration
         self._extra_args = tuple(extra_args)
         if any(argument == "--api-key" or argument.startswith("--api-key=") for argument in self.argv):
             raise ValueError("--api-key is prohibited for Prime RPC launch")
@@ -184,12 +315,35 @@ class PrimeRpcProcess:
             "rpc",
             "--session-dir",
             self._session_dir,
-            "--no-tools",
-            "--no-extensions",
-            "--no-skills",
-            "--no-context-files",
-            "--no-prompt-templates",
         ]
+        launch = self._launch_configuration
+        if launch is None:
+            result.extend(
+                [
+                    "--no-tools",
+                    "--no-extensions",
+                    "--no-skills",
+                    "--no-context-files",
+                    "--no-prompt-templates",
+                ]
+            )
+        else:
+            result.extend(
+                [
+                    "--tools",
+                    "ipython",
+                    "--no-extensions",
+                    "--no-skills",
+                    "--skill",
+                    str(launch.goal_skill_path),
+                    "--skill",
+                    str(launch.rook_skill_path),
+                    "--no-context-files",
+                    "--no-prompt-templates",
+                    "--append-system-prompt-file",
+                    str(launch.system_prompt_path),
+                ]
+            )
         if self._provider is not None and self._model_id is not None:
             result.extend(["--model", f"{self._provider}/{self._model_id}"])
         if self._thinking is not None:
@@ -207,12 +361,22 @@ class PrimeRpcProcess:
         if self._process is not None or self._retired:
             raise PrimeProcessError("Prime process has already been started")
         Path(self._session_dir).mkdir(parents=True, exist_ok=True)
+        environment = _sanitized_prime_environment()
+        launch = self._launch_configuration
+        if launch is not None:
+            for key in tuple(environment):
+                if key.startswith("ROOK_MCP_") or key == "PRIME_AGENT_KERNEL_VENV":
+                    environment.pop(key)
+            environment.update(launch.product_environment)
+            environment["PRIME_AGENT_KERNEL_VENV"] = str(
+                launch.kernel_environment_path
+            )
         self._process = await asyncio.create_subprocess_exec(
             *self.argv,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=_sanitized_prime_environment(),
+            env=environment,
         )
         self._tasks = [
             asyncio.create_task(self._read_stdout()),

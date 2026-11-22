@@ -8,7 +8,11 @@ import stat
 import uuid
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, Mapping
+
+from .prime_process import PrimeLaunchConfiguration
+from .prime_registry import TargetFingerprintV2
+from .prime_rpc_protocol import IpythonRuntimePreparation
 
 
 class RuntimeContractError(ValueError):
@@ -40,6 +44,129 @@ class RuntimeContract:
     kernel_environment_path: Path
     goal_manifest_sha256: str
     rook_package: VerifiedPackage
+
+
+@dataclass(frozen=True)
+class PrimeRuntimeContractOwner:
+    contract: RuntimeContract
+    prime_root: Path
+    prime_bundle_manifest_path: Path
+    prime_git_commit_provenance: str
+    goal_skill_root: Path
+    product_root: Path
+    kernel_root: Path
+    product_environment: Mapping[str, str]
+
+    def __post_init__(self) -> None:
+        prime_root = _require_absolute_root(
+            Path(self.prime_root), "Prime root", create=False
+        )
+        product_root = _require_absolute_root(
+            Path(self.product_root), "product root", create=False
+        )
+        goal_root = Path(self.goal_skill_root).resolve(strict=True)
+        bundle_manifest = Path(self.prime_bundle_manifest_path).resolve(strict=True)
+        kernel_root = _require_absolute_root(
+            Path(self.kernel_root), "kernel root", create=False
+        )
+        for path, label in (
+            (goal_root, "goal skill"),
+            (bundle_manifest, "Prime bundle manifest"),
+        ):
+            try:
+                path.relative_to(prime_root)
+            except ValueError as error:
+                raise RuntimeContractError(
+                    f"{label} escaped the verified Prime root"
+                ) from error
+        if not goal_root.is_dir() or not bundle_manifest.is_file():
+            raise RuntimeContractError("Prime runtime authority is incomplete")
+        if not isinstance(self.prime_git_commit_provenance, str) or not self.prime_git_commit_provenance:
+            raise RuntimeContractError("Prime git provenance must be nonempty")
+        object.__setattr__(self, "prime_root", prime_root)
+        object.__setattr__(self, "product_root", product_root)
+        object.__setattr__(self, "goal_skill_root", goal_root)
+        object.__setattr__(self, "prime_bundle_manifest_path", bundle_manifest)
+        object.__setattr__(self, "kernel_root", kernel_root)
+        object.__setattr__(self, "product_environment", dict(self.product_environment))
+        self.verify()
+
+    def verify(self) -> RuntimeContract:
+        record = self.contract.record
+        expected_bundle = _sha256_bytes(self.prime_bundle_manifest_path.read_bytes())
+        if expected_bundle != record["prime"]["bundleManifestSha256"]:
+            raise RuntimeContractError("Prime bundle manifest bytes drifted")
+        if self.prime_git_commit_provenance != record["prime"]["gitCommitProvenance"]:
+            raise RuntimeContractError("Prime git provenance drifted")
+        return verify_runtime_contract(
+            self.contract,
+            product_root=self.product_root,
+            goal_skill_root=self.goal_skill_root,
+            kernel_root=self.kernel_root,
+        )
+
+    def launch_configuration(
+        self,
+        target: TargetFingerprintV2,
+    ) -> PrimeLaunchConfiguration:
+        contract = self.verify()
+        environment = dict(self.product_environment)
+        environment.update(
+            {
+                "ROOK_MCP_TOOL_PROFILE": contract.record["capabilityProfile"],
+                "ROOK_MCP_TARGET_MODE": "panel_locked",
+                "ROOK_MCP_TARGET_PROCESS_ID": str(target.rhino_pid),
+                "ROOK_MCP_TARGET_PROCESS_START_UTC_TICKS": (
+                    target.rhino_process_start_utc_ticks
+                ),
+                "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": str(
+                    target.document_runtime_serial
+                ),
+            }
+        )
+        if target.grasshopper_document_id is not None:
+            environment["ROOK_MCP_TARGET_GRASSHOPPER_DOCUMENT_ID"] = (
+                target.grasshopper_document_id
+            )
+        return PrimeLaunchConfiguration(
+            prime_root=self.prime_root,
+            product_root=self.product_root,
+            goal_skill_path=self.goal_skill_root,
+            rook_skill_path=contract.rook_package.root,
+            system_prompt_path=contract.rook_package.root / "SKILL.md",
+            kernel_environment_path=contract.kernel_environment_path,
+            product_environment=environment,
+        )
+
+    def verify_prepared_runtime(
+        self,
+        prepared: IpythonRuntimePreparation,
+        *,
+        expected_interpreter_path: str | None = None,
+    ) -> None:
+        contract = self.verify()
+        environment = contract.kernel_environment_path.resolve(strict=True)
+        interpreter = Path(prepared.interpreter_path).resolve(strict=True)
+        try:
+            interpreter.relative_to(environment)
+        except ValueError as error:
+            raise RuntimeContractError(
+                "prepared interpreter escaped the contract environment"
+            ) from error
+        if expected_interpreter_path is not None and interpreter != Path(
+            expected_interpreter_path
+        ).resolve(strict=True):
+            raise RuntimeContractError("prepared interpreter changed on reopen")
+        expected_rook = (
+            contract.rook_package.root / "src" / "rook_full" / "__init__.py"
+        ).resolve(strict=True)
+        expected_goal = (
+            self.goal_skill_root / "src" / "goal" / "__init__.py"
+        ).resolve(strict=True)
+        if Path(prepared.rook_full_file).resolve(strict=True) != expected_rook:
+            raise RuntimeContractError("rook_full import origin is not admitted")
+        if Path(prepared.goal_file).resolve(strict=True) != expected_goal:
+            raise RuntimeContractError("goal import origin is not admitted")
 
 
 def _sha256_bytes(value: bytes) -> str:
