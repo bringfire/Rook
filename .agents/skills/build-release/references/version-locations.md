@@ -87,8 +87,11 @@ $versionPaths = @(
 
 Select-String -Path $versionPaths -Pattern ([regex]::Escape($newVersion))
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/release-surface-hygiene.tests.ps1 -Area Metadata
-claude plugin validate --strict .
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate-claude-plugin.ps1
 ```
+
+`scripts/validate-claude-plugin.ps1` runs `claude plugin validate --strict .` and accepts
+only the root `CLAUDE.md` warning; see the pre-flight notes in the skill.
 
 Expect 12 dotted-version matches: one in each ordinary version surface, two resource
 string values, and two marketplace values. Verify the two comma-delimited resource
