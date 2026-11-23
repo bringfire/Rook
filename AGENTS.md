@@ -38,7 +38,7 @@
 
 ## Current Architecture
 - `RookNative` is the sole Rhino plugin and sole HTTP server
-- The native HTTP surface currently has 263 unique routes, 292 route registrations, and 42 handler files
+- Route and handler counts for the native HTTP surface are kept in `docs/CURRENT_ARCHITECTURE.md`; read them there
 - The Python MCP server exposes its lifecycle-admitted surface through full, lean, and readonly profiles; `test_server_tool_profiles.py` is the authoritative count contract
 - Director is retired from MCP discovery, profiles, meta-tools, targeting, and internal-agent dispatch. Native `/director/*` routes and implementation modules remain temporarily preserved for disposition review; they are not a public or agent-callable capability.
 - The managed companion is internal, has no HTTP server, and is not a separate public plugin surface
@@ -53,7 +53,7 @@
   - `/block/replace-object-geometry`
   - `/block/transform-object`
 - `docs/CURRENT_ARCHITECTURE.md` is the short canonical architecture description
-- `docs/plans/2026-03-08-companion-boundary-audit.md` explains why the block-definition mutation routes remain managed; if that document conflicts with `docs/CURRENT_ARCHITECTURE.md`, prefer `docs/CURRENT_ARCHITECTURE.md` and the live route wiring
+- `docs/CURRENT_ARCHITECTURE.md` (Companion-backed routes) and the live route wiring are the authority on which routes remain managed
 - Do not assume the old public `Rook`/`localhost:9876` architecture is still current
 - Do not assume all non-GH work belongs in native code; verify route ownership before moving behavior across the boundary
 
