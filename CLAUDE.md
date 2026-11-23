@@ -14,7 +14,7 @@
 ```
 
 **Key docs (load only when needed):**
-- `docs/CURRENT_ARCHITECTURE.md` - Canonical architecture description (~150 lines)
+- `docs/CURRENT_ARCHITECTURE.md` - Canonical architecture description (~300 lines)
 - `docs/AGENT_ARCHITECTURE.md` - Agent system, intent runtime, chat service (~400 lines)
 - `docs/ONBOARDING_NEW_CLAUDE.md` - Quick decision tree (~175 lines)
 - `docs/TROUBLESHOOTING.md` - Common issues and recovery (~525 lines)
@@ -76,7 +76,8 @@ edit committed.
 ### For Rhino Geometry: rediscover, inspect, then use explicit routes
 
 Typed routes — `rhino_create`, `rhino_transform`, `rhino_boolean`, `rhino_extrude`,
-`rhino_loft`, `rhino_sweep`, … — are the preferred, validated, deterministic path.
+`rhino_create_loft`, `rhino_create_sweep1`, `rhino_create_sweep2`, … — are the
+preferred, validated, deterministic path.
 
 When the operation is unfamiliar, rediscover the admitted tool surface and inspect
 the document before choosing a route. If no typed route fits, use only a sanctioned,
@@ -160,7 +161,7 @@ Never use PowerShell SendKeys or wscript.shell. This triggers security alerts.
 ### Prefer Typed Routes Over Scripts
 
 Most geometry operations have dedicated typed endpoints (`rhino_create`, `rhino_transform`,
-`rhino_boolean`, `rhino_extrude`, `rhino_loft`, `rhino_sweep`, etc.) that are safe and
+`rhino_boolean`, `rhino_extrude`, `rhino_create_loft`, `rhino_create_sweep1`, etc.) that are safe and
 return structured results. Rediscover the admitted surface and call the exact route directly.
 
 `rhino_execute` and `rhino_command` have built-in error handling (script wrapper with

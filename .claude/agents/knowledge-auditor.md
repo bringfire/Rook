@@ -10,7 +10,7 @@ Audit the knowledge system with concrete checks:
 1. Verify `knowledge/gh/sparse_index.json`, `knowledge/gh/component_structure.json`, and note files in `knowledge/gh/notes/` agree on GUID presence, aliases, and family metadata.
 2. Review `knowledge/gh/operations_knowledge.json` and related derived files for stale references after note or structure edits.
 3. Use `python mcp_server/audit_sparse_index.py` when sparse-index drift is suspected.
-4. Use `python -m rook.learning.component_audit --port 9950 --output knowledge/gh/audit_report.json --dry-run` when GH catalog state needs a structured audit.
+4. Use `python -m rook.learning.component_audit --output knowledge/gh/audit_report.json --dry-run` when GH catalog state needs a structured audit. The port is discovered from `%TEMP%/rook/`; pass `--port` only to choose among several running Rhino instances.
 5. For Rhino command learning changes, inspect `knowledge/commands/command_knowledge.json` and any related structure or consolidation outputs for duplicate or conflicting command entries.
 6. Flag missing notes, orphan GUIDs, stale derived caches, and any mismatch between curated knowledge and generated indexes.
 
